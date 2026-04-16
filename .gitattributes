@@ -1,0 +1,36 @@
+# Default: normalize all text files to LF in repo and checkout as LF
+* text=auto eol=lf
+
+# Notes / docs
+*.md   text eol=lf
+*.txt  text eol=lf
+*.csv  text eol=lf
+*.tsv  text eol=lf
+
+# Config / data
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml  text eol=lf
+*.toml text eol=lf
+*.ini  text eol=lf
+
+# Scripts
+*.sh   text eol=lf
+*.py   text eol=lf
+*.js   text eol=lf
+*.ts   text eol=lf
+
+# Windows-specific scripts (only if you actually store them)
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+
+# Binary files
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.webp binary
+*.pdf  binary
+*.zip  binary
+*.7z   binary

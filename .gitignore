@@ -1,0 +1,45 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Environments
+.venv/
+.env
+
+# Tool caches
+.pytest_cache/
+.ruff_cache/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Codex local state
+.codex/
+.codex
+
+# Large binary files
+*.pdf
+*.epub
+*.doc
+*.docx
+*.xls
+*.xlsx
+*.ppt
+*.pptx
+*.zip
+*.tar
+*.gz
+*.7z
+*.iso
+*.mp3
+*.mp4
+*.avi
+*.mkv
+*.mov
+*.exe
