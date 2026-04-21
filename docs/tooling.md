@@ -8,8 +8,6 @@ This guide introduces the development tools used in this project.
 
 For example, here is a `justfile`:
 ```bash
-# Before run `just pre-commit`, make sure sync backend dependencies,
-# basically our Python dependencies, via `uv sync` under `apps/api`
 pre-commit:
     uv run --project apps/api pre-commit install
     uv run --project apps/api pre-commit run --all-files
@@ -24,6 +22,8 @@ uv run --project apps/api pre-commit install
 uv run --project apps/api pre-commit run --all-files
 ```
 
+---
+
 ### Quick Start
 
 #### Installation
@@ -32,12 +32,16 @@ uv run --project apps/api pre-commit run --all-files
 winget install --id Casey.Just --exact
 ```
 
+---
+
 ## `uv`
 
 We use `uv` to manage both the backend API package and the project's Python development dependencies.
 
 - [GitHub Repo](https://github.com/astral-sh/uv?tab=readme-ov-file)
 - [Official Doc](https://docs.astral.sh/uv/)
+
+---
 
 ### Quick Start
 
@@ -53,7 +57,6 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 # On Windows.
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
-
 #### Add dependencies
 
 ```bash
@@ -77,4 +80,14 @@ uv pip install <pydantic>
 
 ```bash
 uv run <command here>
+```
+
+#### Update the environment
+
+This is done automatically prior to every `uv run`. You may only need this when you want activate the `venv` manually.
+```bash
+uv sync
+source .venv/bin/activate
+flask run -p 3000
+python example.py
 ```
