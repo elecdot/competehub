@@ -71,11 +71,6 @@ Add a package to the `dev` group:
 uv add --dev ipykernel
 ```
 
-To install dependencies into the project's virtual environment without modifying `pyproject.toml` or `uv.lock`:
-```bash
-uv pip install <pydantic>
-```
-
 #### Run command in `uv` environment
 
 ```bash
