@@ -19,3 +19,9 @@ class CommentCreateSchema(Schema):
     content = fields.Str(required=True, validate=validate.Length(min=1))
     parent_id = fields.Int(allow_none=True)
 
+
+class PostInterestSchema(Schema):
+    class Meta:
+        unknown = EXCLUDE
+
+    message = fields.Str(allow_none=True, validate=validate.Length(max=500))

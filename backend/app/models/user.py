@@ -41,3 +41,14 @@ class UserProfile(db.Model, TimestampMixin, SerializerMixin):
 
     user = db.relationship("User", back_populates="profile")
 
+
+class TeamPreference(db.Model, TimestampMixin, SerializerMixin):
+    __tablename__ = "team_preferences"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), unique=True, nullable=False, index=True)
+    looking_for_teammates = db.Column(db.Boolean, default=False, nullable=False)
+    target_competitions = db.Column(db.JSON, default=list, nullable=False)
+    required_awards = db.Column(db.JSON, default=list, nullable=False)
+    required_skills = db.Column(db.JSON, default=list, nullable=False)
+    contact_preference = db.Column(db.String(128), nullable=True)

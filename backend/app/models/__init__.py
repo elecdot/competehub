@@ -1,9 +1,9 @@
 from app.models.admin import AdminLog, ReviewItem, ScoreRule
 from app.models.competition import Competition, CompetitionNode, CompetitionSource, CompetitionTag
 from app.models.engagement import BehaviorLog, Favorite, Notification, ReminderSetting, Subscription
-from app.models.forum import CertificationRequest, Comment, Post, ResourceArchive
+from app.models.forum import CertificationRequest, Comment, Post, PostInterest, ResourceArchive
 from app.models.recommendation import RecommendationPreference, RecommendationRecord
-from app.models.user import User, UserProfile
+from app.models.user import TeamPreference, User, UserProfile
 
 __all__ = [
     "AdminLog",
@@ -17,6 +17,7 @@ __all__ = [
     "Favorite",
     "Notification",
     "Post",
+    "PostInterest",
     "RecommendationPreference",
     "RecommendationRecord",
     "ReminderSetting",
@@ -24,7 +25,7 @@ __all__ = [
     "ReviewItem",
     "ScoreRule",
     "Subscription",
+    "TeamPreference",
     "User",
     "UserProfile",
 ]
-

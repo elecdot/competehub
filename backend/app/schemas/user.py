@@ -15,4 +15,14 @@ class ProfileSchema(Schema):
     goals = fields.List(fields.Str(), load_default=list)
     ability_level = fields.Str(load_default="beginner")
     avatar_url = fields.Str(allow_none=True)
+    team_preference = fields.Dict(load_default=dict)
 
+
+class CertificationCreateSchema(Schema):
+    class Meta:
+        unknown = EXCLUDE
+
+    competition_id = fields.Int(allow_none=True)
+    certification_type = fields.Str(load_default="premium")
+    evidence_url = fields.Str(allow_none=True)
+    description = fields.Str(required=True)

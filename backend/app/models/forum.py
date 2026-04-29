@@ -28,6 +28,17 @@ class Comment(db.Model, TimestampMixin, SerializerMixin):
     status = db.Column(db.String(32), default="published", nullable=False)
 
 
+class PostInterest(db.Model, TimestampMixin, SerializerMixin):
+    __tablename__ = "post_interests"
+    __table_args__ = (db.UniqueConstraint("post_id", "user_id", name="uq_post_interest_user"),)
+
+    id = db.Column(db.Integer, primary_key=True)
+    post_id = db.Column(db.Integer, db.ForeignKey("posts.id"), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    message = db.Column(db.String(500), nullable=True)
+    status = db.Column(db.String(32), default="interested", nullable=False, index=True)
+
+
 class CertificationRequest(db.Model, TimestampMixin, SerializerMixin):
     __tablename__ = "certification_requests"
 
@@ -54,4 +65,3 @@ class ResourceArchive(db.Model, TimestampMixin, SerializerMixin):
     attachment_url = db.Column(db.String(500), nullable=True)
     tags = db.Column(db.JSON, default=list, nullable=False)
     status = db.Column(db.String(32), default="published", nullable=False)
-
