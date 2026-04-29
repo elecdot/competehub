@@ -20,3 +20,7 @@ export function createCertification(payload: Record<string, unknown>) {
 export function getMatchmakingUsers(params: Record<string, unknown>) {
   return request.get('/users/matchmaking', { params }) as Promise<MatchmakingUser[]>;
 }
+
+export function contactUser(id: number, payload: Record<string, unknown>) {
+  return request.post(`/users/${id}/contact`, payload) as Promise<Record<string, unknown>>;
+}

@@ -21,6 +21,10 @@ export function createComment(id: number, payload: Record<string, unknown>) {
   return request.post(`/forum/posts/${id}/comments`, payload) as Promise<ForumComment>;
 }
 
+export function likePost(id: number) {
+  return request.post(`/forum/posts/${id}/like`) as Promise<ForumPost>;
+}
+
 export function markInterest(id: number, payload: Record<string, unknown>) {
   return request.post(`/forum/posts/${id}/interest`, payload) as Promise<Record<string, unknown>>;
 }

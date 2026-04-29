@@ -1,9 +1,42 @@
 from app.extensions import db
 from app.models.competition import Competition
-from app.models.engagement import ReminderSetting, Subscription
+from datetime import datetime
+
+from app.models.engagement import Notification, ReminderSetting, Subscription
 
 
 class ReminderService:
+    @staticmethod
+    def create_notification(user_id: int, title: str, content: str | None = None, type: str = "system") -> Notification:
+        notification = Notification(
+            user_id=user_id,
+            title=title,
+            content=content,
+            type=type,
+            status="unread",
+            sent_at=datetime.utcnow(),
+        )
+        db.session.add(notification)
+        return notification
+
+    @staticmethod
+    def notifications(user_id: int) -> dict:
+        query = Notification.query.filter_by(user_id=user_id).order_by(Notification.created_at.desc())
+        items = query.limit(100).all()
+        return {
+            "items": [item.to_dict() for item in items],
+            "unread": Notification.query.filter_by(user_id=user_id, status="unread").count(),
+        }
+
+    @staticmethod
+    def mark_read(user_id: int, notification_id: int | None = None) -> None:
+        query = Notification.query.filter_by(user_id=user_id)
+        if notification_id:
+            query = query.filter(Notification.id == notification_id)
+        for item in query.all():
+            item.status = "read"
+        db.session.commit()
+
     @staticmethod
     def calendar(user_id: int) -> list[dict]:
         subscriptions = Subscription.query.filter_by(user_id=user_id, enabled=True).all()
@@ -31,4 +64,3 @@ class ReminderService:
                 setattr(setting, key, payload[key])
         db.session.commit()
         return setting
-

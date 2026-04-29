@@ -41,3 +41,10 @@ def create_certification():
 @jwt_required()
 def matchmaking():
     return success(UserService.list_matchmaking(current_user_id(), request.args))
+
+
+@users_bp.post("/<int:user_id>/contact")
+@jwt_required()
+def contact_user(user_id: int):
+    result = UserService.contact_user(current_user_id(), user_id, request.get_json() or {})
+    return success(result, "联系请求已发送到对方收件箱")

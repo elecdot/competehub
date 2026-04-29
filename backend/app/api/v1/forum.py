@@ -60,6 +60,12 @@ def create_comment(post_id: int):
     return success(ForumService.serialize_comment(comment), "评论已发布", status=201)
 
 
+@forum_bp.post("/posts/<int:post_id>/like")
+@jwt_required()
+def like_post(post_id: int):
+    return success(ForumService.like_post(current_user_id(), post_id), "已点赞")
+
+
 @forum_bp.post("/posts/<int:post_id>/interest")
 @jwt_required()
 def mark_interest(post_id: int):

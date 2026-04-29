@@ -1,5 +1,5 @@
 import request from './request';
-import type { Competition, PageResult } from './types';
+import type { Competition, CompetitionOptions, PageResult } from './types';
 
 export function getCompetitions(params: Record<string, unknown>) {
   return request.get('/competitions', { params }) as Promise<PageResult<Competition>>;
@@ -7,6 +7,10 @@ export function getCompetitions(params: Record<string, unknown>) {
 
 export function getCompetition(id: number) {
   return request.get(`/competitions/${id}`) as Promise<Competition>;
+}
+
+export function getCompetitionOptions() {
+  return request.get('/competitions/options') as Promise<CompetitionOptions>;
 }
 
 export function favoriteCompetition(id: number) {
