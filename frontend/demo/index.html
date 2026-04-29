@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CompeteHub Demo</title>
+    <style>
+      :root {
+        color: #1f2937;
+        background: #f4f7fb;
+        font-family:
+          Inter, "Segoe UI", "Microsoft YaHei", system-ui, -apple-system,
+          BlinkMacSystemFont, sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+      }
+
+      .shell {
+        display: grid;
+        grid-template-columns: 240px 1fr;
+        min-height: 100vh;
+      }
+
+      .sidebar {
+        border-right: 1px solid #e5e7eb;
+        background: #ffffff;
+        padding: 22px 18px;
+      }
+
+      .brand {
+        display: grid;
+        gap: 4px;
+        margin-bottom: 28px;
+      }
+
+      .brand strong {
+        font-size: 22px;
+      }
+
+      .brand span {
+        color: #64748b;
+        font-size: 13px;
+      }
+
+      .nav {
+        display: grid;
+        gap: 8px;
+      }
+
+      .nav button {
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        color: #334155;
+        cursor: pointer;
+        font: inherit;
+        padding: 11px 12px;
+        text-align: left;
+      }
+
+      .nav button.active,
+      .nav button:hover {
+        background: #eaf1ff;
+        color: #1d4ed8;
+      }
+
+      .main {
+        padding: 24px;
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 20px;
+      }
+
+      .title h1 {
+        margin: 0;
+        font-size: 24px;
+      }
+
+      .title p {
+        margin: 6px 0 0;
+        color: #64748b;
+      }
+
+      .status {
+        border: 1px solid #dbe3ef;
+        border-radius: 999px;
+        background: #fff;
+        color: #475569;
+        font-size: 13px;
+        padding: 8px 12px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+        margin-bottom: 16px;
+      }
+
+      .panel {
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        background: #ffffff;
+        padding: 18px;
+      }
+
+      .metric span {
+        color: #64748b;
+        font-size: 13px;
+      }
+
+      .metric strong {
+        display: block;
+        margin-top: 8px;
+        font-size: 26px;
+      }
+
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-bottom: 14px;
+      }
+
+      input,
+      select {
+        min-height: 38px;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        padding: 0 11px;
+        font: inherit;
+      }
+
+      button.primary {
+        border: 0;
+        border-radius: 8px;
+        background: #2563eb;
+        color: #fff;
+        cursor: pointer;
+        font: inherit;
+        min-height: 38px;
+        padding: 0 14px;
+      }
+
+      button.secondary {
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        background: #fff;
+        color: #334155;
+        cursor: pointer;
+        font: inherit;
+        min-height: 38px;
+        padding: 0 14px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      th,
+      td {
+        border-bottom: 1px solid #edf2f7;
+        padding: 12px 10px;
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        color: #64748b;
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      tr:hover td {
+        background: #f8fafc;
+      }
+
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        background: #eef2ff;
+        color: #3730a3;
+        font-size: 12px;
+        margin: 0 6px 6px 0;
+        padding: 4px 8px;
+      }
+
+      .message {
+        color: #64748b;
+        min-height: 20px;
+      }
+
+      .hidden {
+        display: none;
+      }
+
+      @media (max-width: 900px) {
+        .shell {
+          grid-template-columns: 1fr;
+        }
+
+        .sidebar {
+          border-right: 0;
+          border-bottom: 1px solid #e5e7eb;
+        }
+
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <strong>CompeteHub</strong>
+          <span>竞赛信息智能筛选与推荐系统</span>
+        </div>
+        <nav class="nav">
+          <button class="active" data-view="overview">工作台</button>
+          <button data-view="competitions">赛事查询</button>
+          <button data-view="recommendations">个性推荐</button>
+          <button data-view="account">账号登录</button>
+        </nav>
+      </aside>
+
+      <main class="main">
+        <div class="topbar">
+          <div class="title">
+            <h1 id="viewTitle">工作台</h1>
+            <p id="viewSubtitle">查看接口状态、赛事数据和推荐结果。</p>
+          </div>
+          <div class="status" id="apiStatus">API 未连接</div>
+        </div>
+
+        <section id="overviewView">
+          <div class="grid">
+            <div class="panel metric">
+              <span>后端接口</span>
+              <strong id="healthMetric">-</strong>
+            </div>
+            <div class="panel metric">
+              <span>赛事数量</span>
+              <strong id="competitionMetric">-</strong>
+            </div>
+            <div class="panel metric">
+              <span>当前用户</span>
+              <strong id="userMetric">未登录</strong>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="toolbar">
+              <button class="primary" id="refreshOverview">刷新数据</button>
+              <button class="secondary" id="quickLogin">使用 student 登录</button>
+            </div>
+            <div class="message" id="overviewMessage"></div>
+          </div>
+        </section>
+
+        <section id="competitionsView" class="hidden">
+          <div class="panel">
+            <div class="toolbar">
+              <input id="keywordInput" placeholder="搜索赛事名称或主办方" />
+              <select id="sortSelect">
+                <option value="deadline">截止时间</option>
+                <option value="heat">热度</option>
+                <option value="score">评分</option>
+              </select>
+              <button class="primary" id="searchCompetitions">查询</button>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>赛事名称</th>
+                  <th>类别</th>
+                  <th>级别</th>
+                  <th>主办方</th>
+                  <th>评分</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="competitionRows"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="recommendationsView" class="hidden">
+          <div class="panel">
+            <div class="toolbar">
+              <button class="primary" id="loadRecommendations">加载推荐</button>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>推荐赛事</th>
+                  <th>推荐分</th>
+                  <th>推荐理由</th>
+                </tr>
+              </thead>
+              <tbody id="recommendationRows"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="accountView" class="hidden">
+          <div class="panel">
+            <div class="toolbar">
+              <input id="accountInput" value="student" placeholder="账号" />
+              <input id="passwordInput" value="student123" type="password" placeholder="密码" />
+              <button class="primary" id="loginButton">登录</button>
+              <button class="secondary" id="logoutButton">退出</button>
+            </div>
+            <div class="message" id="accountMessage"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
