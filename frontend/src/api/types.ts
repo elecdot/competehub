@@ -83,6 +83,15 @@ export interface Competition {
   recommend_reasons?: string[];
 }
 
+export interface CompetitionOptions {
+  competitions: Array<{ id: number; title: string; category: string; level: string }>;
+  categories: string[];
+  levels: string[];
+  tags: string[];
+  skills: string[];
+  forum_tags: string[];
+}
+
 export interface ForumPost {
   id: number;
   author_id: number;
@@ -94,6 +103,7 @@ export interface ForumPost {
   view_count: number;
   like_count: number;
   interest_count?: number;
+  comment_count?: number;
   interested?: boolean;
   author?: User & { premium?: boolean; certifications?: CertificationRequest[] };
   created_at: string;
@@ -117,4 +127,15 @@ export interface MatchmakingUser {
   certifications: CertificationRequest[];
   shared_tags: string[];
   match_score: number;
+}
+
+export interface NotificationItem {
+  id: number;
+  user_id: number;
+  title: string;
+  content?: string;
+  type: string;
+  status: string;
+  sent_at?: string;
+  created_at: string;
 }

@@ -3,7 +3,7 @@
     <div class="page-header">
       <div>
         <h1 class="page-title">交流论坛</h1>
-        <p class="page-subtitle">发帖找队友、查看同好名单，并向已认证指导人咨询。</p>
+        <p class="page-subtitle">发帖找队友、浏览同好名单、向认证指导人咨询。</p>
       </div>
       <el-button type="primary" :icon="EditPen" @click="openCreate">发布帖子</el-button>
     </div>
@@ -21,34 +21,28 @@
             </el-select>
             <el-button type="primary" :loading="loading" @click="loadPosts">查询</el-button>
           </div>
-          <el-table :data="items" v-loading="loading" stripe>
-            <el-table-column label="帖子" min-width="300">
-              <template #default="{ row }">
-                <button class="link-title" @click="openDetail(row)">{{ row.title }}</button>
-                <div class="muted small">{{ row.content }}</div>
-                <div class="tag-list">
-                  <el-tag v-for="tag in row.tags || []" :key="tag" size="small" effect="plain">{{ tag }}</el-tag>
-                  <el-tag v-if="row.author?.premium" size="small" type="success">premium 指导人</el-tag>
+
+          <div class="post-grid" v-loading="loading">
+            <article v-for="row in items" :key="row.id" class="post-card" @click="openDetail(row.id)">
+              <div class="post-head">
+                <div>
+                  <h2>{{ row.title }}</h2>
+                  <span>{{ row.author?.username || '-' }}</span>
                 </div>
-              </template>
-            </el-table-column>
-            <el-table-column label="作者" width="150">
-              <template #default="{ row }">{{ row.author?.username || '-' }}</template>
-            </el-table-column>
-            <el-table-column prop="post_type" label="类型" width="110" />
-            <el-table-column label="意向" width="90">
-              <template #default="{ row }">{{ row.interest_count || 0 }}</template>
-            </el-table-column>
-            <el-table-column label="发布时间" width="180">
-              <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
-            </el-table-column>
-            <el-table-column label="操作" width="180" fixed="right">
-              <template #default="{ row }">
-                <el-button text type="primary" @click="openDetail(row)">查看</el-button>
-                <el-button v-if="row.post_type === 'team'" text @click="interest(row)">有意向</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
+                <el-tag v-if="row.author?.premium" type="success">premium 指导人</el-tag>
+              </div>
+              <p>{{ row.content }}</p>
+              <div class="tag-list">
+                <el-tag v-for="tag in row.tags || []" :key="tag" size="small" effect="plain">{{ tag }}</el-tag>
+              </div>
+              <div class="post-meta">
+                <span>赞 {{ row.like_count || 0 }}</span>
+                <span>评 {{ row.comment_count || 0 }}</span>
+                <span>意向 {{ row.interest_count || 0 }}</span>
+                <span>{{ formatDateTime(row.created_at) }}</span>
+              </div>
+            </article>
+          </div>
         </div>
       </el-tab-pane>
 
@@ -60,7 +54,7 @@
             <el-button type="primary" :loading="peopleLoading" @click="loadPeople">筛选</el-button>
           </div>
           <div class="people-grid" v-loading="peopleLoading">
-            <div v-for="item in people" :key="item.user.id" class="person-row">
+            <button v-for="item in people" :key="item.user.id" class="person-row" @click="openPerson(item)">
               <div>
                 <strong>{{ item.profile.real_name || item.user.username }}</strong>
                 <span>{{ item.profile.major || '未填写专业' }} · {{ item.profile.grade || '未填写年级' }}</span>
@@ -71,13 +65,13 @@
                 </div>
               </div>
               <div class="match-score">{{ item.match_score }}</div>
-            </div>
+            </button>
           </div>
         </div>
       </el-tab-pane>
     </el-tabs>
 
-    <el-dialog v-model="createVisible" title="发布帖子" width="620px">
+    <el-dialog v-model="createVisible" title="发布帖子" width="660px">
       <el-form :model="postForm" label-width="90px">
         <el-form-item label="标题">
           <el-input v-model="postForm.title" />
@@ -90,8 +84,15 @@
             <el-option label="认证答疑" value="consulting" />
           </el-select>
         </el-form-item>
+        <el-form-item label="关联赛事">
+          <el-select v-model="selectedCompetitionTitle" filterable clearable class="full" placeholder="选择官方规范赛事名称">
+            <el-option v-for="item in options.competitions" :key="item.id" :label="item.title" :value="item.title" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="标签">
-          <el-input v-model="tagText" placeholder="用逗号分隔，例如：蓝桥杯, Python, 组队" />
+          <el-select v-model="selectedTags" multiple filterable class="full" placeholder="从统一标签中选择">
+            <el-option v-for="tag in options.forum_tags" :key="tag" :label="tag" :value="tag" />
+          </el-select>
         </el-form-item>
         <el-form-item label="内容">
           <el-input v-model="postForm.content" type="textarea" :rows="6" />
@@ -103,50 +104,43 @@
       </template>
     </el-dialog>
 
-    <el-drawer v-model="detailVisible" size="520px" title="帖子详情">
-      <div v-if="currentPost" class="post-detail">
-        <h2>{{ currentPost.title }}</h2>
-        <div class="author-line">
-          <span>{{ currentPost.author?.username }}</span>
-          <el-tag v-if="currentPost.author?.premium" type="success">premium 指导人</el-tag>
+    <el-dialog v-model="personVisible" title="同好资料" width="620px">
+      <div v-if="currentPerson" class="person-detail">
+        <h2>{{ currentPerson.profile.real_name || currentPerson.user.username }}</h2>
+        <p>{{ currentPerson.profile.major || '未填写专业' }} · {{ currentPerson.profile.grade || '未填写年级' }}</p>
+        <div class="tag-list">
+          <el-tag v-for="skill in currentPerson.team_preference?.required_skills || []" :key="skill">{{ skill }}</el-tag>
+          <el-tag v-for="competition in currentPerson.team_preference?.target_competitions || []" :key="competition" type="success">
+            {{ competition }}
+          </el-tag>
         </div>
-        <p>{{ currentPost.content }}</p>
-        <el-button v-if="currentPost.post_type === 'team'" type="primary" plain @click="interest(currentPost)">我有意向</el-button>
-
-        <h3>评论咨询</h3>
-        <div class="comment-list">
-          <div
-            v-for="comment in comments"
-            :key="comment.id"
-            class="comment-item"
-            :class="{ premium: comment.author?.premium }"
-          >
-            <div class="author-line">
-              <strong>{{ comment.author?.username || '用户' }}</strong>
-              <el-tag v-if="comment.author?.premium" size="small" type="success">认证指导人</el-tag>
-            </div>
-            <p>{{ comment.content }}</p>
-          </div>
+        <div class="cert-box" v-if="currentPerson.certifications?.length">
+          <strong>认证经历</strong>
+          <p v-for="cert in currentPerson.certifications" :key="cert.id">{{ cert.description }}</p>
         </div>
-        <div class="comment-box">
-          <el-input v-model="commentText" type="textarea" :rows="3" placeholder="输入评论或咨询问题" />
-          <el-button type="primary" :loading="commenting" @click="submitComment">发布评论</el-button>
-        </div>
+        <el-input v-model="contactMessage" type="textarea" :rows="3" placeholder="给对方留一句联系说明" />
       </div>
-    </el-drawer>
+      <template #footer>
+        <el-button @click="personVisible = false">关闭</el-button>
+        <el-button type="primary" :loading="contactLoading" @click="sendContact">发送到对方收件箱</el-button>
+      </template>
+    </el-dialog>
   </section>
 </template>
 
 <script setup lang="ts">
 import { onMounted, reactive, ref, watch } from 'vue';
-import { ElMessage, ElMessageBox } from 'element-plus';
+import { useRouter } from 'vue-router';
+import { ElMessage } from 'element-plus';
 import { EditPen, Search } from '@element-plus/icons-vue';
-import { createComment, createPost, getComments, getPosts, markInterest } from '@/api/forum';
-import { getMatchmakingUsers } from '@/api/user';
-import type { ForumComment, ForumPost, MatchmakingUser } from '@/api/types';
+import { getCompetitionOptions } from '@/api/competition';
+import { createPost, getPosts } from '@/api/forum';
+import { contactUser, getMatchmakingUsers } from '@/api/user';
+import type { CompetitionOptions, ForumPost, MatchmakingUser } from '@/api/types';
 import { useAuthStore } from '@/stores/auth';
 import { formatDateTime } from '@/utils/format';
 
+const router = useRouter();
 const auth = useAuthStore();
 const activeTab = ref('posts');
 const keyword = ref('');
@@ -155,35 +149,34 @@ const loading = ref(false);
 const items = ref<ForumPost[]>([]);
 const createVisible = ref(false);
 const creating = ref(false);
-const tagText = ref('');
+const selectedTags = ref<string[]>([]);
+const selectedCompetitionTitle = ref('');
 const postForm = reactive({ title: '', content: '', post_type: 'team' });
-const detailVisible = ref(false);
-const currentPost = ref<ForumPost | null>(null);
-const comments = ref<ForumComment[]>([]);
-const commentText = ref('');
-const commenting = ref(false);
 const peopleKeyword = ref('');
 const onlyLooking = ref(true);
 const peopleLoading = ref(false);
 const people = ref<MatchmakingUser[]>([]);
+const personVisible = ref(false);
+const currentPerson = ref<MatchmakingUser | null>(null);
+const contactMessage = ref('');
+const contactLoading = ref(false);
+const options = reactive<CompetitionOptions>({ competitions: [], categories: [], levels: [], tags: [], skills: [], forum_tags: [] });
 
 function requireLogin() {
   if (auth.isAuthenticated) return true;
   ElMessage.warning('请先登录后再操作');
+  router.push('/login');
   return false;
 }
 
-function splitTags(value: string) {
-  return value
-    .split(/[,，]/)
-    .map((item) => item.trim())
-    .filter(Boolean);
+async function loadOptions() {
+  Object.assign(options, await getCompetitionOptions());
 }
 
 async function loadPosts() {
   loading.value = true;
   try {
-    const data = await getPosts({ keyword: keyword.value, post_type: postType.value, page: 1, page_size: 30 });
+    const data = await getPosts({ keyword: keyword.value, post_type: postType.value, page: 1, page_size: 50 });
     items.value = data.items;
   } finally {
     loading.value = false;
@@ -202,9 +195,11 @@ async function submitPost() {
   }
   creating.value = true;
   try {
-    await createPost({ ...postForm, tags: splitTags(tagText.value) });
+    const tags = Array.from(new Set([...selectedTags.value, selectedCompetitionTitle.value].filter(Boolean)));
+    await createPost({ ...postForm, tags });
     Object.assign(postForm, { title: '', content: '', post_type: 'team' });
-    tagText.value = '';
+    selectedTags.value = [];
+    selectedCompetitionTitle.value = '';
     createVisible.value = false;
     ElMessage.success('帖子已发布');
     await loadPosts();
@@ -213,36 +208,8 @@ async function submitPost() {
   }
 }
 
-async function openDetail(row: ForumPost) {
-  currentPost.value = row;
-  detailVisible.value = true;
-  comments.value = await getComments(row.id);
-}
-
-async function submitComment() {
-  if (!currentPost.value || !commentText.value) return;
-  if (!requireLogin()) return;
-  commenting.value = true;
-  try {
-    const comment = await createComment(currentPost.value.id, { content: commentText.value });
-    comments.value = [...comments.value, comment];
-    commentText.value = '';
-  } finally {
-    commenting.value = false;
-  }
-}
-
-async function interest(row: ForumPost) {
-  if (!requireLogin()) return;
-  const { value } = await ElMessageBox.prompt('给对方留一句简短说明', '标记有意向', {
-    confirmButtonText: '提交',
-    cancelButtonText: '取消',
-    inputPlaceholder: '例如：我擅长算法，希望加入队伍',
-  });
-  const result = await markInterest(row.id, { message: value });
-  row.interested = true;
-  row.interest_count = (row.interest_count || 0) + 1;
-  ElMessage.success(`已标记意向，联系方式：${JSON.stringify(result.author_contact || {})}`);
+function openDetail(id: number) {
+  router.push(`/forum/posts/${id}`);
 }
 
 async function loadPeople() {
@@ -255,13 +222,34 @@ async function loadPeople() {
   }
 }
 
+function openPerson(item: MatchmakingUser) {
+  currentPerson.value = item;
+  contactMessage.value = `我对你的组队方向感兴趣，希望交流 ${item.team_preference?.target_competitions?.[0] || '竞赛组队'}。`;
+  personVisible.value = true;
+}
+
+async function sendContact() {
+  if (!currentPerson.value) return;
+  contactLoading.value = true;
+  try {
+    await contactUser(currentPerson.value.user.id, { message: contactMessage.value });
+    ElMessage.success('已发送到对方收件箱');
+    personVisible.value = false;
+  } finally {
+    contactLoading.value = false;
+  }
+}
+
 watch(activeTab, (value) => {
   if (value === 'people' && people.value.length === 0 && auth.isAuthenticated) {
     loadPeople();
   }
 });
 
-onMounted(loadPosts);
+onMounted(async () => {
+  await loadOptions();
+  await loadPosts();
+});
 </script>
 
 <style scoped>
@@ -285,22 +273,52 @@ onMounted(loadPosts);
   width: 100%;
 }
 
-.link-title {
-  border: 0;
-  background: none;
-  color: #1d4ed8;
-  cursor: pointer;
-  font: inherit;
-  font-weight: 700;
-  padding: 0;
+.post-grid {
+  display: grid;
+  gap: 14px;
 }
 
-.small {
-  margin-top: 6px;
-  font-size: 12px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.post-card {
+  padding: 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.post-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+}
+
+.post-head,
+.post-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.post-head h2 {
+  margin: 0 0 6px;
+  font-size: 17px;
+}
+
+.post-head span,
+.post-card p,
+.post-meta {
+  color: #64748b;
+}
+
+.post-card p {
+  line-height: 1.7;
+}
+
+.post-meta {
+  justify-content: flex-start;
+  margin-top: 12px;
+  font-size: 13px;
 }
 
 .people-grid {
@@ -310,14 +328,15 @@ onMounted(loadPosts);
 
 .person-row {
   display: flex;
+  width: 100%;
   justify-content: space-between;
   gap: 16px;
-  padding: 14px 0;
-  border-top: 1px solid #edf2f7;
-}
-
-.person-row:first-child {
-  border-top: 0;
+  padding: 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
 }
 
 .person-row strong,
@@ -341,37 +360,19 @@ onMounted(loadPosts);
   font-weight: 800;
 }
 
-.post-detail h2 {
+.person-detail h2 {
   margin: 0 0 8px;
 }
 
-.author-line {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #64748b;
+.person-detail p {
+  color: #475569;
+  line-height: 1.7;
 }
 
-.comment-list {
-  display: grid;
-  gap: 10px;
+.cert-box {
   margin: 14px 0;
-}
-
-.comment-item {
   padding: 12px;
-  border: 1px solid #e5e7eb;
   border-radius: 8px;
-  background: #fff;
-}
-
-.comment-item.premium {
-  border-color: #86efac;
-  background: #f0fdf4;
-}
-
-.comment-box {
-  display: grid;
-  gap: 10px;
+  background: #f8fafc;
 }
 </style>

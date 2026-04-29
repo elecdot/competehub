@@ -26,6 +26,10 @@
           <el-icon><Calendar /></el-icon>
           <span>订阅日历</span>
         </el-menu-item>
+        <el-menu-item index="/inbox">
+          <el-icon><Message /></el-icon>
+          <span>收件箱</span>
+        </el-menu-item>
         <el-menu-item index="/forum">
           <el-icon><ChatDotRound /></el-icon>
           <span>交流论坛</span>
@@ -45,7 +49,7 @@
       <el-header class="app-header">
         <div class="header-title">
           <strong>{{ routeTitle }}</strong>
-          <span>赛事发现、推荐与运营管理</span>
+          <span>赛事发现、推荐、交流与运营管理</span>
         </div>
         <div class="user-actions">
           <el-tag v-if="auth.user" effect="plain">{{ roleLabel }}</el-tag>
@@ -69,6 +73,7 @@ import {
   Calendar,
   ChatDotRound,
   DataBoard,
+  Message,
   Search,
   Setting,
   SwitchButton,
@@ -85,6 +90,7 @@ const titles: Record<string, string> = {
   '/competitions': '赛事查询',
   '/recommendations': '个性推荐',
   '/calendar': '订阅日历',
+  '/inbox': '收件箱',
   '/forum': '交流论坛',
   '/profile': '个人中心',
   '/admin': '后台管理',
@@ -99,7 +105,7 @@ const roleNames: Record<string, string> = {
   guest: '访客',
 };
 
-const routeTitle = computed(() => titles[route.path] || 'CompeteHub');
+const routeTitle = computed(() => titles[route.path] || (route.path.startsWith('/forum/posts') ? '帖子详情' : 'CompeteHub'));
 const roleLabel = computed(() => roleNames[auth.role] || auth.role);
 
 function logout() {

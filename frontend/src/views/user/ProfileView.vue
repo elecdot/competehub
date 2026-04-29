@@ -3,7 +3,7 @@
     <div class="page-header">
       <div>
         <h1 class="page-title">个人中心</h1>
-        <p class="page-subtitle">维护专业画像、竞赛经历、组队意向和 premium 指导人认证。</p>
+        <p class="page-subtitle">维护专业画像、获奖经历、认证材料和标准化组队意向。</p>
       </div>
       <el-button type="primary" :icon="Check" :loading="loading" @click="save">保存画像</el-button>
     </div>
@@ -34,7 +34,9 @@
               <el-segmented v-model="profile.ability_level" :options="abilityOptions" />
             </el-form-item>
             <el-form-item label="兴趣技能">
-              <el-input v-model="interestText" placeholder="用逗号分隔，例如：算法, Python, 数学建模" />
+              <el-select v-model="profile.interests" multiple filterable class="wide" placeholder="选择统一技能标签">
+                <el-option v-for="skill in options.skills" :key="skill" :label="skill" :value="skill" />
+              </el-select>
             </el-form-item>
           </el-form>
         </div>
@@ -42,19 +44,19 @@
         <div class="panel panel-body section-gap">
           <h2 class="section-title">获奖经历标签</h2>
           <div class="award-form">
-            <el-input v-model="awardForm.competition" placeholder="赛事名称" />
+            <el-select v-model="awardForm.competition" filterable placeholder="官方赛事名称">
+              <el-option v-for="item in options.competitions" :key="item.id" :label="item.title" :value="item.title" />
+            </el-select>
             <el-select v-model="awardForm.category" placeholder="方向">
-              <el-option label="数学建模" value="数学建模" />
-              <el-option label="程序设计" value="程序设计" />
-              <el-option label="计算机设计" value="计算机设计" />
-              <el-option label="电子信息" value="电子信息" />
-              <el-option label="创新创业" value="创新创业" />
+              <el-option v-for="item in awardCategories" :key="item" :label="item" :value="item" />
             </el-select>
             <el-select v-model="awardForm.level" placeholder="级别">
               <el-option label="国一" value="国一" />
               <el-option label="国二" value="国二" />
+              <el-option label="国三" value="国三" />
               <el-option label="省一" value="省一" />
               <el-option label="省二" value="省二" />
+              <el-option label="省三" value="省三" />
               <el-option label="校级" value="校级" />
             </el-select>
             <el-input v-model="awardForm.year" placeholder="年份" />
@@ -82,16 +84,25 @@
               <el-switch v-model="teamPreference.looking_for_teammates" />
             </el-form-item>
             <el-form-item label="目标赛事">
-              <el-input v-model="targetCompetitionText" placeholder="用逗号分隔，例如：蓝桥杯, 计算机设计大赛" />
+              <el-select v-model="teamPreference.target_competitions" multiple filterable class="wide" placeholder="选择官方规范赛事名称">
+                <el-option v-for="item in options.competitions" :key="item.id" :label="item.title" :value="item.title" />
+              </el-select>
             </el-form-item>
             <el-form-item label="需要技能">
-              <el-input v-model="requiredSkillText" placeholder="用逗号分隔，例如：算法, 建模, UI设计" />
+              <el-select v-model="teamPreference.required_skills" multiple filterable class="wide" placeholder="选择技能模块">
+                <el-option v-for="skill in options.skills" :key="skill" :label="skill" :value="skill" />
+              </el-select>
             </el-form-item>
             <el-form-item label="期望奖项经历">
-              <el-input v-model="requiredAwardText" placeholder="用逗号分隔，例如：数学建模省奖, 蓝桥杯省奖" />
+              <el-select v-model="teamPreference.required_awards" multiple class="wide" placeholder="选择奖项等级要求">
+                <el-option label="国家级奖项" value="国家级奖项" />
+                <el-option label="省部级奖项" value="省部级奖项" />
+                <el-option label="校级奖项" value="校级奖项" />
+                <el-option label="相关参赛经历" value="相关参赛经历" />
+              </el-select>
             </el-form-item>
             <el-form-item label="联系方式说明">
-              <el-input v-model="teamPreference.contact_preference" placeholder="例如：站内联系 / 邮箱 / 微信课后交换" />
+              <el-input v-model="teamPreference.contact_preference" placeholder="例如：先站内联系，通过后交换微信" />
             </el-form-item>
           </el-form>
         </div>
@@ -99,26 +110,37 @@
 
       <el-col :xs="24" :lg="9">
         <div class="panel panel-body">
-          <h2 class="section-title">认证申请</h2>
+          <h2 class="section-title">获奖认证申请</h2>
+          <el-alert
+            title="提交国家级奖项认证后，审核通过会自动获得 premium 指导人身份。"
+            type="info"
+            :closable="false"
+            class="cert-alert"
+          />
           <el-form label-position="top">
-            <el-form-item label="认证类型">
-              <el-select v-model="certForm.certification_type" class="full">
-                <el-option label="premium 指导人" value="premium" />
-                <el-option label="获奖经历" value="award" />
+            <el-form-item label="认证赛事">
+              <el-select v-model="certForm.competition" filterable class="full" placeholder="选择官方赛事名称">
+                <el-option v-for="item in options.competitions" :key="item.id" :label="item.title" :value="item.title" />
               </el-select>
             </el-form-item>
-            <el-form-item label="材料说明">
-              <el-input
-                v-model="certForm.description"
-                type="textarea"
-                :rows="4"
-                placeholder="填写奖项、等级、年份、可指导方向"
-              />
+            <el-form-item label="获奖等级">
+              <el-select v-model="certForm.level" class="full">
+                <el-option label="国一" value="国一" />
+                <el-option label="国二" value="国二" />
+                <el-option label="国三" value="国三" />
+                <el-option label="省一" value="省一" />
+                <el-option label="省二" value="省二" />
+                <el-option label="省三" value="省三" />
+                <el-option label="校级" value="校级" />
+              </el-select>
             </el-form-item>
             <el-form-item label="证明材料链接">
-              <el-input v-model="certForm.evidence_url" placeholder="可填写网盘、图片或证书链接" />
+              <el-input v-model="certForm.evidence_url" placeholder="填写证书图片、网盘或可访问材料链接" />
             </el-form-item>
-            <el-button type="primary" class="full" :loading="certLoading" @click="submitCertification">提交认证</el-button>
+            <el-form-item label="补充说明">
+              <el-input v-model="certForm.note" type="textarea" :rows="3" placeholder="填写年份、赛道、可指导方向" />
+            </el-form-item>
+            <el-button type="primary" class="full" :loading="certLoading" @click="submitCertification">提交获奖认证</el-button>
           </el-form>
 
           <div class="cert-list">
@@ -126,7 +148,7 @@
               <el-tag :type="item.status === 'approved' ? 'success' : item.status === 'rejected' ? 'danger' : 'warning'">
                 {{ statusLabel(item.status) }}
               </el-tag>
-              <strong>{{ item.certification_type }}</strong>
+              <strong>{{ item.certification_type === 'premium' ? 'premium 指导人' : '获奖经历' }}</strong>
               <p>{{ item.description }}</p>
             </div>
           </div>
@@ -144,7 +166,7 @@
           </div>
           <div class="profile-summary">
             <span>认证状态</span>
-            <strong>{{ approvedCertifications.length ? 'premium/获奖认证已通过' : '暂无已通过认证' }}</strong>
+            <strong>{{ approvedCertifications.length ? '已有认证通过' : '暂无已通过认证' }}</strong>
           </div>
         </div>
       </el-col>
@@ -156,9 +178,9 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { Check, Plus } from '@element-plus/icons-vue';
-import { createCertification, getMe } from '@/api/user';
-import { updateProfile } from '@/api/user';
-import type { AwardExperience, CertificationRequest, TeamPreference, UserProfile } from '@/api/types';
+import { getCompetitionOptions } from '@/api/competition';
+import { createCertification, getMe, updateProfile } from '@/api/user';
+import type { AwardExperience, CertificationRequest, CompetitionOptions, TeamPreference, UserProfile } from '@/api/types';
 
 const loading = ref(false);
 const certLoading = ref(false);
@@ -180,34 +202,17 @@ const teamPreference = reactive<TeamPreference>({
   contact_preference: '',
 });
 const certifications = ref<CertificationRequest[]>([]);
-const interestText = ref('');
-const targetCompetitionText = ref('');
-const requiredSkillText = ref('');
-const requiredAwardText = ref('');
 const awardForm = reactive<AwardExperience>({ competition: '', category: '', level: '', year: '' });
-const certForm = reactive({ certification_type: 'premium', description: '', evidence_url: '' });
+const certForm = reactive({ competition: '', level: '省一', evidence_url: '', note: '' });
+const options = reactive<CompetitionOptions>({ competitions: [], categories: [], levels: [], tags: [], skills: [], forum_tags: [] });
 
+const awardCategories = ['数学建模', '程序设计', '计算机设计', '电子信息', '创新创业', '城市建设', '机械制造', '人文设计'];
 const abilityOptions = [
   { label: '新手', value: 'beginner' },
   { label: '进阶', value: 'intermediate' },
   { label: '冲刺', value: 'advanced' },
 ];
-
 const approvedCertifications = computed(() => certifications.value.filter((item) => item.status === 'approved'));
-
-function splitTags(value: string) {
-  return value
-    .split(/[,，]/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function syncTexts() {
-  interestText.value = (profile.interests || []).join(', ');
-  targetCompetitionText.value = (teamPreference.target_competitions || []).join(', ');
-  requiredSkillText.value = (teamPreference.required_skills || []).join(', ');
-  requiredAwardText.value = (teamPreference.required_awards || []).join(', ');
-}
 
 function awardStyle(award: AwardExperience) {
   const categoryColors: Record<string, string> = {
@@ -216,8 +221,11 @@ function awardStyle(award: AwardExperience) {
     计算机设计: '126, 58, 242',
     电子信息: '220, 88, 42',
     创新创业: '190, 120, 25',
+    城市建设: '14, 116, 144',
+    机械制造: '101, 85, 143',
+    人文设计: '190, 70, 120',
   };
-  const alphaMap: Record<string, number> = { 国一: 0.95, 国二: 0.76, 省一: 0.58, 省二: 0.42, 校级: 0.28 };
+  const alphaMap: Record<string, number> = { 国一: 0.95, 国二: 0.78, 国三: 0.68, 省一: 0.56, 省二: 0.44, 省三: 0.34, 校级: 0.24 };
   const rgb = categoryColors[award.category || ''] || '75, 85, 99';
   const alpha = alphaMap[award.level || ''] || 0.32;
   return {
@@ -241,6 +249,7 @@ function removeAward(index: number) {
 }
 
 async function load() {
+  Object.assign(options, await getCompetitionOptions());
   const data = (await getMe()) as {
     profile?: UserProfile;
     team_preference?: TeamPreference;
@@ -248,17 +257,17 @@ async function load() {
   };
   Object.assign(profile, data.profile || {});
   Object.assign(teamPreference, data.team_preference || {});
+  profile.interests ||= [];
+  profile.competition_experiences ||= [];
+  teamPreference.target_competitions ||= [];
+  teamPreference.required_skills ||= [];
+  teamPreference.required_awards ||= [];
   certifications.value = data.certifications || [];
-  syncTexts();
 }
 
 async function save() {
   loading.value = true;
   try {
-    profile.interests = splitTags(interestText.value);
-    teamPreference.target_competitions = splitTags(targetCompetitionText.value);
-    teamPreference.required_skills = splitTags(requiredSkillText.value);
-    teamPreference.required_awards = splitTags(requiredAwardText.value);
     await updateProfile({ ...profile, team_preference: { ...teamPreference } });
     ElMessage.success('个人画像已保存');
   } finally {
@@ -267,16 +276,22 @@ async function save() {
 }
 
 async function submitCertification() {
-  if (!certForm.description) {
-    ElMessage.warning('请填写认证说明');
+  if (!certForm.competition || !certForm.level) {
+    ElMessage.warning('请选择认证赛事和获奖等级');
     return;
   }
   certLoading.value = true;
   try {
-    const record = await createCertification({ ...certForm });
+    const isNational = certForm.level.startsWith('国');
+    const description = `${certForm.competition} ${certForm.level}。${certForm.note || ''}`.trim();
+    const record = await createCertification({
+      certification_type: isNational ? 'premium' : 'award',
+      description,
+      evidence_url: certForm.evidence_url,
+    });
     certifications.value = [record, ...certifications.value];
-    Object.assign(certForm, { certification_type: 'premium', description: '', evidence_url: '' });
-    ElMessage.success('认证申请已提交，等待管理员审核');
+    Object.assign(certForm, { competition: '', level: '省一', evidence_url: '', note: '' });
+    ElMessage.success(isNational ? '国家级获奖认证已提交，通过后自动获得 premium 身份' : '获奖认证已提交');
   } finally {
     certLoading.value = false;
   }
@@ -301,7 +316,7 @@ onMounted(load);
 
 .award-form {
   display: grid;
-  grid-template-columns: 1.2fr 130px 120px 100px auto;
+  grid-template-columns: 1.4fr 130px 110px 90px auto;
   gap: 10px;
 }
 
@@ -315,6 +330,10 @@ onMounted(load);
 .award-tag {
   height: 30px;
   border-radius: 6px;
+}
+
+.cert-alert {
+  margin-bottom: 14px;
 }
 
 .cert-list {

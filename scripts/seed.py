@@ -17,13 +17,6 @@ from competition_catalog_2023 import CATALOG_ITEMS, OFFICIAL_INFO
 
 CATALOG_SCORE = {"A": 95, "B": 84, "C": 72, "D": 60}
 CATALOG_HEAT = {"A": 90, "B": 62, "C": 42, "D": 25}
-CATALOG_DEADLINE = {
-    "A": datetime(2026, 9, 30, 23, 59),
-    "B": datetime(2026, 10, 31, 23, 59),
-    "C": datetime(2026, 11, 30, 23, 59),
-    "D": datetime(2026, 12, 31, 23, 59),
-}
-
 CATEGORY_RULES = [
     ("创新创业", ["互联网", "挑战杯", "创新创业", "创青春", "鼎新", "服务外包", "电商"]),
     ("计算机与软件", ["程序", "ICPC", "蓝桥", "软件", "计算机", "开源", "信息安全", "IEEE", "ICT"]),
@@ -135,7 +128,6 @@ def upsert_catalog_competitions(admin: User) -> None:
         category = infer_category(name)
         official_info = match_official_info(name)
         score = CATALOG_SCORE[catalog_level]
-        deadline = CATALOG_DEADLINE[catalog_level] + timedelta(days=item["number"] % 21)
         official_url = official_info.get("url")
         timeline = official_info.get("timeline") or "关键时间节点待根据赛事官网或校内通知补充，当前系统先保留目录认定信息。"
         description = (
@@ -156,9 +148,9 @@ def upsert_catalog_competitions(admin: User) -> None:
         competition.target_grades = competition.target_grades or ["大一", "大二", "大三", "大四"]
         competition.tags = infer_tags(name, catalog_level, category)
         competition.status = "published"
-        competition.registration_deadline_at = competition.registration_deadline_at or deadline
-        competition.competition_start_at = competition.competition_start_at or (deadline + timedelta(days=14))
-        competition.competition_end_at = competition.competition_end_at or (deadline + timedelta(days=17))
+        competition.registration_deadline_at = None
+        competition.competition_start_at = None
+        competition.competition_end_at = None
         competition.official_url = official_url
         competition.heat = max(competition.heat or 0, CATALOG_HEAT[catalog_level])
         competition.score = max(competition.score or 0, score)

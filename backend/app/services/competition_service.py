@@ -10,6 +10,49 @@ from app.models.engagement import BehaviorLog, Favorite, Subscription
 
 class CompetitionService:
     @staticmethod
+    def options() -> dict:
+        competitions = Competition.query.filter(Competition.status == "published").order_by(Competition.title.asc()).all()
+        categories = sorted({item.category for item in competitions if item.category})
+        levels = sorted({item.level for item in competitions if item.level})
+        tags = sorted({tag for item in competitions for tag in (item.tags or []) if tag})
+        return {
+            "competitions": [{"id": item.id, "title": item.title, "category": item.category, "level": item.level} for item in competitions],
+            "categories": categories,
+            "levels": levels,
+            "tags": tags,
+            "skills": [
+                "算法",
+                "Python",
+                "C/C++",
+                "Java",
+                "前端",
+                "后端",
+                "数据分析",
+                "数学建模",
+                "论文写作",
+                "UI设计",
+                "硬件调试",
+                "嵌入式",
+                "机器学习",
+                "项目管理",
+                "答辩展示",
+            ],
+            "forum_tags": [
+                "找队友",
+                "经验分享",
+                "资料整理",
+                "赛前答疑",
+                "算法",
+                "数学建模",
+                "蓝桥杯",
+                "计算机设计大赛",
+                "挑战杯",
+                "电子设计",
+                "创新创业",
+            ],
+        }
+
+    @staticmethod
     def list_competitions(args, include_unpublished: bool = False):
         query = Competition.query
         if not include_unpublished:
@@ -100,4 +143,3 @@ class CompetitionService:
         db.session.add(BehaviorLog(user_id=user_id, target_type="competition", target_id=competition_id, action="subscribe"))
         db.session.commit()
         return record
-

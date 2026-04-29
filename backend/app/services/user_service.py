@@ -1,6 +1,7 @@
 from app.extensions import db
 from app.models.forum import CertificationRequest
 from app.models.user import TeamPreference, User, UserProfile
+from app.services.reminder_service import ReminderService
 
 
 class UserService:
@@ -57,10 +58,41 @@ class UserService:
 
     @staticmethod
     def create_certification(user_id: int, payload: dict) -> CertificationRequest:
+        description = payload.get("description", "")
+        if any(keyword in description for keyword in ["国一", "国家级一等奖", "全国一等奖", "国家一等奖"]):
+            payload["certification_type"] = "premium"
         request = CertificationRequest(user_id=user_id, **payload)
         db.session.add(request)
         db.session.commit()
         return request
+
+    @staticmethod
+    def contact_user(from_user_id: int, target_user_id: int, payload: dict) -> dict:
+        sender = db.session.get(User, from_user_id)
+        target = db.session.get(User, target_user_id)
+        if target is None:
+            return {}
+        message = payload.get("message") or "希望和你交流组队。"
+        ReminderService.create_notification(
+            target_user_id,
+            f"{sender.username if sender else '有同学'} 想与你交流",
+            f"{message} 联系方式：邮箱 {sender.email or '未填写'}，手机 {sender.phone or '未填写'}。",
+            "teammate_contact",
+        )
+        db.session.commit()
+        return {
+            "target": target.public_dict(),
+            "sender_contact": {
+                "username": sender.username if sender else "",
+                "email": sender.email if sender else None,
+                "phone": sender.phone if sender else None,
+            },
+            "target_contact": {
+                "username": target.username,
+                "email": target.email,
+                "phone": target.phone,
+            },
+        }
 
     @staticmethod
     def list_matchmaking(user_id: int, args) -> list[dict]:

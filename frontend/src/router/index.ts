@@ -51,9 +51,20 @@ const routes: RouteRecordRaw[] = [
         meta: { requiresAuth: true },
       },
       {
+        path: 'inbox',
+        name: 'inbox',
+        component: () => import('@/views/reminder/InboxView.vue'),
+        meta: { requiresAuth: true },
+      },
+      {
         path: 'forum',
         name: 'forum',
         component: () => import('@/views/forum/ForumListView.vue'),
+      },
+      {
+        path: 'forum/posts/:id',
+        name: 'forum-detail',
+        component: () => import('@/views/forum/ForumDetailView.vue'),
       },
       {
         path: 'admin',

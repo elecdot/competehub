@@ -18,6 +18,11 @@ def list_competitions():
     return success(pagination_payload(pagination))
 
 
+@competitions_bp.get("/options")
+def options():
+    return success(CompetitionService.options())
+
+
 @competitions_bp.get("/<int:competition_id>")
 @jwt_required(optional=True)
 def get_competition(competition_id: int):
@@ -59,4 +64,3 @@ def update_competition(competition_id: int):
     payload = CompetitionUpdateSchema().load(request.get_json() or {})
     competition = CompetitionService.update_competition(competition_id, payload)
     return success(competition.to_dict(), "赛事已更新")
-
