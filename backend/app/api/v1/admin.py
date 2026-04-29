@@ -19,6 +19,50 @@ def statistics():
     return success(AdminService.statistics())
 
 
+@admin_bp.get("/users")
+@jwt_required()
+@role_required("admin")
+def users():
+    return success(AdminService.list_users())
+
+
+@admin_bp.get("/posts")
+@jwt_required()
+@role_required("admin")
+def posts():
+    user_id = request.args.get("user_id", type=int)
+    return success(AdminService.list_posts(user_id))
+
+
+@admin_bp.delete("/posts/<int:post_id>")
+@jwt_required()
+@role_required("admin")
+def delete_post(post_id: int):
+    post = AdminService.delete_post(post_id)
+    return success(post.to_dict() if post else None, "帖子已删除")
+
+
+@admin_bp.get("/certifications")
+@jwt_required()
+@role_required("admin")
+def certifications():
+    return success(AdminService.list_certifications())
+
+
+@admin_bp.put("/certifications/<int:certification_id>")
+@jwt_required()
+@role_required("admin")
+def review_certification(certification_id: int):
+    payload = request.get_json() or {}
+    record = AdminService.review_certification(
+        certification_id,
+        payload.get("status", "approved"),
+        current_user_id(),
+        payload.get("review_comment"),
+    )
+    return success(record.to_dict() if record else None, "认证状态已更新")
+
+
 @admin_bp.get("/competitions")
 @jwt_required()
 @role_required("admin")
@@ -45,4 +89,3 @@ def admin_update_competition(competition_id: int):
     payload = CompetitionUpdateSchema().load(request.get_json() or {})
     competition = CompetitionService.update_competition(competition_id, payload)
     return success(competition.to_dict(), "赛事已更新")
-
