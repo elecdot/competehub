@@ -1,0 +1,17 @@
+.idea/
+.env
+.tmp/
+node_modules/
+dist/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+uploads/
+*.log
+cloudflared.log
+*.db
+backend/.python_packages/
+backend/.venv/
+backend/instance/
+backend/pytest-cache-files-*/

@@ -1,0 +1,7 @@
+Alembic migration repository for CompeteHub.
+
+Use:
+
+flask --app run.py db migrate -m "message"
+flask --app run.py db upgrade
+

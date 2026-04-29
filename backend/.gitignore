@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+.env
+.python_packages/
+.venv/
+instance/
+*.log
+pytest-cache-files-*/
+uploads/*
+!uploads/.gitkeep
+migrations/versions/*
+!migrations/versions/.gitkeep
