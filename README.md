@@ -14,6 +14,7 @@ CompeteHub is currently under active development (Initializing).
 - [README.md](./docs/README.md): Documentation directory overview and local conventions.
 - [PRD.md](./docs/PRD.md): Product requirements and stable business boundaries.
 - [tech_spec.md](./docs/tech_spec.md): Technical architecture and implementation design.
+- [adr/README.md](./docs/adr/README.md): Architecture decision records and ADR conventions.
 - [CONVENTIONS.md](./docs/CONVENTIONS.md): Repository naming and file organization conventions.
 - [setup.md](./docs/setup.md): A quick setup guideline for developers.
 - [tooling.md](./docs/tooling.md): Development tools and their usage.

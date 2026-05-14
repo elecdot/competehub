@@ -2,9 +2,9 @@
 
 ## 一、目标与边界
 
-本文档定义 CompeteHub 的技术架构、仓库结构、核心数据模型、服务边界和初始化规范。它承接 `docs/PRD.md` 中稳定的产品语义，但不把 PRD 当作逐项严格验收合同；后续开发任务和测试用例负责阶段性验收，本文档负责保持工程方向一致。
+本文档定义 CompeteHub 的长期技术结构、核心数据模型、服务边界和工程规范。它承接 `docs/PRD.md` 中稳定的产品语义，但不把 PRD 当作逐项严格验收合同；后续开发任务和测试用例负责阶段性验收，本文档负责保持工程方向一致。
 
-当前基础技术栈要求为 Vue、Flask 和 Redis。由于仓库仍处于初始化阶段，现有 `apps/api` 仅视为占位，可在不破坏项目约定的前提下重整为更清晰的工程结构。
+阶段性架构选择、取舍原因和可被未来决策替换的内容记录在 `docs/adr/`。当前初始化技术决策见 `docs/adr/0001-initial-application-architecture.md`。
 
 ## 二、架构总览
 
@@ -72,7 +72,7 @@ UV_CACHE_DIR=.cache/uv uv run --project apps/api "$@"
 
 `justfile` 中的 Python 命令应优先通过该脚本封装，避免不同环境下出现 uv cache 权限问题。
 
-## 四、技术选型
+## 四、技术栈边界
 
 ### 4.1 Frontend
 
@@ -82,7 +82,7 @@ UV_CACHE_DIR=.cache/uv uv run --project apps/api "$@"
 - Router：Vue Router
 - State：Pinia
 - HTTP Client：Axios 或基于 `fetch` 的薄封装，需统一错误处理。
-- UI：初始化阶段可先使用轻量组件库或自建基础组件；若后续引入组件库，应在 `apps/web/README.md` 固化使用规范。
+- UI：组件库选择属于阶段性决策，应记录到 `docs/adr/`；落地后的使用规范写入 `apps/web/README.md`。
 
 ### 4.2 Backend
 
@@ -90,7 +90,7 @@ UV_CACHE_DIR=.cache/uv uv run --project apps/api "$@"
 - App Structure：application factory + Blueprints
 - ORM：SQLAlchemy 2.x
 - Migration：Alembic 或 Flask-Migrate
-- Validation / Serialization：Marshmallow 或 Pydantic，初始化时选择一种并保持一致。
+- Validation / Serialization：项目应选择单一方案并保持一致；具体选择记录到 `docs/adr/` 和 `apps/api/README.md`。
 - Auth：HttpOnly Cookie session 或 Cookie-based JWT，避免将 token 存入 `localStorage`。
 - Task Queue：Celery + Redis
 
@@ -105,7 +105,7 @@ UV_CACHE_DIR=.cache/uv uv run --project apps/api "$@"
 
 ### 5.1 包结构
 
-`apps/api` 应重整为稳定 Flask 包：
+`apps/api` 使用稳定 Flask 包结构：
 
 ```text
 apps/api/
@@ -415,7 +415,7 @@ Python 相关命令通过 `scripts/agent-env.sh` 封装 `uv`。
 
 ## 十二、初始化实施顺序
 
-建议按以下顺序初始化：
+建议按以下顺序初始化。若顺序或关键选型发生变化，应新增或更新 `docs/adr/` 中的对应 ADR，而不是把阶段性说明写入本文档：
 
 1. 建立语义目录和各目录 README。
 2. 新增 `scripts/agent-env.sh`，修正 `justfile` 的 uv cache 使用方式。
@@ -431,5 +431,5 @@ Python 相关命令通过 `scripts/agent-env.sh` 封装 `uv`。
 
 - 中文搜索：PostgreSQL 基础查询可以支撑初期筛选，但复杂中文全文检索可能需要后续引入专用搜索服务。
 - 提醒可靠性：必须以数据库为事实来源，并保证 worker 幂等，避免重复提醒或漏提醒。
-- 权限扩展：教师和组织者暂不作为首批独立工作台，但角色模型必须预留扩展空间。
+- 权限扩展：教师和组织者不作为当前基础角色，但角色模型必须预留扩展空间。
 - PRD 漂移：新增语义和流程变更应同步 PRD 与 Tech Spec；局部实现细节只需同步到对应目录 README 或任务文档。
