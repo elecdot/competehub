@@ -67,7 +67,7 @@ scripts/agent-env.sh
 该脚本负责设置 workspace-safe cache，例如：
 
 ```bash
-UV_CACHE_DIR=.cache/uv uv run --project apps/api "$@"
+UV_CACHE_DIR=.cache/uv uv run --project apps/api <command>
 ```
 
 `justfile` 中的 Python 命令应优先通过该脚本封装，避免不同环境下出现 uv cache 权限问题。
