@@ -30,6 +30,10 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
 
     steps:
       - name: Checkout
@@ -56,6 +60,10 @@ jobs:
 
       - name: Build documentation
         run: ./scripts/agent-env.sh uv run --project apps/api --group docs mkdocs build --strict
+
+      - name: Configure GitHub Pages
+        if: github.event_name != 'pull_request'
+        uses: actions/configure-pages@v5
 
       - name: Upload GitHub Pages artifact
         if: github.event_name != 'pull_request'

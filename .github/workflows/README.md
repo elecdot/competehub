@@ -5,7 +5,7 @@ This directory contains GitHub Actions workflow definitions.
 ## Workflows
 
 - `ci.yml`: runs backend checks, frontend checks, and local infrastructure configuration validation on pull requests and pushes to `main`.
-- `docs.yml`: builds the MkDocs Material documentation site on pull requests and deploys it to GitHub Pages after pushes to `main`.
+- `docs.yml`: builds the MkDocs Material documentation site on pull requests and deploys it to GitHub Pages after pushes to `main`. The repository Pages source must be set to GitHub Actions in the GitHub Pages settings.
 
 ## CI Command Mapping
 
