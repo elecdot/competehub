@@ -6,7 +6,7 @@ This directory contains course reports, requirement-gathering materials, and gen
 
 - Keep report documents separate from stable product and engineering docs.
 - Prefer Markdown for editable source documents.
-- Do not treat reports as the source of truth when they conflict with `docs/PRD.md` or `docs/tech_spec.md`.
+- Do not treat reports as the source of truth when they conflict with `docs/PRD.zh.md` or `docs/tech_spec.zh.md`.
 
 ## Documents
 

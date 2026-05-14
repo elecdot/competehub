@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document describes the initial domain data model for CompeteHub. It complements `docs/api_spec.md` and `docs/tech_spec.md` by explaining tables, relationships, states, and ownership rules.
+This document describes the initial domain data model for CompeteHub. It complements `docs/api_spec.md` and `docs/tech_spec.zh.md` by explaining tables, relationships, states, and ownership rules.
 
 PostgreSQL is the system of record. Redis must not be the only storage location for any business fact described here.
 

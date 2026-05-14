@@ -4,7 +4,7 @@
 
 This document explains the long-lived architecture of CompeteHub at a high level. It is the entry point for understanding system boundaries, runtime components, data flow, and repository layout.
 
-Detailed implementation conventions remain in `docs/tech_spec.md`. Time-bound architecture decisions and tradeoffs are recorded in `docs/adr/`.
+Detailed implementation conventions remain in `docs/tech_spec.zh.md`. Time-bound architecture decisions and tradeoffs are recorded in `docs/adr/`.
 
 ## System Context
 

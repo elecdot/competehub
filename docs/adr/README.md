@@ -4,7 +4,7 @@ This directory contains Architecture Decision Records (ADRs).
 
 ## Purpose
 
-Use ADRs for decisions that explain why the project chose a direction at a point in time. Stable product requirements belong in `docs/PRD.md`; stable engineering structure and conventions belong in `docs/tech_spec.md`; time-bound reasoning, alternatives, tradeoffs, and superseded choices belong here.
+Use ADRs for decisions that explain why the project chose a direction at a point in time. Stable product requirements belong in `docs/PRD.zh.md`; stable engineering structure and conventions belong in `docs/tech_spec.zh.md`; time-bound reasoning, alternatives, tradeoffs, and superseded choices belong here.
 
 ## Naming
 

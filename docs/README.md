@@ -4,11 +4,11 @@ This directory contains product, technical, setup, and engineering convention do
 
 ## Documents
 
-- `PRD.md`: Product requirements and stable business boundaries.
+- `PRD.zh.md`: Product requirements and stable business boundaries.
 - `architecture.md`: High-level system architecture, runtime components, and data flow.
 - `api_spec.md`: REST API contract, response envelope, auth boundaries, and endpoint plan.
 - `data_model.md`: Core data model, relationships, states, and migration rules.
-- `tech_spec.md`: Technical architecture and implementation design.
+- `tech_spec.zh.md`: Technical architecture and implementation design.
 - `CONVENTIONS.md`: Repository naming and path conventions.
 - `setup.md`: Contributor setup guide.
 - `tooling.md`: Development tooling guide.
