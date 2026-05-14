@@ -1,6 +1,44 @@
 # CompeteHub
 
-CompeteHub is currently under active development (Initializing).
+CompeteHub is a student-centered competition discovery and recommendation system.
+
+The repository now contains the initial Vue frontend, Flask backend, Redis/PostgreSQL local infrastructure, and product/technical documentation.
+
+## Quick Start
+
+>[!tip] See [setup.md](./docs/setup.md) for more comprehensive setup guide.
+
+Prerequisites:
+
+- `just`
+- `uv`
+- Node.js and npm
+- Docker Desktop with WSL integration enabled when running local infrastructure
+
+```bash
+# Install backend dependencies.
+just api-sync
+
+# Install frontend dependencies.
+npm --prefix apps/web install
+
+# Start local PostgreSQL and Redis.
+just infra-up
+
+# Start backend and frontend in separate terminals.
+just api-dev
+just web-dev
+```
+
+Useful checks:
+
+```bash
+just api-test
+just api-lint
+just web-lint
+just web-build
+docker compose -f infra/docker-compose.yml config
+```
 
 ## Documentation
 
@@ -23,6 +61,8 @@ CompeteHub is currently under active development (Initializing).
 
 `reports/`:
 - [README.md](./reports/README.md): Report directory overview and local conventions.
+- [requirements.md](./reports/requirements.md): Requirement-gathering and initial requirement analysis report.
+- [module_breakdown.md](./reports/module_breakdown.md): Module split, interfaces, and member responsibilities for course work.
 
 `infra/`:
 - [README.md](./infra/README.md): Local infrastructure overview and conventions.
@@ -32,6 +72,7 @@ CompeteHub is currently under active development (Initializing).
 
 ## Open Loops
 
-- [ ] Complete the requirements analysis report
+- [x] Complete the requirements analysis report
+- [x] Complete module split and responsibility report
 - [x] Decide how to structure the frontend and backend files and organize the technology stack
 - [x] Initialize agent-safe command wrapper

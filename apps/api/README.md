@@ -24,7 +24,17 @@ This directory does not own frontend code, infrastructure definitions, course re
 
 ## Local Commands
 
-Run Python commands through the workspace-safe helper from the repository root:
+Preferred commands from the repository root:
+
+```bash
+just api-sync
+just api-dev
+just api-test
+just api-lint
+just api-format
+```
+
+Raw Python commands should go through the workspace-safe helper:
 
 ```bash
 ./scripts/agent-env.sh uv sync --project apps/api
@@ -33,7 +43,7 @@ Run Python commands through the workspace-safe helper from the repository root:
 ./scripts/agent-env.sh flask --app competehub_api.app:create_app run --debug
 ```
 
-Equivalent `just` recipes are defined in the repository root `justfile`.
+Local PostgreSQL and Redis can be started with `just infra-up`.
 
 ## Local Conventions
 
@@ -42,3 +52,4 @@ Equivalent `just` recipes are defined in the repository root `justfile`.
 - Keep database facts in PostgreSQL; Redis is not a source of truth.
 - Use Marshmallow for request and response schemas unless an ADR supersedes this choice.
 - Add or update migrations whenever model changes require database schema changes.
+- Keep Celery tasks idempotent and call services instead of duplicating business rules.

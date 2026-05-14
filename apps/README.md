@@ -7,6 +7,17 @@ This directory contains deployable application packages.
 - `api/`: Flask backend API.
 - `web/`: Vue frontend application.
 
+## Common Workflows
+
+Run from the repository root:
+
+```bash
+just api-dev
+just web-dev
+```
+
+Use `just --list` to see all available app, infrastructure, and quality-check commands.
+
 ## Local Conventions
 
 - Each application directory must include its own `README.md`.

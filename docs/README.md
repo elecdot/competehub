@@ -11,6 +11,8 @@ This directory contains product, technical, setup, and engineering convention do
 - `tooling.md`: Development tooling guide.
 - `adr/`: Architecture decision records for time-bound decisions and tradeoffs.
 
+Related course reports live in `reports/`, including module split and responsibility documents.
+
 ## Local Conventions
 
 - Use repository-relative paths in documentation.

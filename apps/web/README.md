@@ -26,6 +26,7 @@ This directory does not own backend business rules, database models, infrastruct
 Run from the repository root:
 
 ```bash
+npm --prefix apps/web install
 just web-dev
 just web-build
 just web-lint
@@ -44,3 +45,4 @@ npm --prefix apps/web run dev
 - Reusable state belongs in Pinia stores, not ad hoc module globals.
 - Frontend permission checks are for UX only; backend APIs must enforce authorization.
 - UI component library adoption requires an ADR and this README must be updated with usage rules.
+- Vite proxies `/api` to the Flask backend during local development.

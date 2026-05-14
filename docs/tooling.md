@@ -8,19 +8,27 @@ This guide introduces the development tools used in this project.
 
 For example, here is a `justfile`:
 ```bash
-pre-commit:
-    uv run --project apps/api pre-commit install
-    uv run --project apps/api pre-commit run --all-files
+api-test:
+    ./scripts/agent-env.sh pytest
 ```
 Then you type:
 ```bash
-just pre-commit
+just api-test
 ```
-Running the above is equivalent to executing:
-```bash
-uv run --project apps/api pre-commit install
-uv run --project apps/api pre-commit run --all-files
-```
+
+Current project recipes include:
+
+- `api-sync`: sync backend dependencies.
+- `api-dev`: start the Flask backend.
+- `api-test`: run backend tests.
+- `api-lint`: run backend Ruff checks.
+- `api-format`: format backend Python files.
+- `web-dev`: start the Vue dev server.
+- `web-lint`: run frontend type checks.
+- `web-build`: build the Vue app.
+- `infra-up`: start local PostgreSQL and Redis.
+- `infra-down`: stop local PostgreSQL and Redis.
+- `pre-commit`: install and run pre-commit hooks.
 
 ---
 
@@ -77,6 +85,13 @@ uv add --dev ipykernel
 uv run <command here>
 ```
 
+In this repository, prefer the workspace-safe wrapper:
+
+```bash
+./scripts/agent-env.sh pytest
+./scripts/agent-env.sh ruff check .
+```
+
 #### Update the environment
 
 This is done automatically prior to every `uv run`. You may only need this when you want activate the `venv` manually.
@@ -85,4 +100,37 @@ uv sync
 source .venv/bin/activate
 flask run -p 3000
 python example.py
+```
+
+For this project, prefer:
+
+```bash
+just api-sync
+just api-dev
+```
+
+---
+
+## `npm`
+
+The frontend app in `apps/web` uses npm.
+
+```bash
+npm --prefix apps/web install
+npm --prefix apps/web run dev
+npm --prefix apps/web run build
+```
+
+Prefer the equivalent `just` recipes when available.
+
+---
+
+## Docker Compose
+
+Local PostgreSQL and Redis are defined in `infra/docker-compose.yml`.
+
+```bash
+just infra-up
+docker compose -f infra/docker-compose.yml ps
+just infra-down
 ```
