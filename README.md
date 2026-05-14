@@ -37,6 +37,7 @@ just api-test
 just api-lint
 just web-lint
 just web-build
+just docs-build
 docker compose -f infra/docker-compose.yml config
 ```
 
@@ -76,6 +77,8 @@ docker compose -f infra/docker-compose.yml config
 
 `scripts/`:
 - [README.md](./scripts/README.md): Repository helper scripts and agent-safe command conventions.
+
+The MkDocs Material site is configured by [mkdocs.yml](./mkdocs.yml). Use `just docs-serve` for local preview and `just docs-build` for strict validation.
 
 ## Open Loops
 

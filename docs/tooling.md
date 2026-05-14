@@ -23,6 +23,8 @@ Current project recipes include:
 - `api-test`: run backend tests.
 - `api-lint`: run backend Ruff checks.
 - `api-format`: format backend Python files.
+- `docs-build`: build the MkDocs Material documentation site.
+- `docs-serve`: start the local MkDocs documentation server.
 - `web-dev`: start the Vue dev server.
 - `web-lint`: run frontend type checks.
 - `web-build`: build the Vue app.
@@ -122,6 +124,19 @@ npm --prefix apps/web run build
 ```
 
 Prefer the equivalent `just` recipes when available.
+
+---
+
+## MkDocs
+
+The documentation site uses MkDocs Material and publishes from `docs/` through GitHub Pages.
+
+```bash
+just docs-build
+just docs-serve
+```
+
+`just docs-build` runs MkDocs in strict mode, so broken navigation or links fail before deployment.
 
 ---
 

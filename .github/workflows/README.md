@@ -5,6 +5,7 @@ This directory contains GitHub Actions workflow definitions.
 ## Workflows
 
 - `ci.yml`: runs backend checks, frontend checks, and local infrastructure configuration validation on pull requests and pushes to `main`.
+- `docs.yml`: builds the MkDocs Material documentation site on pull requests and deploys it to GitHub Pages after pushes to `main`.
 
 ## CI Command Mapping
 
@@ -15,6 +16,8 @@ This directory contains GitHub Actions workflow definitions.
 - Frontend typecheck: `npm --prefix apps/web run lint`
 - Frontend build: `npm --prefix apps/web run build`
 - Infrastructure config check: `docker compose -f infra/docker-compose.yml config`
+- Documentation dependency sync: `./scripts/agent-env.sh uv sync --project apps/api --group docs --locked`
+- Documentation build: `./scripts/agent-env.sh uv run --project apps/api --group docs mkdocs build --strict`
 
 ## Local Conventions
 

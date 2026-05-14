@@ -1,6 +1,23 @@
 # Documentation
 
-This directory contains product, technical, setup, and engineering convention documents.
+This directory contains product, technical, setup, and engineering convention documents for CompeteHub, a student-centered competition discovery and recommendation system.
+
+## Start Here
+
+- [Setup](./setup.md): prepare the local workspace and run the applications.
+- [Architecture](./architecture.md): understand the system boundaries, runtime components, and data flow.
+- [API Spec](./api_spec.md): review the REST API contract and endpoint plan.
+- [Data Model](./data_model.md): review the core entities, relationships, and lifecycle rules.
+- [Tooling](./tooling.md): find the repository commands for development, checks, and documentation.
+
+## Repository Areas
+
+- `apps/api/`: Flask backend API.
+- `apps/web/`: Vue frontend application.
+- `docs/`: product and technical documentation.
+- `infra/`: local infrastructure definitions.
+- `reports/`: course-style reports and analysis artifacts.
+- `scripts/`: repository helper scripts.
 
 ## Documents
 
@@ -22,6 +39,7 @@ Related course reports live in `reports/`, including module split and responsibi
 - Keep long-lived product and architecture decisions in `docs/`.
 - Put stage-specific architecture decisions, alternatives, and superseded choices in `docs/adr/`.
 - Put course-style reports and generated analysis artifacts in `reports/`.
+- Use `just docs-build` to validate the MkDocs Material site before changing documentation navigation.
 - When a semantic documentation area grows large, create a subdirectory with its own `README.md`.
 
 ## Plan

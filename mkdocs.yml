@@ -1,0 +1,50 @@
+site_name: CompeteHub
+site_description: Student-centered competition discovery and recommendation system.
+site_url: https://elecdot.github.io/competehub/
+repo_name: elecdot/competehub
+repo_url: https://github.com/elecdot/competehub
+
+docs_dir: docs
+
+theme:
+  name: material
+  language: en
+  features:
+    - navigation.instant
+    - navigation.sections
+    - navigation.top
+    - search.highlight
+    - search.suggest
+    - toc.follow
+
+markdown_extensions:
+  # These extensions keep long-form product and architecture docs readable.
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+
+nav:
+  - Home: README.md
+  - Product Requirements: PRD.zh.md
+  - Architecture: architecture.md
+  - API Spec: api_spec.md
+  - Data Model: data_model.md
+  - Tech Spec: tech_spec.zh.md
+  - Setup: setup.md
+  - Tooling: tooling.md
+  - Conventions: CONVENTIONS.md
+  - ADR:
+      - Overview: adr/README.md
+      - Initial Application Architecture: adr/0001-initial-application-architecture.md
+      - Initial Framework Supporting Choices: adr/0002-initial-framework-supporting-choices.md
+
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn

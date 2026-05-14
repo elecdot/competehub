@@ -24,6 +24,14 @@ api-lint:
 api-format:
     ./scripts/agent-env.sh ruff format .
 
+# Build the MkDocs Material documentation site.
+docs-build:
+    ./scripts/agent-env.sh uv run --project apps/api --group docs mkdocs build --strict
+
+# Start the MkDocs Material documentation server.
+docs-serve:
+    ./scripts/agent-env.sh uv run --project apps/api --group docs mkdocs serve
+
 # Start the Vue development server.
 web-dev:
     npm --prefix apps/web run dev

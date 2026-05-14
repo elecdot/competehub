@@ -23,7 +23,9 @@ git config core.eol lf
 git config core.autocrlf input
 ```
 
->[!warning] This does not mean the `CRLF` (Windows style line endings) is permitted .
+!!! warning
+
+    This does not mean the `CRLF` Windows-style line endings are permitted.
 
 ## Install pre-commit
 
