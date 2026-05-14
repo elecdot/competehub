@@ -68,7 +68,12 @@ If tooling rejects `meta`, use `chore(meta)`.
 
 ## Scopes
 
-Prefer the most specific stable scope.
+Scopes are not a closed list. Prefer the most specific stable scope that helps
+reviewers understand where the change belongs.
+
+Use a recommended repo scope when the change maps to a stable area. Use a more
+specific module, feature, file, or function scope when that is clearer and
+likely to remain meaningful in history.
 
 | Scope | Use when |
 | --- | --- |
@@ -86,6 +91,23 @@ Prefer the most specific stable scope.
 | `agents` | coding-agent instructions or workflows |
 | `git` | Git workflow, commit rules, branch rules |
 | `project` | cross-cutting project organization |
+
+Specific scope examples:
+
+```text
+fix(deadline-parser): handle timezone-only input
+refactor(competition-card): simplify status rendering
+test(auth-guard): cover expired session redirect
+docs(mkdocs): add agent guideline navigation
+```
+
+Avoid scopes that only describe a temporary detail:
+
+```text
+fix(if-block): handle null
+refactor(helper): clean up code
+fix(line-42): update condition
+```
 
 For multi-area work, split by logical change:
 
