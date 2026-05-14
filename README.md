@@ -53,6 +53,9 @@ docker compose -f infra/docker-compose.yml config
 `docs/`:
 - [README.md](./docs/README.md): Documentation directory overview and local conventions.
 - [PRD.md](./docs/PRD.md): Product requirements and stable business boundaries.
+- [architecture.md](./docs/architecture.md): High-level system architecture and data flow.
+- [api_spec.md](./docs/api_spec.md): REST API contract and endpoint plan.
+- [data_model.md](./docs/data_model.md): Core data model, relationships, and state rules.
 - [tech_spec.md](./docs/tech_spec.md): Technical architecture and implementation design.
 - [adr/README.md](./docs/adr/README.md): Architecture decision records and ADR conventions.
 - [CONVENTIONS.md](./docs/CONVENTIONS.md): Repository naming and file organization conventions.
