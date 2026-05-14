@@ -1,0 +1,65 @@
+name: Task
+description: Track documentation, CI, refactor, maintenance, or coordination work.
+title: "chore: "
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - api
+        - web
+        - db
+        - auth
+        - ui
+        - docs
+        - infra
+        - ci
+        - tests
+        - deps
+        - config
+        - agents
+        - git
+        - project
+    validations:
+      required: true
+  - type: dropdown
+    id: type
+    attributes:
+      label: Change Type
+      options:
+        - docs
+        - style
+        - refactor
+        - perf
+        - test
+        - build
+        - ci
+        - chore
+        - meta
+    validations:
+      required: true
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: What should be changed, cleaned up, or clarified?
+    validations:
+      required: true
+  - type: textarea
+    id: checklist
+    attributes:
+      label: Completion Checklist
+      description: Concrete steps or acceptance checks.
+      placeholder: |
+        - First required change
+        - Validation command or review check
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Relevant files, tradeoffs, constraints, or follow-up work.
+    validations:
+      required: false

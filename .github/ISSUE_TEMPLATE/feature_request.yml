@@ -1,0 +1,61 @@
+name: Feature Request
+description: Propose a new capability or behavior change.
+title: "feat: "
+labels:
+  - enhancement
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - api
+        - web
+        - db
+        - auth
+        - ui
+        - docs
+        - infra
+        - ci
+        - agents
+        - project
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user or project problem should this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed Outcome
+      description: What should exist after this is done?
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      description: Concrete checks that would make this complete.
+      placeholder: |
+        - First observable outcome
+        - Validation command or review check
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Optional tradeoffs, rejected approaches, or constraints.
+    validations:
+      required: false
+  - type: textarea
+    id: docs
+    attributes:
+      label: Documentation Impact
+      description: Docs, ADRs, setup notes, or MkDocs navigation that may need updates.
+    validations:
+      required: false
