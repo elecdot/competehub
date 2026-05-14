@@ -37,6 +37,7 @@ project dependency system and document it.
 smallest passing change, then refactor.
 - Do not rewrite unrelated files, reformat entire files unnecessarily, or
 change public contracts without updating documentation and validation.
+- When preparing commits, branches, or pull requests, follow `README-GIT.md`.
 - Preserve user changes already present in the worktree; do not revert work you
 did not make unless explicitly requested.
 - Add appropriate comments when working, especially where a decision or complex
