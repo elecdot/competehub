@@ -19,6 +19,9 @@ wheels/
 Thumbs.db
 desktop.ini
 
+# Workspace-local tool caches
+.cache/
+
 # Codex local state
 .codex/
 .codex
@@ -43,3 +46,6 @@ desktop.ini
 *.mkv
 *.mov
 *.exe
+
+# Aider local state
+.aider*
