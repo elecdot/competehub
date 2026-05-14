@@ -45,6 +45,10 @@ docker compose -f infra/docker-compose.yml config
 `/`:
 - [README-GIT.md](README-GIT.md): Git workflow and commit guidelines for contributors and coding agents.
 
+`.github/`:
+- [README.md](./.github/README.md): GitHub automation overview and local conventions.
+- [workflows/README.md](./.github/workflows/README.md): GitHub Actions workflow overview and CI command mapping.
+
 `apps/`:
 - [README.md](./apps/README.md): Application directory overview and local conventions.
 - [api/README.md](./apps/api/README.md): Backend API overview and local conventions.
