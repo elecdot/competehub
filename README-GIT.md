@@ -1,20 +1,24 @@
 # Git Workflow
 
 This repository uses [Conventional Commits](https://www.conventionalcommits.org/)
-with the repo-specific rules below. These conventions apply to collaborators
-and coding agents.
+with the repo-specific rules below. These conventions apply to both
+collaborators and coding agents.
 
 Agents must not commit, push, or rewrite Git history unless the user explicitly
 asks for that action.
 
-## Rules
+## Quick Rules
 
 - One commit should contain one logical, reviewable, reversible change.
 - Split unrelated changes instead of hiding them behind a broad commit.
-- Run relevant checks before committing when practical; otherwise state what was
-not run and why.
+- Run relevant checks from `AGENTS.md` before committing when practical;
+  otherwise state what was not run and why.
 - Use targeted staging. Avoid `git add .` unless the whole worktree has been
-reviewed.
+  reviewed.
+- Inspect `git status`, `git diff`, and `git diff --staged` before committing.
+- Confirm no secrets, `.env`, `.cache/`, `site/`, build outputs, editor state,
+  temporary files, debug output, personal notes, or unrelated generated files are
+  staged.
 
 ## Commit Format
 
@@ -35,19 +39,17 @@ meta(agents): define repository agent workflow
 Use a body only when the subject does not explain the reason, trade-off, or
 behavior change clearly enough.
 
-## Decision Rules
+## Choosing Type And Scope
 
 - Choose the type by the primary intent of the commit.
 - Keep tests and docs in the same commit when they validate or explain the same
-behavior change.
+  behavior change.
 - Use separate `docs` or `test` commits when documentation or tests are the
-actual change.
+  actual change.
 - Use `ci` for workflow behavior changes and `docs` for workflow documentation
-only.
+  only.
 - Use `build(deps)` for dependency and lockfile changes.
 - Use `meta` for repository process, Git rules, and agent coordination.
-
-## Types
 
 | Type | Use when |
 | --- | --- |
@@ -66,14 +68,8 @@ only.
 
 If tooling rejects `meta`, use `chore(meta)`.
 
-## Scopes
-
 Scopes are not a closed list. Prefer the most specific stable scope that helps
 reviewers understand where the change belongs.
-
-Use a recommended repo scope when the change maps to a stable area. Use a more
-specific module, feature, file, or function scope when that is clearer and
-likely to remain meaningful in history.
 
 | Scope | Use when |
 | --- | --- |
@@ -92,7 +88,8 @@ likely to remain meaningful in history.
 | `git` | Git workflow, commit rules, branch rules |
 | `project` | cross-cutting project organization |
 
-Specific scope examples:
+Use a more specific module, feature, file, or function scope when it is clearer
+and likely to remain meaningful in history:
 
 ```text
 fix(deadline-parser): handle timezone-only input
@@ -101,7 +98,7 @@ test(auth-guard): cover expired session redirect
 docs(mkdocs): add agent guideline navigation
 ```
 
-Avoid scopes that only describe a temporary detail:
+Avoid scopes that only describe a temporary detail, such as:
 
 ```text
 fix(if-block): handle null
@@ -109,18 +106,14 @@ refactor(helper): clean up code
 fix(line-42): update condition
 ```
 
-For multi-area work, split by logical change:
+For multi-area work, split by logical change and use broad scopes only for truly
+cross-cutting changes:
 
 ```text
 feat(api): add competition creation endpoint
 feat(web): add competition creation form
 test(api): cover competition creation validation
 docs(api): document competition creation flow
-```
-
-Use broad scopes only for truly cross-cutting changes:
-
-```text
 refactor(project): standardize error response handling
 build(deps): update application dependencies
 ```
@@ -159,18 +152,6 @@ fix/api-deadline-validation
 docs/local-setup
 meta/git-rules
 ```
-
-## Commit Checklist
-
-Before committing:
-
-1. Inspect `git status`, `git diff`, and `git diff --staged`.
-2. Separate unrelated changes.
-3. Run relevant checks from `AGENTS.md`.
-4. Stage deliberate paths only.
-5. Confirm no secrets, `.env`, `.cache/`, `site/`, build outputs, editor
-state, temporary files, debug output, personal notes, or unrelated generated
-files are staged.
 
 ## Pull Requests
 
