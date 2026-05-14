@@ -30,6 +30,9 @@ markdown_extensions:
 
 nav:
   - Home: README.md
+  - Agent Guidelines:
+      - Overview: agent/README.md
+      - Test-Driven Development: agent/tdd.md
   - Product Requirements: PRD.zh.md
   - Architecture: architecture.md
   - API Spec: api_spec.md

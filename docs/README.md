@@ -9,6 +9,7 @@ This directory contains product, technical, setup, and engineering convention do
 - [API Spec](./api_spec.md): review the REST API contract and endpoint plan.
 - [Data Model](./data_model.md): review the core entities, relationships, and lifecycle rules.
 - [Tooling](./tooling.md): find the repository commands for development, checks, and documentation.
+- [Agent Guidelines](./agent/README.md): review coding-agent workflow guidance.
 
 ## Repository Areas
 
@@ -29,6 +30,7 @@ This directory contains product, technical, setup, and engineering convention do
 - `CONVENTIONS.md`: Repository naming and path conventions.
 - `setup.md`: Contributor setup guide.
 - `tooling.md`: Development tooling guide.
+- `agent/`: Coding-agent workflow guidance and task-specific development procedures.
 - `adr/`: Architecture decision records for time-bound decisions and tradeoffs.
 
 Related course reports live in `reports/`, including module split and responsibility documents.
@@ -40,6 +42,7 @@ Related course reports live in `reports/`, including module split and responsibi
 - Put stage-specific architecture decisions, alternatives, and superseded choices in `docs/adr/`.
 - Put course-style reports and generated analysis artifacts in `reports/`.
 - Use `just docs-build` to validate the MkDocs Material site before changing documentation navigation.
+- Keep `mkdocs.yml` synchronized when changing agent-facing documentation pages.
 - When a semantic documentation area grows large, create a subdirectory with its own `README.md`.
 
 ## Plan
