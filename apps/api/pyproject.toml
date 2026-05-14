@@ -1,16 +1,27 @@
 [project]
-name = "api"
+name = "competehub-api"
 version = "0.1.0"
-description = "Add your description here"
+description = "Backend API for CompeteHub"
 readme = "README.md"
 authors = [
     { name = "gzh", email = "elecdot5@gmail.com" }
 ]
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "celery[redis]>=5.5.0",
+    "flask>=3.1.0",
+    "flask-cors>=6.0.0",
+    "flask-migrate>=4.1.0",
+    "flask-sqlalchemy>=3.1.1",
+    "marshmallow>=4.0.0",
+    "psycopg[binary]>=3.2.0",
+    "python-dotenv>=1.1.0",
+    "redis>=6.0.0",
+    "sqlalchemy>=2.0.0",
+]
 
 [project.scripts]
-api = "api:main"
+competehub-api = "competehub_api.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.9.17,<0.10.0"]
@@ -19,4 +30,18 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "pre-commit>=4.5.1",
+    "pytest>=9.0.0",
+    "pytest-cov>=7.0.0",
+    "ruff>=0.14.0",
 ]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
