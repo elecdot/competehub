@@ -5,7 +5,7 @@ This directory contains deployable application packages.
 ## Structure
 
 - `api/`: Flask backend API.
-- `web/`: Vue frontend application. This directory will be created during frontend initialization.
+- `web/`: Vue frontend application.
 
 ## Local Conventions
 

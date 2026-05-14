@@ -9,6 +9,8 @@ CompeteHub is currently under active development (Initializing).
 
 `apps/`:
 - [README.md](./apps/README.md): Application directory overview and local conventions.
+- [api/README.md](./apps/api/README.md): Backend API overview and local conventions.
+- [web/README.md](./apps/web/README.md): Frontend app overview and local conventions.
 
 `docs/`:
 - [README.md](./docs/README.md): Documentation directory overview and local conventions.
@@ -22,8 +24,14 @@ CompeteHub is currently under active development (Initializing).
 `reports/`:
 - [README.md](./reports/README.md): Report directory overview and local conventions.
 
+`infra/`:
+- [README.md](./infra/README.md): Local infrastructure overview and conventions.
+
+`scripts/`:
+- [README.md](./scripts/README.md): Repository helper scripts and agent-safe command conventions.
+
 ## Open Loops
 
 - [ ] Complete the requirements analysis report
 - [x] Decide how to structure the frontend and backend files and organize the technology stack
-- [ ] Initialize agent building system
+- [x] Initialize agent-safe command wrapper
