@@ -17,7 +17,7 @@ uses the workspace-safe cache under `.cache/uv`.
 - Do not add a root-level `uv` project. Python dependencies and dependency
 groups should live in the relevant application project, such as `apps/api`.
 - Documentation Python dependencies belong in the `apps/api` dependency groups.
-- Frontend dependencies belong in `apps/web/package.json`.
+- Frontend dependencies belong in `apps/web/package.json` and managed by `npm`.
 - When a task reasonably needs a missing regular dependency, add it through the
 project's dependency-management conventions and document the related command.
 
