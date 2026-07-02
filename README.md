@@ -38,6 +38,7 @@ Useful checks:
 ```bash
 just api-test
 just api-lint
+just api-format
 just web-lint
 just web-build
 just docs-build

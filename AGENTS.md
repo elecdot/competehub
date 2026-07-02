@@ -53,7 +53,7 @@ block would otherwise be hard to understand.
 
 ## Validation Matrix
 
-- Backend code: `just api-test` and `just api-lint`.
+- Backend code: `just api-test`, `just api-lint` and `just api-format`.
 - Frontend code: `just web-lint` and `just web-build`.
 - Documentation: `just docs-build`.
 - Infrastructure: `docker compose -f infra/docker-compose.yml config`.
