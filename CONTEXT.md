@@ -1,6 +1,8 @@
 # CompeteHub
 
 This glossary records the project-specific language for the student competition discovery and recommendation domain.
+It defines canonical terms and avoided wording only; decision rationale and
+tradeoffs belong in `docs/adr/`.
 
 ## Language
 
@@ -17,7 +19,7 @@ The canonical business object that students search, view, favorite, subscribe to
 _Avoid_: 比赛, 竞赛
 
 **规则推荐**:
-A recommendation approach that ranks赛事 by explicit profile, tag, time, and configuration rules. It may use internal ordering weights, but it does not expose a public赛事价值分数.
+A recommendation approach that ranks赛事 by explicit profile, tag, time, and configuration rules and expresses output through推荐理由 instead of a public赛事价值分数.
 _Avoid_: 智能评分, 含金量评分, 机器学习推荐
 
 **推荐理由**:
@@ -29,15 +31,15 @@ Reference information that helps students judge whether a赛事 is worth attenti
 _Avoid_: 赛事价值评分, 含金量评分
 
 **可信来源**:
-An official or institutionally reliable source for赛事 information, such as school websites, college announcements, official competition sites, or official notices. A赛事 must retain source identity and source link.
+An official or institutionally reliable source for赛事 information, such as school websites, college announcements, official competition sites, or official notices. Source identity and source link are part of the source fact.
 _Avoid_: 非来源化信息, 群聊传闻
 
 **人工录入**:
-The current-version way administrators create赛事 records from可信来源. It includes structured fields and source retention before review and publication.
+A management action where administrators create赛事 records from可信来源, with structured fields and retained source facts before review and publication.
 _Avoid_: 自动采集, 爬虫采集
 
 **采集候选赛事**:
-A future enhancement where semi-automated collection may create candidate赛事 records for administrator review. It is not a current core capability and must not bypass审核发布.
+A prospective赛事 record produced by semi-automated collection for administrator review. It is a candidate record, not a published赛事.
 _Avoid_: 自动发布赛事, 自动采集发布
 
 **学生**:
@@ -49,7 +51,7 @@ The current management role responsible for赛事录入, 审核发布, status ma
 _Avoid_: 运营人员, 后台用户
 
 **辅助干系人**:
-Teachers, teaching secretaries, competition organizers, and student organizations whose needs inform the system but do not receive dedicated current-version workspaces.
+Teachers, teaching secretaries, competition organizers, and student organizations whose needs inform the system without being current formal product roles.
 _Avoid_: 正式用户角色
 
 **收藏**:
@@ -61,7 +63,7 @@ A student's active decision to follow a赛事 and its time nodes. 订阅 can gen
 _Avoid_: 收藏, 关注
 
 **站内提醒**:
-A reminder delivered inside CompeteHub as a system message. Current-version reminders do not include email, SMS, WeChat, enterprise messaging, or mini-program push channels.
+A reminder delivered inside CompeteHub as a system message instead of through external notification channels.
 _Avoid_: 邮件提醒, 短信提醒, 微信提醒, 外部推送
 
 **个人赛事日历**:

@@ -62,6 +62,11 @@ nav:
       - Overview: adr/README.md
       - Initial Application Architecture: adr/0001-initial-application-architecture.md
       - Initial Framework Supporting Choices: adr/0002-initial-framework-supporting-choices.md
+      - Explainable Rule-Based Recommendation: adr/0003-explainable-rule-based-recommendation.md
+      - In-App Reminders First: adr/0004-in-app-reminders-first.md
+      - Trusted Source Manual Entry: adr/0005-trusted-source-manual-entry.md
+      - Student and Admin Current Roles: adr/0006-student-admin-current-roles.md
+      - Separate Favorites and Subscriptions: adr/0007-separate-favorites-and-subscriptions.md
 
 validation:
   omitted_files: warn

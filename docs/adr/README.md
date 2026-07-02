@@ -14,9 +14,23 @@ Use numbered lowercase filenames:
 0001-initial-application-architecture.md
 ```
 
+## Records
+
+- [0001 Initial Application Architecture](./0001-initial-application-architecture.md)
+- [0002 Initial Framework Supporting Choices](./0002-initial-framework-supporting-choices.md)
+- [0003 Explainable Rule-Based Recommendation](./0003-explainable-rule-based-recommendation.md)
+- [0004 In-App Reminders First](./0004-in-app-reminders-first.md)
+- [0005 Trusted Source Manual Entry](./0005-trusted-source-manual-entry.md)
+- [0006 Student and Admin Current Roles](./0006-student-admin-current-roles.md)
+- [0007 Separate Favorites and Subscriptions](./0007-separate-favorites-and-subscriptions.md)
+
 ## Template
 
-Each ADR should include:
+An ADR may be a single paragraph when the decision is straightforward. The
+important part is recording what was decided and why future readers should not
+reverse it casually.
+
+Add structured sections only when they add useful clarity:
 
 - Status: proposed, accepted, superseded, or deprecated.
 - Context: what problem or constraint forced the decision.
