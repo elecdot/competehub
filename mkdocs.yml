@@ -34,6 +34,7 @@ nav:
       - Overview: agent/README.md
       - Test-Driven Development: agent/tdd.md
   - Product Requirements: PRD.zh.md
+  - Roadmap: roadmap.md
   - Architecture: architecture.md
   - API Spec: api_spec.md
   - Data Model: data_model.md
@@ -41,6 +42,18 @@ nav:
   - Setup: setup.md
   - Tooling: tooling.md
   - Conventions: CONVENTIONS.md
+  - Reports:
+      - Overview: reports/README.md
+      - Requirements Gathering: reports/requirements.md
+      - Module Breakdown: reports/module_breakdown.md
+      - Module Breakdown v1.0: reports/module_breakdown_v1.0.md
+      - Templates:
+          - Project Development Plan: reports/templates/01_项目开发计划.template.md
+          - Requirements Specification: reports/templates/02_需求规格说明.template.md
+          - Software Design Specification: reports/templates/03_软件设计说明.template.md
+          - Project Development Record: reports/templates/04_项目开发记录.template.md
+          - Test Plan: reports/templates/05_测试计划.template.md
+          - User Manual: reports/templates/06_用户操作手册.template.md
   - ADR:
       - Overview: adr/README.md
       - Initial Application Architecture: adr/0001-initial-application-architecture.md

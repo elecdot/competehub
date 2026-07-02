@@ -44,6 +44,7 @@ docker compose -f infra/docker-compose.yml config
 ## Documentation
 
 `/`:
+- [CONTEXT.md](CONTEXT.md): Canonical project language and domain terms.
 - [README-GIT.md](README-GIT.md): Git workflow and commit guidelines for contributors and coding agents.
 
 `.github/`:
@@ -58,6 +59,7 @@ docker compose -f infra/docker-compose.yml config
 `docs/`:
 - [README.md](./docs/README.md): Documentation directory overview and local conventions.
 - [PRD.zh.md](./docs/PRD.zh.md): Product requirements and stable business boundaries.
+- [roadmap.md](./docs/roadmap.md): Product and engineering delivery route.
 - [architecture.md](./docs/architecture.md): High-level system architecture and data flow.
 - [api_spec.md](./docs/api_spec.md): REST API contract and endpoint plan.
 - [data_model.md](./docs/data_model.md): Core data model, relationships, and state rules.
@@ -67,10 +69,10 @@ docker compose -f infra/docker-compose.yml config
 - [setup.md](./docs/setup.md): A quick setup guideline for developers.
 - [tooling.md](./docs/tooling.md): Development tools and their usage.
 
-`reports/`:
-- [README.md](./reports/README.md): Report directory overview and local conventions.
-- [requirements.md](./reports/requirements.md): Requirement-gathering and initial requirement analysis report.
-- [module_breakdown_v1.0.md](./reports/module_breakdown_v1.0.md): Module split, interfaces, and member responsibilities for course work.
+`docs/reports/`:
+- [README.md](./docs/reports/README.md): Report directory overview and local conventions.
+- [requirements.md](./docs/reports/requirements.md): Requirement-gathering and initial requirement analysis report.
+- [module_breakdown_v1.0.md](./docs/reports/module_breakdown_v1.0.md): Module split, interfaces, and member responsibilities for course work.
 
 `infra/`:
 - [README.md](./infra/README.md): Local infrastructure overview and conventions.
