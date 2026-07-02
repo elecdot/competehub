@@ -6,6 +6,9 @@ This file is the repository-level behavior contract for coding agents.
 
 - Read `README.md` and relevant directory-level `README.md` files before
 editing code or documentation.
+- Read `CONTEXT.md` for canonical project language and `docs/roadmap.md` for
+the current product and engineering delivery route when changing product,
+architecture, module, or report documents.
 - Prefer existing repository commands, conventions, and helper scripts over
 introducing new workflow shapes.
 - Keep changes small, reviewable, and scoped to the user request.
@@ -59,8 +62,11 @@ workflow commands aligned where applicable.
 - Keep documentation complete and in sync throughout development.
 - When adding, removing, or renaming documentation pages, update `mkdocs.yml`
 so the published documentation site stays in sync.
+- Treat product, architecture, API, data model, roadmap, and module documents as
+alignment documents that may be refined together; do not assume any one of them
+is an untouchable absolute source when they conflict.
 - Put durable product and architecture docs in `docs/`, time-bound decisions in
-`docs/adr/`, and course-style reports or generated analysis in `reports/`.
+`docs/adr/`, and course-style reports or generated analysis in `docs/reports/`.
 
 ## Definition Of Done
 

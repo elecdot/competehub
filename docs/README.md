@@ -5,6 +5,7 @@ This directory contains product, technical, setup, and engineering convention do
 ## Start Here
 
 - [Setup](./setup.md): prepare the local workspace and run the applications.
+- [Roadmap](./roadmap.md): understand the product and engineering delivery route.
 - [Architecture](./architecture.md): understand the system boundaries, runtime components, and data flow.
 - [API Spec](./api_spec.md): review the REST API contract and endpoint plan.
 - [Data Model](./data_model.md): review the core entities, relationships, and lifecycle rules.
@@ -23,6 +24,7 @@ This directory contains product, technical, setup, and engineering convention do
 ## Documents
 
 - `PRD.zh.md`: Product requirements and stable business boundaries.
+- `roadmap.md`: Product and engineering delivery route.
 - `architecture.md`: High-level system architecture, runtime components, and data flow.
 - `api_spec.md`: REST API contract, response envelope, auth boundaries, and endpoint plan.
 - `data_model.md`: Core data model, relationships, states, and migration rules.
@@ -33,7 +35,7 @@ This directory contains product, technical, setup, and engineering convention do
 - `agent/`: Coding-agent workflow guidance and task-specific development procedures.
 - `adr/`: Architecture decision records for time-bound decisions and tradeoffs.
 
-Related course reports live in `reports/`, including module split and responsibility documents.
+Related course reports live in `docs/reports/`, including module split and responsibility documents.
 
 ## Local Conventions
 
