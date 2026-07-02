@@ -10,8 +10,8 @@ This directory contains GitHub Actions workflow definitions.
 ## CI Command Mapping
 
 - Backend dependency sync: `./scripts/agent-env.sh uv sync --project apps/api --locked`
-- Backend lint: `./scripts/agent-env.sh ruff check .`
-- Backend tests: `./scripts/agent-env.sh pytest`
+- Backend lint: `./scripts/agent-env.sh uv run --project apps/api ruff check .`
+- Backend tests: `./scripts/agent-env.sh uv run --project apps/api pytest`
 - Frontend dependency install: `npm --prefix apps/web ci`
 - Frontend typecheck: `npm --prefix apps/web run lint`
 - Frontend build: `npm --prefix apps/web run build`

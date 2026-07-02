@@ -38,9 +38,9 @@ Raw Python commands should go through the workspace-safe helper:
 
 ```bash
 ./scripts/agent-env.sh uv sync --project apps/api
-./scripts/agent-env.sh pytest
-./scripts/agent-env.sh ruff check .
-./scripts/agent-env.sh flask --app competehub_api.app:create_app run --debug
+./scripts/agent-env.sh uv run --project apps/api pytest
+./scripts/agent-env.sh uv run --project apps/api ruff check .
+./scripts/agent-env.sh uv run --project apps/api flask --app competehub_api.app:create_app run --debug
 ```
 
 Local PostgreSQL and Redis can be started with `just infra-up`.

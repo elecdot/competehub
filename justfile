@@ -1,6 +1,6 @@
 set shell := ["bash", "-cu"]
 
-# Run a raw uv command with workspace-safe cache.
+# Run a raw uv command with the agent-safe environment.
 agent-uv *args:
     ./scripts/agent-env.sh uv {{args}}
 
@@ -10,19 +10,19 @@ api-sync:
 
 # Start the Flask API in development mode.
 api-dev:
-    ./scripts/agent-env.sh flask --app competehub_api.app:create_app run --debug
+    ./scripts/agent-env.sh uv run --project apps/api flask --app competehub_api.app:create_app run --debug
 
 # Run backend tests.
 api-test:
-    ./scripts/agent-env.sh pytest
+    ./scripts/agent-env.sh uv run --project apps/api pytest
 
 # Run backend lint checks.
 api-lint:
-    ./scripts/agent-env.sh ruff check .
+    ./scripts/agent-env.sh uv run --project apps/api ruff check .
 
 # Format backend Python files.
 api-format:
-    ./scripts/agent-env.sh ruff format .
+    ./scripts/agent-env.sh uv run --project apps/api ruff format .
 
 # Build the MkDocs Material documentation site.
 docs-build:

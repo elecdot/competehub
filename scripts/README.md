@@ -11,14 +11,17 @@ This directory contains repository-level helper scripts.
 
 ## Scripts
 
-- `agent-env.sh`: Runs Python and uv commands with a workspace-safe uv cache.
+- `agent-env.sh`: Sets agent-safe environment variables and then runs the
+  requested command. It keeps tool caches and temporary files inside `.cache/`.
 
 Examples:
 
 ```bash
-./scripts/agent-env.sh pytest
-./scripts/agent-env.sh ruff check .
+./scripts/agent-env.sh
 ./scripts/agent-env.sh uv sync --project apps/api
+./scripts/agent-env.sh uv run --project apps/api pytest
+./scripts/agent-env.sh uv run --project apps/api ruff check .
+./scripts/agent-env.sh npm --prefix apps/web run lint
 ```
 
 Prefer `just` recipes for routine workflows.
