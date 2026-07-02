@@ -11,3 +11,7 @@
 
 1. Always provide paths relative to the repository root in documentation and instructions.
 2. Avoid machine-specific absolute paths to keep content portable across environments.
+
+## Coding
+
+For coding convention, you should see `.editorconfig` and `apps/` settings.
