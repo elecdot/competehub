@@ -22,7 +22,7 @@ mise run check
 For example, here is a `justfile`:
 ```bash
 api-test:
-    ./scripts/agent-env.sh pytest
+    ./scripts/agent-env.sh uv run --project apps/api pytest
 ```
 Then you type:
 ```bash
@@ -31,7 +31,7 @@ just api-test
 
 Current project recipes include:
 
-- `agent-uv`: run a raw `uv` command with the workspace-safe cache.
+- `agent-uv`: run a raw `uv` command with the agent-safe environment.
 - `api-sync`: sync backend dependencies.
 - `api-dev`: start the Flask backend.
 - `api-test`: run backend tests.
@@ -62,7 +62,9 @@ winget install --id Casey.Just --exact
 
 We use `uv` to manage the backend API package and Python-based documentation tooling under `apps/api`.
 
-Do not create a root-level `uv` project. Run Python commands through `just` recipes or `./scripts/agent-env.sh` so uv uses the workspace-safe cache under `.cache/uv`.
+Do not create a root-level `uv` project. Run Python commands through `just`
+recipes or prefix explicit commands with `./scripts/agent-env.sh` so tool caches
+and temporary files stay under `.cache/`.
 
 - [GitHub Repo](https://github.com/astral-sh/uv?tab=readme-ov-file)
 - [Official Doc](https://docs.astral.sh/uv/)
@@ -99,14 +101,14 @@ just agent-uv add --project apps/api --dev ipykernel
 #### Run command in `uv` environment
 
 ```bash
-./scripts/agent-env.sh <command here>
+./scripts/agent-env.sh uv run --project apps/api <command here>
 ```
 
 In this repository, prefer the workspace-safe wrapper:
 
 ```bash
-./scripts/agent-env.sh pytest
-./scripts/agent-env.sh ruff check .
+./scripts/agent-env.sh uv run --project apps/api pytest
+./scripts/agent-env.sh uv run --project apps/api ruff check .
 ```
 
 #### Update the backend environment

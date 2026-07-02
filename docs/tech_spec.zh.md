@@ -65,13 +65,17 @@ scripts/               # Shared developer and agent helper scripts
 scripts/agent-env.sh
 ```
 
-该脚本负责设置 workspace-safe cache，例如：
+该脚本负责设置 workspace-safe 环境变量和缓存目录，例如 `XDG_CACHE_HOME`、
+`TMPDIR`、`UV_CACHE_DIR`、`PRE_COMMIT_HOME`、`RUFF_CACHE_DIR` 和 npm cache。
+它不接管用户配置目录，也不隐式选择 Python 项目；需要进入后端 uv 环境时必须
+显式写出项目路径，例如：
 
 ```bash
-UV_CACHE_DIR=.cache/uv uv run --project apps/api <command>
+./scripts/agent-env.sh uv run --project apps/api <command>
 ```
 
-`justfile` 中的 Python 命令应优先通过该脚本封装，避免不同环境下出现 uv cache 权限问题。
+`justfile` 中的 Python 命令应优先通过该脚本封装，避免不同环境下出现全局缓存
+或临时目录权限问题。
 
 ## 四、技术栈边界
 
@@ -412,7 +416,8 @@ infra-down
 pre-commit
 ```
 
-Python 相关命令通过 `scripts/agent-env.sh` 封装 `uv`。
+Python 相关命令通过 `scripts/agent-env.sh` 设置 agent-safe 环境，并显式调用
+`uv run --project apps/api ...`。
 
 ## 十二、初始化实施顺序
 

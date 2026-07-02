@@ -43,10 +43,10 @@ jobs:
         run: ./scripts/agent-env.sh uv sync --project apps/api --locked
 
       - name: Run backend lint
-        run: ./scripts/agent-env.sh ruff check .
+        run: ./scripts/agent-env.sh uv run --project apps/api ruff check .
 
       - name: Run backend tests
-        run: ./scripts/agent-env.sh pytest
+        run: ./scripts/agent-env.sh uv run --project apps/api pytest
 
   frontend:
     name: Frontend

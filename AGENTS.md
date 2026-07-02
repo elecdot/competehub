@@ -18,8 +18,10 @@ introducing new workflow shapes.
 
 ## Dependency And Tooling Policy
 
-- Use `./scripts/agent-env.sh` or `just` recipes for Python commands so `uv`
-uses the workspace-safe cache under `.cache/uv`.
+- Prefer `just` recipes for routine commands. When bypassing recipes, prefix
+commands with `./scripts/agent-env.sh` so tool caches and temporary files stay
+inside the workspace; spell out project commands explicitly, for example
+`./scripts/agent-env.sh uv run --project apps/api pytest`.
 - Do not add a root-level `uv` project. Python dependencies and dependency
 groups should live in the relevant application project, such as `apps/api`.
 - Documentation Python dependencies belong in the `apps/api` dependency groups.
