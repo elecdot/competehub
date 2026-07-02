@@ -52,9 +52,9 @@ apps/
   api/       # Flask backend
   web/       # Vue frontend
 docs/        # Stable product and engineering documents
-docs/adr/    # Architecture Decision Records
+  adr/       # Architecture Decision Records
+  reports/   # Course reports and generated analysis documents
 infra/       # Local infrastructure
-reports/     # Course reports and generated analysis documents
 scripts/     # Repository helper scripts
 ```
 

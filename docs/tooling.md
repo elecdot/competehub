@@ -2,6 +2,19 @@
 
 This guide introduces the development tools used in this project.
 
+## `mise`
+
+The repository includes `mise.toml` as an optional tool-version manifest for
+Python, Node.js, uv, and just. Developers may use mise to install matching tool
+versions, but project workflows still run through `just`, `uv`, npm, and Docker
+Compose.
+
+```bash
+mise install
+mise run setup
+mise run check
+```
+
 ## `just`
 
 `just` is a command runner that encapsulates complex or multi-step commands into simple single-line invocations.
@@ -46,7 +59,9 @@ winget install --id Casey.Just --exact
 
 ## `uv`
 
-We use `uv` to manage both the backend API package and the project's Python development dependencies.
+We use `uv` to manage the backend API package and Python-based documentation tooling under `apps/api`.
+
+Do not create a root-level `uv` project. Run Python commands through `just` recipes or `./scripts/agent-env.sh` so uv uses the workspace-safe cache under `.cache/uv`.
 
 - [GitHub Repo](https://github.com/astral-sh/uv?tab=readme-ov-file)
 - [Official Doc](https://docs.astral.sh/uv/)
@@ -67,24 +82,21 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 # On Windows.
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
-#### Add dependencies
+#### Add backend dependencies
 
 ```bash
-uv add requests
-uv add 'requests==2.31.0'
-uv add git+https://github.com/psf/requests
-# If you're migrating from a `requirements.txt` file
-uv add -r requirements.txt -c constraints.txt
+./scripts/agent-env.sh uv add --project apps/api requests
+./scripts/agent-env.sh uv add --project apps/api 'requests==2.31.0'
 ```
 Add a package to the `dev` group:
 ```bash
-uv add --dev ipykernel
+./scripts/agent-env.sh uv add --project apps/api --dev ipykernel
 ```
 
 #### Run command in `uv` environment
 
 ```bash
-uv run <command here>
+./scripts/agent-env.sh <command here>
 ```
 
 In this repository, prefer the workspace-safe wrapper:
@@ -94,17 +106,7 @@ In this repository, prefer the workspace-safe wrapper:
 ./scripts/agent-env.sh ruff check .
 ```
 
-#### Update the environment
-
-This is done automatically prior to every `uv run`. You may only need this when you want activate the `venv` manually.
-```bash
-uv sync
-source .venv/bin/activate
-flask run -p 3000
-python example.py
-```
-
-For this project, prefer:
+#### Update the backend environment
 
 ```bash
 just api-sync

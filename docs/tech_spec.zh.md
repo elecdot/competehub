@@ -15,8 +15,9 @@ apps/
   web/                 # Vue 3 frontend
   api/                 # Flask backend API
 docs/                  # Product and engineering documentation
+  adr/                 # Architecture decision records
+  reports/             # Course reports and generated analysis documents
 infra/                 # Local infrastructure and deployment assets
-reports/               # Course reports and generated analysis documents
 scripts/               # Shared developer and agent helper scripts
 ```
 
@@ -46,7 +47,7 @@ scripts/               # Shared developer and agent helper scripts
 - `apps/api/README.md`：说明 Flask API 结构、uv 使用方式、迁移和测试命令。
 - `docs/README.md`：说明产品、技术和工程文档的放置规则。
 - `infra/README.md`：说明本地基础设施、Docker Compose 和环境变量约定。
-- `reports/README.md`：说明课程报告、调研材料和生成型文档的归档规则。
+- `docs/reports/README.md`：说明课程报告、调研材料和生成型文档的归档规则。
 - `scripts/README.md`：说明脚本命名、幂等性和 agent-safe 命令约定。
 
 ### 3.2 命名与路径

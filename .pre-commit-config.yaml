@@ -1,7 +1,6 @@
-# Use pre-commit:
-# 1. Install pre-commit: `uv sync`
-# 2. Install git hooks: `pre-commit install`
-# 3. Run pre-commit on all files first time: `pre-commit run --all-files`
+# Use the repository wrapper:
+# 1. Install backend development dependencies: `just api-sync`
+# 2. Install and run hooks: `just pre-commit`
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
