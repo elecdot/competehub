@@ -71,6 +71,9 @@ docker compose -f infra/docker-compose.yml config
 
 `docs/reports/`:
 - [README.md](./docs/reports/README.md): Report directory overview and local conventions.
+- [01_项目开发计划.md](./docs/reports/01_项目开发计划.md): Project development plan formal report.
+- [02_需求规格说明.md](./docs/reports/02_需求规格说明.md): Requirements specification formal report.
+- [03_软件设计说明.md](./docs/reports/03_软件设计说明.md): Software design specification formal report.
 - [requirements.md](./docs/reports/requirements.md): Requirement-gathering and initial requirement analysis report.
 - [module_breakdown_v1.0.md](./docs/reports/module_breakdown_v1.0.md): Module split, interfaces, and member responsibilities for course work.
 

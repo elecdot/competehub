@@ -36,6 +36,8 @@ This directory contains product, technical, setup, and engineering convention do
 - `adr/`: Architecture decision records for time-bound decisions and tradeoffs.
 
 Related course reports live in `docs/reports/`, including module split and responsibility documents.
+The current formal course reports are `docs/reports/01_项目开发计划.md`,
+`docs/reports/02_需求规格说明.md`, and `docs/reports/03_软件设计说明.md`.
 
 ## Local Conventions
 
