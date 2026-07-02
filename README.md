@@ -52,6 +52,8 @@ docker compose -f infra/docker-compose.yml config
 
 `.github/`:
 - [README.github.md](./.github/README.github.md): GitHub automation overview and local conventions.
+- [pull_request_template.md](./.github/pull_request_template.md): Default pull request checklist.
+- [ISSUE_TEMPLATE/](./.github/ISSUE_TEMPLATE/): Issue forms for bug reports, feature requests, and project tasks.
 - [workflows/README.md](./.github/workflows/README.md): GitHub Actions workflow overview and CI command mapping.
 
 `apps/`:
@@ -78,6 +80,7 @@ docker compose -f infra/docker-compose.yml config
 - [02_需求规格说明.md](./docs/reports/02_需求规格说明.md): Requirements specification formal report.
 - [03_软件设计说明.md](./docs/reports/03_软件设计说明.md): Software design specification formal report.
 - [requirements.md](./docs/reports/requirements.md): Requirement-gathering and initial requirement analysis report.
+- [module_breakdown.md](./docs/reports/module_breakdown.md): Initial module split and responsibility notes.
 - [module_breakdown_v1.0.md](./docs/reports/module_breakdown_v1.0.md): Module split, interfaces, and member responsibilities for course work.
 
 `infra/`:

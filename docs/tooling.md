@@ -31,6 +31,7 @@ just api-test
 
 Current project recipes include:
 
+- `agent-uv`: run a raw `uv` command with the workspace-safe cache.
 - `api-sync`: sync backend dependencies.
 - `api-dev`: start the Flask backend.
 - `api-test`: run backend tests.
@@ -85,11 +86,13 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 #### Add backend dependencies
 
 ```bash
+just agent-uv add --project apps/api requests
 ./scripts/agent-env.sh uv add --project apps/api requests
 ./scripts/agent-env.sh uv add --project apps/api 'requests==2.31.0'
 ```
 Add a package to the `dev` group:
 ```bash
+just agent-uv add --project apps/api --dev ipykernel
 ./scripts/agent-env.sh uv add --project apps/api --dev ipykernel
 ```
 
