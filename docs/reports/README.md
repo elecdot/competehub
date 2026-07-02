@@ -13,7 +13,7 @@ This directory contains course reports, requirement-gathering materials, and gen
 - `01_项目开发计划.md`: Project development plan formal report.
 - `02_需求规格说明.md`: Requirements specification formal report.
 - `03_软件设计说明.md`: Software design specification formal report.
-- `requirements.md`: Requirement-gathering and initial requirement analysis report.
+- `requirements.md`: Early requirement-gathering and initial requirement analysis report; useful as raw input, but not normative when it conflicts with current PRD, ADRs, or formal reports.
 - `module_breakdown_v1.0.md`: Revised module breakdown with responsibilities and detailed module descriptions (v1.0).
 
 ## Templates

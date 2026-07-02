@@ -80,7 +80,7 @@ Initial roles:
 - `student`
 - `admin`
 
-Reserved roles:
+Future candidate roles, not current formal product roles:
 
 - `teacher`
 - `organizer`
@@ -343,12 +343,12 @@ Response item:
     "id": 1,
     "title": "大学生创新创业竞赛"
   },
-  "reasons": ["与你的专业匹配", "报名截止较近"],
-  "score": 82
+  "reasons": ["与你的专业匹配", "报名截止较近"]
 }
 ```
 
-The score is an internal ranking score, not a public competition value score.
+Recommendation ranking may use internal weights, but the public API should expose
+reasons and ordering rather than a raw score or competition value rating.
 
 ## Admin APIs
 
