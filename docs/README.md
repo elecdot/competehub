@@ -7,6 +7,7 @@ This directory contains product, technical, setup, and engineering convention do
 - [Setup](./setup.md): prepare the local workspace and run the applications.
 - [Roadmap](./roadmap.md): understand the product and engineering delivery route.
 - [Architecture](./architecture.md): understand the system boundaries, runtime components, and data flow.
+- [Architecture Decisions](./adr/README.md): review decisions, tradeoffs, and superseded choices.
 - [API Spec](./api_spec.md): review the REST API contract and endpoint plan.
 - [Data Model](./data_model.md): review the core entities, relationships, and lifecycle rules.
 - [Tooling](./tooling.md): find the repository commands for development, checks, and documentation.
@@ -44,9 +45,10 @@ The current formal course reports are `docs/reports/01_项目开发计划.md`,
 - Use repository-relative paths in documentation.
 - Keep long-lived product and architecture decisions in `docs/`.
 - Put stage-specific architecture decisions, alternatives, and superseded choices in `docs/adr/`.
+- Keep `CONTEXT.md` as glossary-only; do not move ADR rationale or roadmap scope into it.
 - Put course-style reports and generated analysis artifacts in `docs/reports/`.
 - Use `just docs-build` to validate the MkDocs Material site before changing documentation navigation.
-- Keep `mkdocs.yml` synchronized when changing agent-facing documentation pages.
+- Keep `mkdocs.yml` synchronized when adding, removing, or renaming documentation pages.
 - When a semantic documentation area grows large, create a subdirectory with its own `README.md`.
 
 ## Plan

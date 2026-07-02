@@ -19,7 +19,7 @@ This directory contains course reports, requirement-gathering materials, and gen
 
 ## Templates
 
-- `templates/*.source.docx`: Original DOCX source files.
+- `templates/*.source.docx`: Optional original DOCX source files, if retained locally.
 - `templates/*.template.md`: Converted Markdown templates kept for reference.
 
 ## Formal Reports

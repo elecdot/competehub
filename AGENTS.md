@@ -9,6 +9,9 @@ editing code or documentation.
 - Read `CONTEXT.md` for canonical project language and `docs/roadmap.md` for
 the current product and engineering delivery route when changing product,
 architecture, module, or report documents.
+- Treat `CONTEXT.md` as a glossary only. Put decision rationale, rejected
+alternatives, and consequences in `docs/adr/`, and read `docs/adr/README.md`
+before adding or changing ADRs.
 - Prefer existing repository commands, conventions, and helper scripts over
 introducing new workflow shapes.
 - Keep changes small, reviewable, and scoped to the user request.
