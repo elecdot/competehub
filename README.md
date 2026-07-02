@@ -15,6 +15,9 @@ Prerequisites:
 - Node.js and npm
 - Docker Desktop with WSL integration enabled when running local infrastructure
 
+You can install tool versions manually or use `mise` with the checked-in
+`mise.toml`.
+
 ```bash
 # Install backend dependencies.
 just api-sync
@@ -85,31 +88,8 @@ docker compose -f infra/docker-compose.yml config
 
 The MkDocs Material site is configured by [mkdocs.yml](./mkdocs.yml). Use `just docs-serve` for local preview and `just docs-build` for strict validation.
 
-## Open Loops
+## Roadmap
 
-- [ ] Maybe make project Windows-native compatible: use Huey instead of Celery;
-use cross-platform compatible scripts (maybe use Python? idk yet); write AGENTS.md.
-NOTE: I considering encapsulate every service using Docker: for the performance
-reason, I do not done this yet. But I think we finally need it tho.
-- [ ] Maybe ask for TODO tags from agents? (Maybe ask for clarify and evidence is better?)
-- [ ] Ask AI follow .editorconfig? (seems Agent would not do it by itself, but probably because it can't?)
-- [ ] Move report into docs/reports, leave reports/ empty for further work.
-- [ ] Make agent-env.sh general (instead of only for uv)
-```toml
-[tool.ruff]
-line-length = 88
-target-version = "py312"
-
-[tool.ruff.lint]
-select = [
-    "E",   # pycodestyle
-    "F",   # pyflakes
-    "I",   # isort
-    "UP",  # pyupgrade
-    "B",   # bugbear
-]
-
-[tool.ruff.format]
-quote-style = "double"
-indent-style = "space"
-```
+Development sequencing and remaining product/engineering work are tracked in
+[docs/roadmap.md](./docs/roadmap.md). Use it with [CONTEXT.md](./CONTEXT.md)
+when aligning requirements, architecture, reports, and implementation tasks.

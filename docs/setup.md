@@ -14,6 +14,10 @@ Install these tools before starting development:
 
 Refer to [Tooling](./tooling.md) for installation notes and command usage.
 
+The repository includes `mise.toml` for developers who prefer managing tool
+versions through mise. Using mise is optional; the documented `just`, `uv`, npm,
+and Docker commands remain the source of truth.
+
 ## Configure Git Before Committing
 
 Set Git to normalize line endings to `LF` before your first commit. This prevents platform-specific `CRLF` changes from being introduced, especially on Windows.
@@ -98,5 +102,6 @@ just api-test
 just api-lint
 just web-lint
 just web-build
+just docs-build
 docker compose -f infra/docker-compose.yml config
 ```

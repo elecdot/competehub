@@ -18,7 +18,7 @@ This directory contains product, technical, setup, and engineering convention do
 - `apps/web/`: Vue frontend application.
 - `docs/`: product and technical documentation.
 - `infra/`: local infrastructure definitions.
-- `reports/`: course-style reports and analysis artifacts.
+- `docs/reports/`: course-style reports and analysis artifacts.
 - `scripts/`: repository helper scripts.
 
 ## Documents
@@ -44,7 +44,7 @@ The current formal course reports are `docs/reports/01_项目开发计划.md`,
 - Use repository-relative paths in documentation.
 - Keep long-lived product and architecture decisions in `docs/`.
 - Put stage-specific architecture decisions, alternatives, and superseded choices in `docs/adr/`.
-- Put course-style reports and generated analysis artifacts in `reports/`.
+- Put course-style reports and generated analysis artifacts in `docs/reports/`.
 - Use `just docs-build` to validate the MkDocs Material site before changing documentation navigation.
 - Keep `mkdocs.yml` synchronized when changing agent-facing documentation pages.
 - When a semantic documentation area grows large, create a subdirectory with its own `README.md`.
