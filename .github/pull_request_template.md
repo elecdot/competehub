@@ -4,13 +4,14 @@
 
 ## Validation
 
+- [ ] `just check`
 - [ ] `just api-test`
 - [ ] `just api-lint`
 - [ ] `just api-format`
 - [ ] `just web-lint`
 - [ ] `just web-build`
 - [ ] `just docs-build`
-- [ ] `docker compose -f infra/docker-compose.yml config`
+- [ ] `just infra-config`
 - [ ] Not run:
 
 ## Checklist

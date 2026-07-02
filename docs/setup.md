@@ -41,16 +41,17 @@ just pre-commit
 
 ## Install Dependencies
 
-Backend dependencies are managed by `uv` under `apps/api`. Use the workspace-safe wrapper through `just`:
+Install backend and frontend dependencies through the root setup recipe:
+
+```bash
+just setup
+```
+
+The equivalent component commands are:
 
 ```bash
 just api-sync
-```
-
-Frontend dependencies are managed by npm under `apps/web`:
-
-```bash
-npm --prefix apps/web install
+just web-install
 ```
 
 ## Configure Environment
@@ -98,11 +99,9 @@ By default, the frontend proxies `/api` requests to the Flask API on `localhost:
 Run the main checks before committing:
 
 ```bash
-just api-test
-just api-lint
-just api-format
-just web-lint
-just web-build
-just docs-build
-docker compose -f infra/docker-compose.yml config
+just doctor
+just check
 ```
+
+Use component recipes such as `just api-test`, `just web-build`,
+`just docs-build`, or `just infra-config` when you only need one area.

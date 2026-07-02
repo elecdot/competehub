@@ -49,7 +49,6 @@ nav:
           - Requirements Specification: reports/02_需求规格说明.md
           - Software Design Specification: reports/03_软件设计说明.md
       - Requirements Gathering: reports/requirements.md
-      - Module Breakdown: reports/module_breakdown.md
       - Module Breakdown v1.0: reports/module_breakdown_v1.0.md
       - Templates:
           - Project Development Plan: reports/templates/01_项目开发计划.template.md

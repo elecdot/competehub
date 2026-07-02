@@ -7,17 +7,11 @@ just = "latest"
 [tasks.setup]
 description = "Install backend and frontend dependencies"
 run = [
-  "just api-sync",
-  "npm --prefix apps/web install",
+  "just setup",
 ]
 
 [tasks.check]
 description = "Run main local checks"
 run = [
-  "just api-test",
-  "just api-lint",
-  "just web-lint",
-  "just web-build",
-  "just docs-build",
-  "docker compose -f infra/docker-compose.yml config",
+  "just check",
 ]

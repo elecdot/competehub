@@ -26,7 +26,7 @@ This directory does not own backend business rules, database models, infrastruct
 Run from the repository root:
 
 ```bash
-npm --prefix apps/web install
+just web-install
 just web-dev
 just web-build
 just web-lint

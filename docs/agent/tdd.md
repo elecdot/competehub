@@ -24,7 +24,7 @@ Do not delete, weaken, skip, or rewrite existing tests to make a change pass unl
 - Backend behavior: `just api-test` and `just api-lint`.
 - Frontend behavior: `just web-lint` and `just web-build`.
 - Documentation behavior or navigation: `just docs-build`.
-- Infrastructure behavior: `docker compose -f infra/docker-compose.yml config`.
+- Infrastructure behavior: `just infra-config`.
 
 If a full command is too expensive or blocked, run the narrowest useful alternative and state what remains unverified.
 

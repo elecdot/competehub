@@ -14,7 +14,6 @@ This directory contains course reports, requirement-gathering materials, and gen
 - `02_需求规格说明.md`: Requirements specification formal report.
 - `03_软件设计说明.md`: Software design specification formal report.
 - `requirements.md`: Requirement-gathering and initial requirement analysis report.
-- `module_breakdown.md`: Course-assignment module split, interfaces, and member responsibilities.
 - `module_breakdown_v1.0.md`: Revised module breakdown with responsibilities and detailed module descriptions (v1.0).
 
 ## Templates
