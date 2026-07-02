@@ -53,10 +53,11 @@ block would otherwise be hard to understand.
 
 ## Validation Matrix
 
+- Full local gate: `just check`.
 - Backend code: `just api-test`, `just api-lint` and `just api-format`.
 - Frontend code: `just web-lint` and `just web-build`.
 - Documentation: `just docs-build`.
-- Infrastructure: `docker compose -f infra/docker-compose.yml config`.
+- Infrastructure: `just infra-config`.
 - CI workflow changes: keep local commands, `justfile`, package scripts, and
 workflow commands aligned where applicable.
 
