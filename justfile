@@ -54,7 +54,7 @@ build: web-build docs-build
 
 # Sync backend dependencies.
 api-sync:
-    ./scripts/agent-env.sh uv sync --project apps/api
+    ./scripts/agent-env.sh uv sync --project apps/api --group dev --group docs
 
 # Start the Flask API in development mode.
 api-dev:
