@@ -9,13 +9,38 @@ docs_dir: docs
 theme:
   name: material
   language: en
+  font: false
+  icon:
+    logo: material/trophy
+    repo: fontawesome/brands/github
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: teal
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: cyan
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
   features:
     - navigation.instant
+    - navigation.instant.progress
+    - navigation.tabs
+    - navigation.tabs.sticky
     - navigation.sections
     - navigation.top
+    - navigation.footer
+    - content.code.copy
     - search.highlight
     - search.suggest
     - toc.follow
+
+extra_css:
+  - stylesheets/extra.css
 
 markdown_extensions:
   # These extensions keep long-form product and architecture docs readable.
@@ -26,29 +51,46 @@ markdown_extensions:
   - toc:
       permalink: true
   - pymdownx.details
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
 
 nav:
-  - Home: README.md
-  - Agent Guidelines:
+  - Start Here:
+      - Home: README.md
+      - Setup: setup.md
+      - Roadmap: roadmap.md
+  - Product:
+      - Product Requirements: PRD.zh.md
+      - Feature PRDs:
+          - Overview: prds/features/README.md
+          - Template: prds/features/template.md
+  - Architecture:
+      - Architecture: architecture.md
+      - API Spec: api_spec.md
+      - Data Model: data_model.md
+      - Tech Spec: tech_spec.zh.md
+      - ADR:
+          - Overview: adr/README.md
+          - Initial Application Architecture: adr/0001-initial-application-architecture.md
+          - Initial Framework Supporting Choices: adr/0002-initial-framework-supporting-choices.md
+          - Explainable Rule-Based Recommendation: adr/0003-explainable-rule-based-recommendation.md
+          - In-App Reminders First: adr/0004-in-app-reminders-first.md
+          - Trusted Source Manual Entry: adr/0005-trusted-source-manual-entry.md
+          - Student and Admin Current Roles: adr/0006-student-admin-current-roles.md
+          - Separate Favorites and Subscriptions: adr/0007-separate-favorites-and-subscriptions.md
+  - Delivery:
+      - Project Workflow: project_workflow.md
+      - Tooling: tooling.md
+      - Conventions: CONVENTIONS.md
+  - Agents:
       - Overview: agents/README.md
       - Issue Tracker: agents/issue-tracker.md
       - Triage Labels: agents/triage-labels.md
       - Domain Docs: agents/domain.md
       - Test-Driven Development: agents/tdd.md
-  - Product Requirements: PRD.zh.md
-  - Roadmap: roadmap.md
-  - Project Workflow: project_workflow.md
-  - Feature PRDs:
-      - Overview: prds/features/README.md
-      - Template: prds/features/template.md
-  - Architecture: architecture.md
-  - API Spec: api_spec.md
-  - Data Model: data_model.md
-  - Tech Spec: tech_spec.zh.md
-  - Setup: setup.md
-  - Tooling: tooling.md
-  - Conventions: CONVENTIONS.md
   - Reports:
       - Overview: reports/README.md
       - Formal Reports:
@@ -64,15 +106,6 @@ nav:
           - Project Development Record: reports/templates/04_项目开发记录.template.md
           - Test Plan: reports/templates/05_测试计划.template.md
           - User Manual: reports/templates/06_用户操作手册.template.md
-  - ADR:
-      - Overview: adr/README.md
-      - Initial Application Architecture: adr/0001-initial-application-architecture.md
-      - Initial Framework Supporting Choices: adr/0002-initial-framework-supporting-choices.md
-      - Explainable Rule-Based Recommendation: adr/0003-explainable-rule-based-recommendation.md
-      - In-App Reminders First: adr/0004-in-app-reminders-first.md
-      - Trusted Source Manual Entry: adr/0005-trusted-source-manual-entry.md
-      - Student and Admin Current Roles: adr/0006-student-admin-current-roles.md
-      - Separate Favorites and Subscriptions: adr/0007-separate-favorites-and-subscriptions.md
 
 validation:
   omitted_files: warn

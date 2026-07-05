@@ -1,0 +1,118 @@
+:root {
+  --md-primary-fg-color: #3157c9;
+  --md-primary-fg-color--light: #4f73e6;
+  --md-primary-fg-color--dark: #213b8f;
+  --md-accent-fg-color: #0f9f8f;
+  --ch-border: #d8dfec;
+  --ch-surface: #f7f9fd;
+  --ch-surface-strong: #eef3fb;
+  --ch-heading: #17233f;
+  --ch-muted: #5d6b84;
+}
+
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #6f8cff;
+  --md-accent-fg-color: #38d0c2;
+  --ch-border: #31405c;
+  --ch-surface: #172033;
+  --ch-surface-strong: #202c44;
+  --ch-heading: #edf3ff;
+  --ch-muted: #aebbd0;
+}
+
+body {
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+}
+
+code,
+kbd,
+pre {
+  font-family:
+    "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo,
+    monospace;
+}
+
+.md-header {
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--md-primary-fg-color), white 74%);
+}
+
+.md-tabs {
+  border-bottom: 1px solid color-mix(in srgb, var(--md-primary-fg-color), white 78%);
+}
+
+.md-typeset h1 {
+  color: var(--ch-heading);
+  font-weight: 750;
+}
+
+.md-typeset h2 {
+  border-top: 1px solid var(--ch-border);
+  color: var(--ch-heading);
+  margin-top: 2.6rem;
+  padding-top: 1.2rem;
+}
+
+.md-typeset h3 {
+  color: color-mix(in srgb, var(--ch-heading), var(--md-primary-fg-color) 18%);
+}
+
+.md-typeset a {
+  text-underline-offset: 0.18em;
+}
+
+.md-typeset .grid.cards > ul > li,
+.md-typeset .admonition,
+.md-typeset details {
+  border-radius: 0.45rem;
+  box-shadow: 0 0.18rem 0.8rem rgba(23, 35, 63, 0.06);
+}
+
+[data-md-color-scheme="slate"] .md-typeset .grid.cards > ul > li,
+[data-md-color-scheme="slate"] .md-typeset .admonition,
+[data-md-color-scheme="slate"] .md-typeset details {
+  box-shadow: 0 0.18rem 0.9rem rgba(0, 0, 0, 0.18);
+}
+
+.md-typeset .grid.cards > ul > li {
+  border: 1px solid var(--ch-border);
+}
+
+.md-typeset .grid.cards > ul > li:hover {
+  border-color: color-mix(in srgb, var(--md-accent-fg-color), var(--ch-border) 46%);
+}
+
+.md-typeset .admonition-title {
+  font-weight: 700;
+}
+
+.md-typeset table:not([class]) {
+  font-size: 0.72rem;
+}
+
+.md-typeset table:not([class]) th {
+  background: var(--ch-surface-strong);
+}
+
+.md-typeset table:not([class]) tr:hover {
+  background: color-mix(in srgb, var(--ch-surface), transparent 28%);
+}
+
+.md-typeset .mermaid {
+  background: var(--ch-surface);
+  border: 1px solid var(--ch-border);
+  border-radius: 0.45rem;
+  margin: 1.25rem 0;
+  overflow-x: auto;
+  padding: 1rem;
+}
+
+.md-typeset blockquote {
+  border-left-color: var(--md-accent-fg-color);
+  color: var(--ch-muted);
+}
+
+.md-typeset hr {
+  border-bottom-color: var(--ch-border);
+}
