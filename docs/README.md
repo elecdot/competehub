@@ -6,6 +6,7 @@ This directory contains product, technical, setup, and engineering convention do
 
 - [Setup](./setup.md): prepare the local workspace and run the applications.
 - [Roadmap](./roadmap.md): understand the product and engineering delivery route.
+- [Project Workflow](./project_workflow.md): understand how requirements move through issues, PRs, validation, and documentation.
 - [Architecture](./architecture.md): understand the system boundaries, runtime components, and data flow.
 - [Architecture Decisions](./adr/README.md): review decisions, tradeoffs, and superseded choices.
 - [API Spec](./api_spec.md): review the REST API contract and endpoint plan.
@@ -26,6 +27,7 @@ This directory contains product, technical, setup, and engineering convention do
 
 - `PRD.zh.md`: Product requirements and stable business boundaries.
 - `roadmap.md`: Product and engineering delivery route.
+- `project_workflow.md`: Project delivery workflow and source-of-truth ownership matrix.
 - `architecture.md`: High-level system architecture, runtime components, and data flow.
 - `api_spec.md`: REST API contract, response envelope, auth boundaries, and endpoint plan.
 - `data_model.md`: Core data model, relationships, states, and migration rules.
@@ -33,6 +35,7 @@ This directory contains product, technical, setup, and engineering convention do
 - `CONVENTIONS.md`: Repository naming and path conventions.
 - `setup.md`: Contributor setup guide.
 - `tooling.md`: Development tooling guide.
+- `prds/features/`: Single-feature PRDs and the Feature PRD template.
 - `agents/`: Coding-agent workflow guidance and task-specific development procedures.
 - `adr/`: Architecture decision records for time-bound decisions and tradeoffs.
 
@@ -46,6 +49,7 @@ The current formal course reports are `docs/reports/01_项目开发计划.md`,
 - Keep long-lived product and architecture decisions in `docs/`.
 - Put stage-specific architecture decisions, alternatives, and superseded choices in `docs/adr/`.
 - Keep `CONTEXT.md` as glossary-only; do not move ADR rationale or roadmap scope into it.
+- Keep `docs/PRD.zh.md` as the stable total PRD; put single-feature PRDs under `docs/prds/features/`.
 - Put course-style reports and generated analysis artifacts in `docs/reports/`.
 - Use `just docs-build` to validate the MkDocs Material site before changing documentation navigation.
 - Keep `mkdocs.yml` synchronized when adding, removing, or renaming documentation pages.

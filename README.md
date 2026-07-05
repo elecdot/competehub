@@ -53,6 +53,7 @@ just infra-config
 
 `/`:
 - [CONTEXT.md](CONTEXT.md): Canonical project language and domain terms.
+- [CONTRIBUTING.md](CONTRIBUTING.md): Short collaborator workflow entry point.
 - [README-GIT.md](README-GIT.md): Git workflow and commit guidelines for contributors and coding agents.
 
 `.github/`:
@@ -70,6 +71,7 @@ just infra-config
 - [README.md](./docs/README.md): Documentation directory overview and local conventions.
 - [PRD.zh.md](./docs/PRD.zh.md): Product requirements and stable business boundaries.
 - [roadmap.md](./docs/roadmap.md): Product and engineering delivery route.
+- [project_workflow.md](./docs/project_workflow.md): Project delivery workflow for requirements, issues, PRs, validation, and docs.
 - [architecture.md](./docs/architecture.md): High-level system architecture and data flow.
 - [api_spec.md](./docs/api_spec.md): REST API contract and endpoint plan.
 - [data_model.md](./docs/data_model.md): Core data model, relationships, and state rules.
@@ -78,6 +80,7 @@ just infra-config
 - [CONVENTIONS.md](./docs/CONVENTIONS.md): Repository naming and file organization conventions.
 - [setup.md](./docs/setup.md): A quick setup guideline for developers.
 - [tooling.md](./docs/tooling.md): Development tools and their usage.
+- [prds/features/README.md](./docs/prds/features/README.md): Feature PRD rules and template.
 
 `docs/reports/`:
 - [README.md](./docs/reports/README.md): Report directory overview and local conventions.

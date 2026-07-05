@@ -1,0 +1,4 @@
+interface:
+  display_name: "Delivery Slice"
+  short_description: "Deliver one focused CompeteHub change."
+  default_prompt: "Use this skill to deliver one focused CompeteHub issue or change through code, docs, validation, and PR summary."

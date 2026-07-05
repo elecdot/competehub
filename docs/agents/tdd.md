@@ -1,14 +1,24 @@
 # Test-Driven Development
 
-This workflow applies to bug fixes, testable behavior changes, and new features.
+This workflow applies to bug fixes, testable behavior changes, and new
+features where an automated test surface exists or can reasonably be added.
 
 ## When To Use TDD
 
 - Bug fixes: reproduce the bug with a failing test when practical.
-- Behavior changes: write or update tests for the expected behavior before implementation when practical.
-- New features: start from observable behavior, then implement the smallest code needed to pass.
+- Backend business rules or state transitions: write or update tests before
+implementation when practical.
+- API validation, auth, and permission behavior: cover expected behavior before
+implementation when practical.
+- Reminder, subscription, recommendation, and review/publication workflows:
+cover the critical state transition or regression path.
+- New features: start from observable behavior, then implement the smallest code
+needed to pass.
 
-Pure documentation changes, formatting-only changes, CI metadata changes, and exploratory spikes do not require test-first work. They still require explicit validation.
+Manual validation is acceptable for pure documentation changes, template or
+process-only changes, visual-only frontend work without a test harness,
+formatting-only changes, CI metadata changes, small copy edits, and exploratory
+spikes. They still require explicit validation.
 
 ## Workflow
 
@@ -26,7 +36,11 @@ Do not delete, weaken, skip, or rewrite existing tests to make a change pass unl
 - Documentation behavior or navigation: `just docs-build`.
 - Infrastructure behavior: `just infra-config`.
 
-If a full command is too expensive or blocked, run the narrowest useful alternative and state what remains unverified.
+If a full command is too expensive or blocked, run the narrowest useful
+alternative and state what remains unverified.
+
+If automated tests are skipped for behavior changes, state why and provide the
+manual validation path.
 
 ## Failure Reporting
 

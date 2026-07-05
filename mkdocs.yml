@@ -38,6 +38,10 @@ nav:
       - Test-Driven Development: agents/tdd.md
   - Product Requirements: PRD.zh.md
   - Roadmap: roadmap.md
+  - Project Workflow: project_workflow.md
+  - Feature PRDs:
+      - Overview: prds/features/README.md
+      - Template: prds/features/template.md
   - Architecture: architecture.md
   - API Spec: api_spec.md
   - Data Model: data_model.md

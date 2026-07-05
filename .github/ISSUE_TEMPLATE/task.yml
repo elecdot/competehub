@@ -39,6 +39,20 @@ body:
         - meta
     validations:
       required: true
+  - type: dropdown
+    id: phase
+    attributes:
+      label: Roadmap Phase
+      description: Pick the phase this task supports, or "not applicable" for pure process/tooling work.
+      options:
+        - P0 minimum runnable loop
+        - P1 core business workflow
+        - P2 recommendation and governance
+        - P3 quality and operations hardening
+        - P4 later extensions
+        - not applicable
+    validations:
+      required: true
   - type: textarea
     id: objective
     attributes:
@@ -47,6 +61,32 @@ body:
     validations:
       required: true
   - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: What is included and explicitly out of scope?
+      placeholder: |
+        Included:
+        - ...
+
+        Out of scope:
+        - ...
+    validations:
+      required: true
+  - type: checkboxes
+    id: affected_surfaces
+    attributes:
+      label: Affected Surfaces
+      description: Select every surface that this task is expected to touch.
+      options:
+        - label: backend API or services
+        - label: frontend UI or state
+        - label: data model, migrations, or seed data
+        - label: product, API, data, architecture, or technical docs
+        - label: course reports
+        - label: CI, setup, tooling, or infrastructure
+        - label: GitHub issue, PR, or project workflow
+  - type: textarea
     id: checklist
     attributes:
       label: Completion Checklist
@@ -54,6 +94,16 @@ body:
       placeholder: |
         - First required change
         - Validation command or review check
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation Plan
+      description: Which checks or manual review steps should prove this task is complete?
+      placeholder: |
+        - just docs-build
+        - Manual review: ...
     validations:
       required: true
   - type: textarea

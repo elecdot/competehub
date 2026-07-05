@@ -4,6 +4,8 @@
 
 ## Validation
 
+Check what ran. Explain skipped relevant checks under "Not run".
+
 - [ ] `just check`
 - [ ] `just api-test`
 - [ ] `just api-lint`
@@ -13,6 +15,18 @@
 - [ ] `just docs-build`
 - [ ] `just infra-config`
 - [ ] Not run:
+
+## Docs Impact
+
+- [ ] No docs needed
+- [ ] `docs/PRD.zh.md`
+- [ ] `docs/prds/features/*`
+- [ ] `docs/api_spec.md`
+- [ ] `docs/data_model.md`
+- [ ] `docs/architecture.md` / `docs/tech_spec.zh.md` / `docs/adr/*`
+- [ ] `docs/reports/*`
+- [ ] `docs/setup.md` / `docs/tooling.md`
+- [ ] `mkdocs.yml`
 
 ## Checklist
 

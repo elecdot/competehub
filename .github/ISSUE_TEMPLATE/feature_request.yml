@@ -21,6 +21,20 @@ body:
         - project
     validations:
       required: true
+  - type: dropdown
+    id: phase
+    attributes:
+      label: Roadmap Phase
+      description: Pick the phase this request most likely belongs to.
+      options:
+        - P0 minimum runnable loop
+        - P1 core business workflow
+        - P2 recommendation and governance
+        - P3 quality and operations hardening
+        - P4 later extensions
+        - unsure
+    validations:
+      required: true
   - type: textarea
     id: problem
     attributes:
@@ -45,6 +59,28 @@ body:
         - Validation command or review check
     validations:
       required: true
+  - type: textarea
+    id: feature_prd
+    attributes:
+      label: Feature PRD Need
+      description: Link an existing Feature PRD or explain whether one should be created under docs/prds/features/.
+      placeholder: |
+        Existing Feature PRD:
+        Needs Feature PRD: yes/no/unsure
+    validations:
+      required: false
+  - type: checkboxes
+    id: affected_surfaces
+    attributes:
+      label: Affected Surfaces
+      description: Select every surface this request is expected to touch.
+      options:
+        - label: backend API or services
+        - label: frontend UI or state
+        - label: data model, migrations, or seed data
+        - label: product, API, data, architecture, or technical docs
+        - label: course reports
+        - label: CI, setup, tooling, or infrastructure
   - type: textarea
     id: alternatives
     attributes:

@@ -1,0 +1,4 @@
+interface:
+  display_name: "CompeteHub Workflow"
+  short_description: "Route CompeteHub delivery work."
+  default_prompt: "Use this skill to classify and route a non-trivial CompeteHub task through the project delivery workflow."

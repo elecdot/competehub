@@ -4,8 +4,8 @@ This file is the repository-level behavior contract for coding agents.
 
 ## Repository Orientation
 
-- Read `README.md` and relevant directory-level `README.md` files before
-editing code or documentation.
+- Read `README.md`, `docs/project_workflow.md`, and relevant directory-level
+`README.md` files before editing code or documentation.
 - Read `CONTEXT.md` for canonical project language and `docs/roadmap.md` for
 the current product and engineering delivery route when changing product,
 architecture, module, or report documents.
@@ -15,6 +15,25 @@ before adding or changing ADRs.
 - Prefer existing repository commands, conventions, and helper scripts over
 introducing new workflow shapes.
 - Keep changes small, reviewable, and scoped to the user request.
+
+## Agent Task Contract
+
+For non-trivial tasks, before editing files or performing external writes,
+state:
+
+- Task type: docs, feature, bug, refactor, CI, report, process, or other.
+- Roadmap phase when applicable: P0, P1, P2, P3, P4, or not applicable.
+- Source documents read, plus any intentionally skipped documents.
+- Affected surfaces: code, API, data model, UI, docs, reports, CI, issue
+tracker, or none.
+- External writes needed: GitHub issue, PR body/comment, labels, close issue,
+commit, push, or none.
+- Validation plan: targeted checks to run, or why validation is not needed.
+
+This contract applies to code changes, public behavior changes, API/data model
+changes, CI/setup changes, durable documentation changes, issue/PR operations,
+and report work. Tiny read-only questions and simple local inspection commands
+do not require the full contract.
 
 ## Agent skills
 
@@ -33,6 +52,39 @@ The five Matt Pocock triage roles map directly to same-name GitHub labels:
 
 This repo uses a single-context domain-doc layout: root `CONTEXT.md` plus
 repo-wide ADRs in `docs/adr/`. See `docs/agents/domain.md`.
+
+## Change Workflow
+
+- For bug fixes and behavior changes, prefer the TDD workflow in
+`docs/agents/tdd.md`: reproduce with a failing test when practical, make the
+smallest passing change, then refactor.
+- Do not use `to-prd` or feature planning work to overwrite `docs/PRD.zh.md`.
+Feature PRDs live under `docs/prds/features/`; changing the stable product PRD
+requires an explicit request and confirmation.
+- Do not rewrite unrelated files, reformat entire files unnecessarily, or
+change public contracts without updating documentation and validation.
+- When preparing commits, branches, or pull requests, follow `README-GIT.md`.
+- Preserve user changes already present in the worktree; do not revert work you
+did not make unless explicitly requested.
+- Add appropriate comments when working, especially where a decision or complex
+block would otherwise be hard to understand.
+
+## External Write Policy
+
+Preview and wait for user confirmation before:
+
+- Creating or editing GitHub issues, PR bodies, PR comments, labels, or issue
+state.
+- Committing, pushing, tagging, or rewriting Git history.
+- Closing issues or PRs.
+- Replacing or substantially rewriting durable project documents such as
+`docs/PRD.zh.md`, `docs/api_spec.md`, `docs/data_model.md`,
+`docs/tech_spec.zh.md`, and `docs/reports/*`.
+
+Before creating a GitHub issue, read `.github/ISSUE_TEMPLATE/config.yml` and the
+relevant issue form. If the user asks for a task issue, prefer
+`.github/ISSUE_TEMPLATE/task.yml`. Show the title, labels, and body field
+mapping before creating the issue.
 
 ## Dependency And Tooling Policy
 
@@ -56,21 +108,12 @@ deployment depend on files that only exist in `.cache/`.
 - If a temporary tool becomes part of the regular workflow, promote it into the
 project dependency system and document it.
 
-## Change Workflow
-
-- For bug fixes and behavior changes, prefer the TDD workflow in
-`docs/agents/tdd.md`: reproduce with a failing test when practical, make the
-smallest passing change, then refactor.
-- Do not rewrite unrelated files, reformat entire files unnecessarily, or
-change public contracts without updating documentation and validation.
-- When preparing commits, branches, or pull requests, follow `README-GIT.md`.
-- Preserve user changes already present in the worktree; do not revert work you
-did not make unless explicitly requested.
-- Add appropriate comments when working, especially where a decision or complex
-block would otherwise be hard to understand.
-
 ## Validation Matrix
 
+- Use layered validation. During development, run the narrowest relevant check.
+Before handoff, run the checks for every affected surface. Before merge,
+release, or broad cross-cutting changes, prefer the full local gate or explain
+why it was not run.
 - Full local gate: `just check`.
 - Backend code: `just api-test`, `just api-lint` and `just api-format`.
 - Frontend code: `just web-lint` and `just web-build`.
@@ -89,6 +132,9 @@ so the published documentation site stays in sync.
 - Treat product, architecture, API, data model, roadmap, and module documents as
 alignment documents that may be refined together; do not assume any one of them
 is an untouchable absolute source when they conflict.
+- Keep each kind of project knowledge in its owning document as defined by
+`docs/project_workflow.md`; use links and short summaries instead of duplicating
+the same rules across documents.
 - Put durable product and architecture docs in `docs/`, time-bound decisions in
 `docs/adr/`, and course-style reports or generated analysis in `docs/reports/`.
 
