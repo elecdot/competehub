@@ -11,7 +11,7 @@ This directory contains product, technical, setup, and engineering convention do
 - [API Spec](./api_spec.md): review the REST API contract and endpoint plan.
 - [Data Model](./data_model.md): review the core entities, relationships, and lifecycle rules.
 - [Tooling](./tooling.md): find the repository commands for development, checks, and documentation.
-- [Agent Guidelines](./agent/README.md): review coding-agent workflow guidance.
+- [Agent Guidelines](./agents/README.md): review coding-agent workflow guidance.
 
 ## Repository Areas
 
@@ -33,7 +33,7 @@ This directory contains product, technical, setup, and engineering convention do
 - `CONVENTIONS.md`: Repository naming and path conventions.
 - `setup.md`: Contributor setup guide.
 - `tooling.md`: Development tooling guide.
-- `agent/`: Coding-agent workflow guidance and task-specific development procedures.
+- `agents/`: Coding-agent workflow guidance and task-specific development procedures.
 - `adr/`: Architecture decision records for time-bound decisions and tradeoffs.
 
 Related course reports live in `docs/reports/`, including module split and responsibility documents.

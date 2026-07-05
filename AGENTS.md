@@ -16,6 +16,24 @@ before adding or changing ADRs.
 introducing new workflow shapes.
 - Keep changes small, reviewable, and scoped to the user request.
 
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked in GitHub Issues for `elecdot/competehub`; external PRs are
+not a triage request surface. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five Matt Pocock triage roles map directly to same-name GitHub labels:
+`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and
+`wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This repo uses a single-context domain-doc layout: root `CONTEXT.md` plus
+repo-wide ADRs in `docs/adr/`. See `docs/agents/domain.md`.
+
 ## Dependency And Tooling Policy
 
 - Prefer `just` recipes for routine commands. When bypassing recipes, prefix
@@ -41,7 +59,7 @@ project dependency system and document it.
 ## Change Workflow
 
 - For bug fixes and behavior changes, prefer the TDD workflow in
-`docs/agent/tdd.md`: reproduce with a failing test when practical, make the
+`docs/agents/tdd.md`: reproduce with a failing test when practical, make the
 smallest passing change, then refactor.
 - Do not rewrite unrelated files, reformat entire files unnecessarily, or
 change public contracts without updating documentation and validation.

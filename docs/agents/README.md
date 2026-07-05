@@ -6,7 +6,10 @@ This directory contains development workflow guidance for coding agents working 
 
 ## Documents
 
+- `domain.md`: domain documentation layout and consumer rules for engineering skills.
+- `issue-tracker.md`: GitHub issue tracker conventions used by engineering skills.
 - `tdd.md`: test-driven development workflow for bug fixes, behavior changes, and new features.
+- `triage-labels.md`: mapping from canonical triage roles to repository labels.
 
 ## Local Conventions
 

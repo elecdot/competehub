@@ -31,8 +31,11 @@ markdown_extensions:
 nav:
   - Home: README.md
   - Agent Guidelines:
-      - Overview: agent/README.md
-      - Test-Driven Development: agent/tdd.md
+      - Overview: agents/README.md
+      - Issue Tracker: agents/issue-tracker.md
+      - Triage Labels: agents/triage-labels.md
+      - Domain Docs: agents/domain.md
+      - Test-Driven Development: agents/tdd.md
   - Product Requirements: PRD.zh.md
   - Roadmap: roadmap.md
   - Architecture: architecture.md
