@@ -31,6 +31,8 @@ Choose the smallest primary route:
 
 Completion criterion: name one primary route and any secondary skill only when it is actually needed.
 
+>tip: If a local personal helper such as `/to-prd` or `/to-issue` exists, it may be used only as a drafting aid. The final artifact must follow this repository's Feature PRD template, issue forms, source-of-truth matrix, and confirmation policy.
+
 ## 3. Guard The Scope
 
 Keep the slice reviewable. Split unrelated changes into follow-up issues. Preview and wait for confirmation before GitHub writes, Git history changes, or major durable document rewrites.
