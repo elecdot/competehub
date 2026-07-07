@@ -171,6 +171,17 @@ ownership:
 - QA/validation owner: test plan, manual acceptance, validation evidence.
 - Docs/report owner: project docs, course reports, MkDocs navigation.
 
+## Release Sprint Mode
+
+For milestone checks such as the midterm inspection, the team may enter Release Sprint Mode.
+
+Release Sprint Mode means:
+- Freeze scope around the current roadmap target.
+- Prefer vertical slices over horizontal layer-only tasks.
+- Keep the runnable branch demo-ready every day.
+- Require validation evidence before marking work done.
+- Stop feature work before the inspection and use the final day for bug fixes, docs, and demo rehearsal.
+
 ## Explicit Avoids
 
 - Do not build P4 extensions before P1/P2 are stable.
