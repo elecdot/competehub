@@ -125,6 +125,9 @@ preview and confirmation.
 
 ## Validation Strategy
 
+The project-wide test layers, manual acceptance path, and non-functional
+validation model live in `docs/testing.md`.
+
 Use layered validation:
 
 - During development, run the narrowest check that exercises the changed surface.

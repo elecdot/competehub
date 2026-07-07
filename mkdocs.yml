@@ -87,6 +87,7 @@ nav:
           - PostgreSQL Search First: adr/0011-postgresql-search-first.md
   - Delivery:
       - Project Workflow: project_workflow.md
+      - Testing Model: testing.md
       - Tooling: tooling.md
       - Conventions: CONVENTIONS.md
   - Agents:

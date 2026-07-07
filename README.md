@@ -75,6 +75,7 @@ just infra-config
 - [architecture.md](./docs/architecture.md): High-level system architecture and data flow.
 - [api_spec.md](./docs/api_spec.md): REST API contract and endpoint plan.
 - [data_model.md](./docs/data_model.md): Core data model, relationships, and state rules.
+- [testing.md](./docs/testing.md): Test layers, manual acceptance path, and non-functional validation model.
 - [tech_spec.zh.md](./docs/tech_spec.zh.md): Technical architecture and implementation design.
 - [adr/README.md](./docs/adr/README.md): Architecture decision records and ADR conventions.
 - [CONVENTIONS.md](./docs/CONVENTIONS.md): Repository naming and file organization conventions.

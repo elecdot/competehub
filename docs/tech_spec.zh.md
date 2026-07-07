@@ -388,14 +388,22 @@ Redis 不用于：
 
 ## 十一、测试与质量门禁
 
-### 11.1 Backend
+项目测试模型以 `docs/testing.md` 为准。本文档只保留技术实现摘要，避免在
+多个文档中重复维护同一套测试规则。
 
-- Unit tests：services、repositories、规则推荐、状态流转。
-- API tests：认证、赛事搜索、订阅提醒、后台审核。
-- Migration tests：关键迁移可在临时数据库上执行。
-- Lint / Format：Ruff。
+### 11.1 分层测试模型
 
-### 11.2 Frontend
+| 层级 | 技术范围 | 当前策略 |
+|---|---|---|
+| Backend unit tests | services、repositories、规则推荐、状态流转、幂等规则。 | 使用 `pytest`，业务规则和回归风险较高的状态变化优先 TDD。 |
+| API tests | 认证、赛事搜索、订阅提醒、后台审核、消息和权限。 | 使用 Flask test client 覆盖请求校验、响应结构、状态码和权限边界。 |
+| Database / migration checks | SQLAlchemy models、迁移脚本、seed 数据、状态枚举变更。 | 涉及 schema 变化时在临时或本地数据库执行迁移；seed 数据应可复现。 |
+| Integration tests | 管理员发布赛事、学生搜索订阅、提醒生成消息和日历节点。 | P1 主闭环稳定后补服务/API 集成测试；自动化前使用手工验收脚本。 |
+| Frontend static checks | Vue routes、TypeScript 类型、构建产物。 | `just web-lint` 执行 `vue-tsc --noEmit`，`just web-build` 执行生产构建。 |
+| Frontend component tests | 筛选、详情状态、订阅状态、消息状态。 | P1 UI 稳定后再引入 Vitest 或等价框架，并同步 `apps/web/package.json`、`justfile` 和本文档。 |
+| E2E / manual acceptance | 中期和答辩演示主流程。 | 先使用脚本化手工验收；路由和 API 契约稳定后再考虑 Playwright。 |
+
+### 11.2 Frontend quality gates
 
 - Current static checks：`vue-tsc --noEmit`，通过 `just web-lint` 执行；`just web-build` 同时执行类型检查和 Vite build。
 - Stage 1 lint / format：P1 页面和 stores 稳定后，引入 ESLint、`eslint-plugin-vue` 和 Prettier。
@@ -403,7 +411,23 @@ Redis 不用于：
 - Stage 3 E2E tests：主闭环稳定后，引入 Playwright，覆盖后台发布赛事到学生订阅、提醒、消息和日历的端到端路径。
 - 每个前端质量门禁阶段必须在同一变更中同步 `apps/web/package.json`、lockfile、`justfile` 和本文档；分阶段决策见 `docs/adr/0010-staged-frontend-quality-gates.md`。
 
-### 11.3 justfile
+### 11.3 TDD 与非功能验证
+
+`docs/agents/tdd.md` 是 bug 修复和可测试行为变更的工作流；`docs/testing.md`
+是项目测试层级、验收脚本和非功能验证口径的来源。实现任务应先在
+`docs/testing.md` 中选择相关测试层级，再在适合自动化的行为变更中按
+`docs/agents/tdd.md` 执行 red-green-refactor。
+
+非功能验证以可落地证据为主：
+
+- 权限安全：学生不能访问后台 API，用户不能读取或修改他人画像、订阅、提醒和消息。
+- 数据一致性：赛事状态变化影响列表、详情、推荐和提醒；取消订阅会取消未来未发送提醒。
+- 幂等可靠性：提醒派发重复执行不产生重复站内消息。
+- 响应时间 smoke：记录种子数据规模和本地环境，验证列表、搜索和详情满足 PRD 的 3 秒目标。
+- 易用性：按手工验收脚本完成学生和管理员主流程。
+- 可维护性：PR 明确验证证据，文档与公开契约同步更新。
+
+### 11.4 justfile
 
 根 `justfile` 作为开发入口，应提供分层 recipe：顶层入口用于日常操作，组件级 recipe 用于局部开发和 CI 对齐。
 

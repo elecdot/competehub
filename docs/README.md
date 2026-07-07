@@ -11,6 +11,7 @@ This directory contains product, technical, setup, and engineering convention do
 - [Architecture Decisions](./adr/README.md): review decisions, tradeoffs, and superseded choices.
 - [API Spec](./api_spec.md): review the REST API contract and endpoint plan.
 - [Data Model](./data_model.md): review the core entities, relationships, and lifecycle rules.
+- [Testing Model](./testing.md): understand test layers, manual acceptance, and non-functional validation.
 - [Tooling](./tooling.md): find the repository commands for development, checks, and documentation.
 - [Agent Guidelines](./agents/README.md): review coding-agent workflow guidance.
 
@@ -31,6 +32,7 @@ This directory contains product, technical, setup, and engineering convention do
 - `architecture.md`: High-level system architecture, runtime components, and data flow.
 - `api_spec.md`: REST API contract, response envelope, auth boundaries, and endpoint plan.
 - `data_model.md`: Core data model, relationships, states, and migration rules.
+- `testing.md`: Test strategy, manual acceptance path, and non-functional validation model.
 - `tech_spec.zh.md`: Technical architecture and implementation design.
 - `CONVENTIONS.md`: Repository naming and path conventions.
 - `setup.md`: Contributor setup guide.
@@ -59,7 +61,6 @@ The current formal course reports are `docs/reports/01_项目开发计划.md`,
 
 The following documents should be added when their corresponding implementation work becomes concrete:
 
-- `testing.md`: test strategy, fixtures, coverage expectations, and CI verification commands.
 - `security.md`: auth model, Cookie/session rules, RBAC policy, privacy fields, and audit requirements.
 - `deployment.md`: deployment topology, environment variables, release steps, and rollback expectations.
 - `observability.md`: logging, metrics, tracing, alerting, and operational dashboards.
