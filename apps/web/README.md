@@ -44,5 +44,14 @@ npm --prefix apps/web run dev
 - Route-level components belong in `src/pages/`.
 - Reusable state belongs in Pinia stores, not ad hoc module globals.
 - Frontend permission checks are for UX only; backend APIs must enforce authorization.
-- UI component library adoption requires an ADR and this README must be updated with usage rules.
+- Ant Design Vue is the accepted UI component library; see `docs/adr/0008-ant-design-vue-ui-library.md`.
+- Do not mix Element Plus, Naive UI, Arco, or another general-purpose UI component library into the same app without a superseding ADR.
+- Shared buttons, forms, tables, modals, drawers, tags, messages, and management controls should use Ant Design Vue once the dependency is installed by an implementation PR.
 - Vite proxies `/api` to the Flask backend during local development.
+
+## Quality Gates
+
+- Current lint gate: `just web-lint`, which runs `vue-tsc --noEmit`.
+- Current build gate: `just web-build`, which runs type checking and Vite build.
+- Later stages add ESLint with `eslint-plugin-vue`, Prettier, Vitest with Vue Test Utils, and Playwright according to `docs/adr/0010-staged-frontend-quality-gates.md`.
+- Any PR that introduces a new frontend quality tool must update `apps/web/package.json`, `package-lock.json`, the root `justfile`, and the relevant docs together.
