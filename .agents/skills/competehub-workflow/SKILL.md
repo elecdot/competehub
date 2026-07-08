@@ -13,6 +13,7 @@ Read the source documents needed for the task:
 
 - Always for non-trivial work: `AGENTS.md`, `docs/project_workflow.md`, `docs/roadmap.md`, and `CONTEXT.md`.
 - For product behavior: `docs/PRD.zh.md` or `docs/prds/features/*`.
+- For Feature PRD drafting: `docs/agents/feature-prd.md` and `docs/prds/features/template.md`.
 - For APIs, data, architecture, or technical design: the matching docs under `docs/`.
 - For GitHub issue work: `docs/agents/issue-tracker.md` and the relevant `.github/ISSUE_TEMPLATE/*` form.
 
@@ -31,7 +32,7 @@ Choose the smallest primary route:
 
 Completion criterion: name one primary route and any secondary skill only when it is actually needed.
 
->tip: If a local personal helper such as `/to-prd` or `/to-issue` exists, it may be used only as a drafting aid. The final artifact must follow this repository's Feature PRD template, issue forms, source-of-truth matrix, and confirmation policy.
+>tip: If a local personal helper such as `/to-prd` or `/to-issue` exists, it may be used only as a drafting aid. The final artifact must follow this repository's Feature PRD template, issue forms, source-of-truth matrix, and confirmation policy. In this repo, `/to-prd` drafts `docs/prds/features/*.md`; it does not publish the PRD itself as a GitHub issue or apply `ready-for-agent`.
 
 ## 3. Guard The Scope
 

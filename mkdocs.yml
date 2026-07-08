@@ -92,6 +92,7 @@ nav:
       - Conventions: CONVENTIONS.md
   - Agents:
       - Overview: agents/README.md
+      - Feature PRDs: agents/feature-prd.md
       - Issue Tracker: agents/issue-tracker.md
       - Triage Labels: agents/triage-labels.md
       - Domain Docs: agents/domain.md

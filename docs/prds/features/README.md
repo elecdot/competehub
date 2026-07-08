@@ -16,6 +16,9 @@ boundary; files in this directory clarify one feature or delivery slice.
 - Include affected surfaces and validation plan.
 - Do not overwrite `docs/PRD.zh.md` through `to-prd`; use this directory unless
   the stable product boundary is explicitly changing.
+- Agent helpers such as `to-prd` may synthesize a draft, but the final artifact
+  must use `template.md` and live in this directory; do not publish the PRD
+  itself as a GitHub issue or mark it `ready-for-agent`.
 
 ## Workflow
 
@@ -24,5 +27,7 @@ defer it.
 2. Draft the Feature PRD from `template.md`.
 3. Review alignment with `docs/PRD.zh.md`, `docs/roadmap.md`,
    `docs/data_model.md`, `docs/api_spec.md`, and `docs/tech_spec.zh.md`.
-4. Split implementation into GitHub Issues as vertical slices.
-5. Keep the Feature PRD updated when the accepted behavior changes.
+4. For agent-drafted PRDs, follow `docs/agents/feature-prd.md` and keep
+   uncertain behavior in open questions until confirmed.
+5. Split implementation into GitHub Issues as vertical slices.
+6. Keep the Feature PRD updated when the accepted behavior changes.

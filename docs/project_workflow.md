@@ -70,6 +70,12 @@ They should align with:
 - `docs/api_spec.md`
 - `docs/tech_spec.zh.md`
 
+Agent helpers such as `to-prd` may be used only as drafting aids. The final
+Feature PRD must live under `docs/prds/features/`, use the local template, and
+follow `docs/agents/feature-prd.md`. Do not publish a Feature PRD itself as a
+GitHub issue or mark it `ready-for-agent`; split accepted PRDs into vertical
+implementation issues first.
+
 If a feature changes the product boundary, update the stable PRD explicitly and
 call out the reason in the PR.
 
