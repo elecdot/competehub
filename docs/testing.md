@@ -67,11 +67,10 @@ Implementation slices should first choose the relevant layer from this document,
 then follow `docs/agents/tdd.md` for the red-green-refactor workflow when TDD is
 practical.
 
-This slice does not add, remove, or replace a repository-local TDD skill. The
-current durable workflow remains `docs/agents/tdd.md`. The team decision is to
-add a well-scoped `.agents/skills/tdd` wrapper later as a separate process or
-tooling slice, keeping the skill aligned with this model instead of duplicating
-or silently replacing it.
+The repository-local `.agents/skills/tdd` skill is a thin wrapper over this
+model and `docs/agents/tdd.md`. The durable workflow remains
+`docs/agents/tdd.md`; the skill must stay aligned with this model instead of
+duplicating or silently replacing it.
 
 ## Non-Functional Validation
 

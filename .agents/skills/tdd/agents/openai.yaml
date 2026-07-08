@@ -1,0 +1,4 @@
+interface:
+  display_name: "TDD"
+  short_description: "Use the CompeteHub TDD workflow."
+  default_prompt: "Use the CompeteHub TDD workflow for this change."
