@@ -166,3 +166,28 @@ Before opening a PR:
 
 PR and issue templates live under `.github/` and should keep this workflow as
 their source of truth.
+
+### Logical Commits for Large PRs
+
+Small changes may use a single clear commit.
+
+Large feature PRs, cross-module changes, or agent-generated changes must be organized into logical commits before review. Temporary `wip` commits are acceptable during development, but the final PR history should be clean enough to review, trace, and roll back.
+
+A good PR should tell a story:
+
+```text
+feat(domain): add competition model
+feat(api): add competition endpoints
+feat(web): add competition management page
+test(api): cover competition workflows
+docs: update feature notes
+```
+
+Avoid vague or oversized commits:
+
+```text
+feat: finish feature
+update files
+fix stuff
+wip
+```
