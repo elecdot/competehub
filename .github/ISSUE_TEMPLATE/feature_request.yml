@@ -82,6 +82,19 @@ body:
         - label: course reports
         - label: CI, setup, tooling, or infrastructure
   - type: textarea
+    id: ownership
+    attributes:
+      label: Delivery Ownership
+      description: Optional during early feature request; fill during triage before implementation starts.
+      placeholder: |
+        DRI:
+        Contributors:
+        Reviewer:
+        Validation owner:
+        Docs impact:
+    validations:
+      required: false
+  - type: textarea
     id: alternatives
     attributes:
       label: Alternatives Considered

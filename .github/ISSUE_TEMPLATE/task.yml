@@ -87,6 +87,19 @@ body:
         - label: CI, setup, tooling, or infrastructure
         - label: GitHub issue, PR, or project workflow
   - type: textarea
+    id: ownership
+    attributes:
+      label: Delivery Ownership
+      description: Name the people or roles responsible for driving, contributing, reviewing, validating, and syncing docs.
+      placeholder: |
+        DRI:
+        Contributors:
+        Reviewer:
+        Validation owner:
+        Docs impact:
+    validations:
+      required: true
+  - type: textarea
     id: checklist
     attributes:
       label: Completion Checklist
