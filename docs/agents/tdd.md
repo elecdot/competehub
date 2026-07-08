@@ -2,6 +2,8 @@
 
 This workflow applies to bug fixes, testable behavior changes, and new
 features where an automated test surface exists or can reasonably be added.
+The project-wide test layers, manual acceptance path, and non-functional
+validation model live in `docs/testing.md`.
 
 ## When To Use TDD
 
