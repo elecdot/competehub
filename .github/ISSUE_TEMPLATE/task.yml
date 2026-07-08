@@ -90,13 +90,16 @@ body:
     id: ownership
     attributes:
       label: Delivery Ownership
-      description: Name the people or roles responsible for driving, contributing, reviewing, validating, and syncing docs.
+      description: Required before ready-for-agent. Use one DRI; type contributors as Active, Align with, or FYI; keep validation owned by a human member or role.
       placeholder: |
-        DRI:
+        DRI: a|b|c|d|e|f or role
         Contributors:
-        Reviewer:
-        Validation owner:
-        Docs impact:
+        - Active - member: responsibility
+        - Align with - member: boundary to confirm
+        - FYI - member: reason
+        Reviewer: f or relevant reviewer
+        Validation owner: human member or role
+        Docs impact: docs/path.md or None - explicitly reviewed
     validations:
       required: true
   - type: textarea

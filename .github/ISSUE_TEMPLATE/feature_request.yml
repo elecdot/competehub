@@ -85,13 +85,16 @@ body:
     id: ownership
     attributes:
       label: Delivery Ownership
-      description: Optional during early feature request; fill during triage before implementation starts.
+      description: Optional during early feature request, but required before ready-for-agent. Use the project workflow ownership rules.
       placeholder: |
-        DRI:
+        DRI: a|b|c|d|e|f or role
         Contributors:
-        Reviewer:
-        Validation owner:
-        Docs impact:
+        - Active - member: responsibility
+        - Align with - member: boundary to confirm
+        - FYI - member: reason
+        Reviewer: f or relevant reviewer
+        Validation owner: human member or role
+        Docs impact: docs/path.md or None - explicitly reviewed
     validations:
       required: false
   - type: textarea

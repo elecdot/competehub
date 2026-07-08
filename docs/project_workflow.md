@@ -96,6 +96,67 @@ explicit:
 - Docs impact: source documents that must be updated or explicitly left
   unchanged.
 
+### Delivery Ownership Fields
+
+The default issue model is still one person completing one issue with agent
+assistance. Ownership fields make cross-module alignment visible; they do not
+turn every listed contributor into a co-implementer.
+
+Use the current module-owner mapping from
+`docs/reports/module_breakdown_v1.0.md` when assigning issue ownership:
+
+| Module | Default owner |
+|---|---|
+| M1 用户与画像管理 | a |
+| M2 赛事治理 | b |
+| M3 赛事发现与展示 | c |
+| M4 赛事跟进 | e |
+| M5 规则推荐与推荐解释 | d |
+| M6 后台运营、配置与审计统计 | f |
+| M7 内容沉淀与交流扩展 | f unless a submodule owner is more specific |
+
+`DRI` must be one concrete member or role, usually the owner of the primary
+module affected by the issue. For cross-module work, choose the owner of the
+main accepted outcome or core state/data change. Do not use multiple DRIs. If an
+agent cannot infer the DRI reliably, mark it as a candidate or `TBD` in the
+preview and ask for confirmation before publishing the issue as ready for an
+agent.
+
+`Contributors` should include only members with a real relationship to the
+issue. Normal implementation issues should not list all members by default. Use
+these relationship types:
+
+- `Active`: actually co-produces code, documentation, tests, or design.
+- `Align with`: must align on API, data, UI, documentation, requirements, or
+  validation boundaries.
+- `FYI`: should know about the work, but is not expected to participate.
+
+Parent issues, release sprint issues, and coordination issues may list all
+members a-f when the whole team needs visibility. Ordinary vertical slices
+should keep contributors scoped to the affected modules.
+
+`Reviewer` should usually be `f` or the relevant tech/product/repo-admin role,
+because member f also carries M6 quality support and often performs final
+review or repository administration. A neighboring module owner may be the main
+reviewer when that creates a better domain check. Avoid making the reviewer the
+same person as the DRI except for small documentation or process fixes.
+
+`Validation owner` must be a human member or role, not an agent. The DRI may own
+validation for ordinary work; `f` or another reviewer should own final
+validation for critical paths. An agent may run checks and collect evidence, but
+the validation owner accepts whether the evidence is sufficient.
+
+`Docs impact` must name concrete paths, such as `docs/api_spec.md` or
+`docs/data_model.md`, or explicitly say `None - explicitly reviewed`.
+
+An issue is not ready for `ready-for-agent` until Delivery Ownership is complete:
+
+- DRI is one concrete member or role, not `TBD`.
+- Contributors are scoped and typed as `Active`, `Align with`, or `FYI`.
+- Reviewer is set and preferably not the DRI.
+- Validation owner is a human member or role, not an agent.
+- Docs impact lists concrete paths or `None - explicitly reviewed`.
+
 Prefer vertical slices that can be implemented and reviewed independently. Avoid
 issues that split all data work, all API work, all UI work, and all tests into
 separate piles unless there is a clear integration plan.
