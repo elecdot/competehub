@@ -68,3 +68,19 @@ For non-trivial tasks, ask agents to follow `AGENTS.md`. Agents should identify
 the task type, roadmap phase, source documents, affected surfaces, external
 writes, and validation plan before editing. They must preview GitHub writes,
 Git history changes, and major durable document rewrites before acting.
+
+### Member Help
+
+Team members can ask Codex for `/member-help` when they are unsure how to
+continue assigned work, understand an issue, use Git or PRs, choose validation,
+or ask the agent a useful next question.
+
+Start with your member id and the standing meeting assignment when possible:
+
+```text
+/member-help 我是成员 c，今天站会分配给我的 issue 是 #12。请帮我对齐上下文并继续推进。
+```
+
+`member-help` is for orientation and next-step guidance. It does not reassign
+work, replace the daily owner list, or perform writes unless the member
+explicitly asks to switch into an implementation or GitHub workflow.

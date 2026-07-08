@@ -6,6 +6,10 @@ repo_url: https://github.com/elecdot/competehub
 
 docs_dir: docs
 
+# Add meetings into MkDocs nav only if its governance is defined.
+exclude_docs: |
+  meetings/
+
 theme:
   name: material
   language: en
