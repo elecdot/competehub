@@ -81,6 +81,10 @@ nav:
           - Trusted Source Manual Entry: adr/0005-trusted-source-manual-entry.md
           - Student and Admin Current Roles: adr/0006-student-admin-current-roles.md
           - Separate Favorites and Subscriptions: adr/0007-separate-favorites-and-subscriptions.md
+          - Ant Design Vue UI Library: adr/0008-ant-design-vue-ui-library.md
+          - Flask Cookie Session Auth: adr/0009-flask-cookie-session-auth.md
+          - Staged Frontend Quality Gates: adr/0010-staged-frontend-quality-gates.md
+          - PostgreSQL Search First: adr/0011-postgresql-search-first.md
   - Delivery:
       - Project Workflow: project_workflow.md
       - Tooling: tooling.md

@@ -73,7 +73,10 @@ List response:
 
 ## Authentication
 
-The API should use HttpOnly Cookie session or Cookie-based JWT. Frontend code must not store long-lived tokens in `localStorage`.
+The API uses Flask Cookie Session authentication. Frontend code must not store
+long-lived tokens in `localStorage`; authenticated requests rely on the browser
+session cookie. State-changing APIs must use POST, PATCH, or DELETE rather than
+GET.
 
 Initial roles:
 

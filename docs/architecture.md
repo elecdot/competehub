@@ -167,7 +167,7 @@ Recommendation reasons must be traceable to explicit rules or competition fields
 
 ## Extension Points
 
-- Search: start with PostgreSQL-backed filtering; add a dedicated search service later if Chinese full-text search requires it.
+- Search: start with PostgreSQL-backed filtering and simple keyword matching; add a dedicated search service later only if the triggers in [ADR 0011](./adr/0011-postgresql-search-first.md) are met.
 - Notification channels: start with in-app messages; add email, SMS, or WeChat only through explicit ADRs and user authorization requirements.
 - Recommendation: start with rules; add model-based ranking only after data volume and evaluation criteria exist.
 - Content: materials, team posts, certifications, and reviews should reuse users, competitions, review records, and audit logs.

@@ -23,6 +23,10 @@ Use numbered lowercase filenames:
 - [0005 Trusted Source Manual Entry](./0005-trusted-source-manual-entry.md)
 - [0006 Student and Admin Current Roles](./0006-student-admin-current-roles.md)
 - [0007 Separate Favorites and Subscriptions](./0007-separate-favorites-and-subscriptions.md)
+- [0008 Ant Design Vue UI Library](./0008-ant-design-vue-ui-library.md)
+- [0009 Flask Cookie Session Auth](./0009-flask-cookie-session-auth.md)
+- [0010 Staged Frontend Quality Gates](./0010-staged-frontend-quality-gates.md)
+- [0011 PostgreSQL Search First](./0011-postgresql-search-first.md)
 
 ## Template
 
