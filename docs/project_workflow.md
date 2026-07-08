@@ -84,6 +84,18 @@ GitHub Issues carry implementation work. A good issue should include:
 - Validation plan.
 - Links to Feature PRDs or source documents when relevant.
 
+Each active implementation or documentation slice should also make responsibility
+explicit:
+
+- DRI: the person who drives the issue to completion.
+- Contributors: people responsible for backend, frontend, docs, data, or report
+  parts when the issue crosses surfaces.
+- Reviewer: the person expected to review the change before merge.
+- Validation owner: the person responsible for collecting test, build, or manual
+  acceptance evidence.
+- Docs impact: source documents that must be updated or explicitly left
+  unchanged.
+
 Prefer vertical slices that can be implemented and reviewed independently. Avoid
 issues that split all data work, all API work, all UI work, and all tests into
 separate piles unless there is a clear integration plan.
@@ -171,6 +183,17 @@ ownership:
 - QA/validation owner: test plan, manual acceptance, validation evidence.
 - Docs/report owner: project docs, course reports, MkDocs navigation.
 
+Use three levels of responsibility:
+
+- Role responsibilities keep product, technology, backend, frontend,
+  validation, and documentation concerns covered.
+- Module owners keep each core module explainable. A module owner must
+  understand the module's requirements, APIs, key data, test method, and demo
+  path; they do not have to implement every task in that module alone.
+- Issue DRIs drive current work. Concrete contributors, reviewers, validation
+  owners, and docs impact belong on the issue or PR rather than in a giant
+  submodule responsibility matrix.
+
 ## Release Sprint Mode
 
 For milestone checks such as the midterm inspection, the team may enter Release Sprint Mode.
@@ -178,6 +201,9 @@ For milestone checks such as the midterm inspection, the team may enter Release 
 Release Sprint Mode means:
 - Freeze scope around the current roadmap target.
 - Prefer vertical slices over horizontal layer-only tasks.
+- Use an explicit issue table for current work: issue, DRI, contributors,
+  reviewer, validation owner, docs impact, and demo path.
+- Run small, frequent checks instead of waiting for one late integration review.
 - Keep the runnable branch demo-ready every day.
 - Require validation evidence before marking work done.
 - Stop feature work before the inspection and use the final day for bug fixes, docs, and demo rehearsal.
