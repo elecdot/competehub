@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from flask import Flask
 
+from competehub_api.blueprints.competitions import competitions_bp
 from competehub_api.blueprints.health import health_bp
 
 
 def register_blueprints(app: Flask) -> None:
+    app.register_blueprint(competitions_bp, url_prefix="/api/v1")
     app.register_blueprint(health_bp, url_prefix="/api/v1")

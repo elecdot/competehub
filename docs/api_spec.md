@@ -216,8 +216,10 @@ Search, filter, sort, and paginate public competitions.
 Visibility rules:
 
 - Return `published` competitions by default.
-- Do not return `draft`, `pending_review`, `rejected`, or `offline` competitions.
-- `archived`, `cancelled`, and `expired` competitions require explicit filters if exposed.
+- Do not return `draft`, `pending_review`, `rejected`, `offline`, `archived`,
+  `cancelled`, or `expired` competitions from the default public list.
+- In the Day 1 public tracer, `status` only exposes `published`; other status
+  filters return an empty public list rather than revealing hidden records.
 
 Response item:
 
@@ -225,33 +227,93 @@ Response item:
 {
   "id": 1,
   "title": "大学生创新创业竞赛",
+  "short_title": "创新创业竞赛",
   "category": "创新创业",
   "organizer": "示例主办方",
   "status": "published",
+  "source_name": "示例高校竞赛通知",
+  "source_url": "https://example.edu/notices/innovation",
+  "official_url": "https://example.org/innovation",
   "tags": ["校级推荐", "适合低年级"],
+  "suitable_majors": ["软件工程"],
+  "suitable_grades": ["大二"],
+  "value_notes": "校级推荐，适合有项目实践基础的学生",
   "next_node": {
+    "id": 11,
     "node_type": "registration_deadline",
-    "due_at": "2026-06-01T16:00:00Z"
+    "starts_at": null,
+    "due_at": "2026-06-01T16:00:00Z",
+    "description": "报名截止"
   },
   "is_favorited": false,
   "is_subscribed": false
 }
 ```
 
+If a public competition has no time nodes yet, `next_node` is `null`.
+
+Supported Day 1 filters:
+
+- `keyword`
+- `category`
+- `major`
+- `grade`
+- `tag`
+- `status`
+- `participant_form`
+
+The list response uses the common list envelope with `items` and `pagination`.
+
 ### `GET /competitions/{id}`
 
-Return competition detail.
+Return public competition detail. Missing competitions and non-public
+competitions both return `404 not_found`.
 
-Response data includes:
+Response data extends the list item with detail fields:
 
-- Basic competition fields.
-- Source name and source URL.
-- Time nodes.
-- Eligibility and material requirements.
-- Suitable majors and grades.
-- Reference tags and value notes.
-- Official and attachment links.
-- Current user's favorite/subscription state when authenticated.
+```json
+{
+  "id": 1,
+  "title": "大学生创新创业竞赛",
+  "status": "published",
+  "source_name": "示例高校竞赛通知",
+  "source_url": "https://example.edu/notices/innovation",
+  "official_url": "https://example.org/innovation",
+  "attachment_url": "https://example.edu/notices/innovation.pdf",
+  "summary": "面向大学生的创新项目竞赛。",
+  "detail": "提交项目方案、作品材料和现场答辩。",
+  "eligibility": "在校本科生可报名。",
+  "team_size": "1-5人",
+  "participant_form": "team",
+  "suitable_majors": ["软件工程"],
+  "suitable_grades": ["大二"],
+  "tags": ["校级推荐", "适合低年级"],
+  "value_notes": "校级推荐，适合有项目实践基础的学生",
+  "next_node": {
+    "id": 11,
+    "node_type": "registration_deadline",
+    "starts_at": null,
+    "due_at": "2026-06-01T16:00:00Z"
+  },
+  "time_nodes": [
+    {
+      "id": 11,
+      "node_type": "registration_deadline",
+      "starts_at": null,
+      "due_at": "2026-06-01T16:00:00Z",
+      "description": "报名截止"
+    }
+  ],
+  "is_favorited": false,
+  "is_subscribed": false
+}
+```
+
+If a public competition has no time nodes yet, `time_nodes` is `[]` and
+`next_node` is `null`.
+
+Until the authenticated favorite/subscription slices are integrated,
+`is_favorited` and `is_subscribed` default to `false`.
 
 ### `POST /competitions/{id}/outbound_clicks`
 
