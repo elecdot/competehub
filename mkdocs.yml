@@ -71,6 +71,9 @@ nav:
       - Feature PRDs:
           - Overview: prds/features/README.md
           - Template: prds/features/template.md
+          - Competition Publication And Discovery: prds/features/competition-publication-discovery.md
+          - Student Following And Reminders: prds/features/student-following-reminders.md
+          - Rule Recommendation And Governance Thin Slice: prds/features/rule-recommendation-governance-thin.md
   - Architecture:
       - Architecture: architecture.md
       - API Spec: api_spec.md
