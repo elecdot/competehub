@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from sqlalchemy import JSON, BigInteger, Boolean, ForeignKey, String, Text
+from sqlalchemy import JSON, BigInteger, Boolean, ForeignKey, Integer, String, Text
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from competehub_api.extensions import db
 from competehub_api.models.enums import UserRole, UserStatus
 from competehub_api.models.mixins import TimestampMixin
+
+BIGINT_PK = BigInteger().with_variant(Integer, "sqlite")
 
 
 def enum_values(enum_cls):
@@ -16,7 +18,7 @@ def enum_values(enum_cls):
 class User(db.Model, TimestampMixin):
     __tablename__ = "users"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    id: Mapped[int] = mapped_column(BIGINT_PK, primary_key=True)
     email: Mapped[str | None] = mapped_column(String(255), unique=True)
     phone: Mapped[str | None] = mapped_column(String(32), unique=True)
     student_no: Mapped[str | None] = mapped_column(String(64), unique=True)
@@ -39,7 +41,7 @@ class User(db.Model, TimestampMixin):
 class StudentProfile(db.Model, TimestampMixin):
     __tablename__ = "student_profiles"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    id: Mapped[int] = mapped_column(BIGINT_PK, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), unique=True, nullable=False)
     college: Mapped[str | None] = mapped_column(String(120))
     major: Mapped[str | None] = mapped_column(String(120))

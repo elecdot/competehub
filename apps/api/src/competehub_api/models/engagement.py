@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import JSON, BigInteger, Boolean, DateTime, ForeignKey, String, Text
+from sqlalchemy import JSON, BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -11,11 +11,13 @@ from competehub_api.models.enums import ReminderStatus, SubscriptionStatus
 from competehub_api.models.mixins import TimestampMixin
 from competehub_api.models.user import enum_values
 
+BIGINT_PK = BigInteger().with_variant(Integer, "sqlite")
+
 
 class Favorite(db.Model, TimestampMixin):
     __tablename__ = "favorites"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    id: Mapped[int] = mapped_column(BIGINT_PK, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     competition_id: Mapped[int] = mapped_column(
         ForeignKey("competitions.id"),
@@ -28,7 +30,7 @@ class Favorite(db.Model, TimestampMixin):
 class Subscription(db.Model, TimestampMixin):
     __tablename__ = "subscriptions"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    id: Mapped[int] = mapped_column(BIGINT_PK, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     competition_id: Mapped[int] = mapped_column(
         ForeignKey("competitions.id"),
@@ -48,7 +50,7 @@ class Subscription(db.Model, TimestampMixin):
 class ReminderSetting(db.Model, TimestampMixin):
     __tablename__ = "reminder_settings"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    id: Mapped[int] = mapped_column(BIGINT_PK, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), unique=True, nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     default_remind_days: Mapped[int] = mapped_column(default=3, nullable=False)
@@ -58,7 +60,7 @@ class ReminderSetting(db.Model, TimestampMixin):
 class Reminder(db.Model, TimestampMixin):
     __tablename__ = "reminders"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    id: Mapped[int] = mapped_column(BIGINT_PK, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     competition_id: Mapped[int] = mapped_column(ForeignKey("competitions.id"), nullable=False)
     time_node_id: Mapped[int | None] = mapped_column(ForeignKey("competition_time_nodes.id"))
@@ -78,7 +80,7 @@ class Reminder(db.Model, TimestampMixin):
 class Message(db.Model, TimestampMixin):
     __tablename__ = "messages"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    id: Mapped[int] = mapped_column(BIGINT_PK, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     reminder_id: Mapped[int | None] = mapped_column(ForeignKey("reminders.id"))
     title: Mapped[str] = mapped_column(String(255), nullable=False)

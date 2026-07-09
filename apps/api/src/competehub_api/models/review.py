@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import JSON, BigInteger, ForeignKey, String, Text
+from sqlalchemy import JSON, BigInteger, ForeignKey, Integer, String, Text
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -9,11 +9,13 @@ from competehub_api.models.enums import ReviewStatus
 from competehub_api.models.mixins import TimestampMixin
 from competehub_api.models.user import enum_values
 
+BIGINT_PK = BigInteger().with_variant(Integer, "sqlite")
+
 
 class ReviewRecord(db.Model, TimestampMixin):
     __tablename__ = "review_records"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    id: Mapped[int] = mapped_column(BIGINT_PK, primary_key=True)
     target_type: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
     target_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     submitted_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
@@ -30,7 +32,7 @@ class ReviewRecord(db.Model, TimestampMixin):
 class AuditLog(db.Model, TimestampMixin):
     __tablename__ = "audit_logs"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    id: Mapped[int] = mapped_column(BIGINT_PK, primary_key=True)
     actor_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     action: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
     target_type: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
