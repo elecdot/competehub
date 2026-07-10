@@ -92,6 +92,7 @@ nav:
           - Flask Cookie Session Auth: adr/0009-flask-cookie-session-auth.md
           - Staged Frontend Quality Gates: adr/0010-staged-frontend-quality-gates.md
           - PostgreSQL Search First: adr/0011-postgresql-search-first.md
+          - UTC Instants and Shanghai Product Calendar: adr/0012-utc-instants-shanghai-calendar.md
   - Delivery:
       - Project Workflow: project_workflow.md
       - Testing Model: testing.md

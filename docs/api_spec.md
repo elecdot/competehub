@@ -60,6 +60,18 @@ List response:
 }
 ```
 
+## Date And Time
+
+Datetime values are timezone-aware ISO 8601 instants. API responses normalize
+them to UTC. Administrator datetime input with an explicit offset is converted
+to UTC; offsetless administrator datetime input is interpreted in the
+`Asia/Shanghai` product calendar time zone.
+
+Date-only query parameters represent `Asia/Shanghai` calendar dates, not UTC or
+browser-local calendar dates. Backend queries convert their local-midnight
+boundaries to UTC before comparing stored instants. See
+`docs/adr/0012-utc-instants-shanghai-calendar.md`.
+
 ## Common Errors
 
 | HTTP Status | Code | Meaning |
@@ -108,8 +120,8 @@ Competition filters:
 | `grade` | string | Suitable grade. |
 | `tag` | string | Reference or fit tag. |
 | `status` | string | Public-facing competition state. |
-| `deadline_from` | string | ISO date lower bound. |
-| `deadline_to` | string | ISO date upper bound. |
+| `deadline_from` | string | Inclusive `Asia/Shanghai` date lower bound for the registration deadline. |
+| `deadline_to` | string | Inclusive `Asia/Shanghai` date upper bound for the registration deadline. |
 | `participant_form` | string | Individual or team competition form. |
 
 ## Auth APIs
@@ -268,8 +280,10 @@ Supported Day 1 filters:
 - `deadline_from`
 - `deadline_to`
 
-Deadline bounds are inclusive UTC calendar dates and match any competition time
-node with a `due_at` inside the requested interval.
+Deadline bounds are inclusive `Asia/Shanghai` calendar dates and match only
+`registration_deadline` time nodes with a `due_at` inside the requested
+interval. Other milestones, including `submission_deadline`, remain visible in
+the detail timeline but do not make a competition match this discovery filter.
 
 The list response uses the common list envelope with `items` and `pagination`.
 
@@ -431,6 +445,10 @@ Admin APIs require `admin`.
 ### `POST /admin/competitions`
 
 Create a draft competition.
+
+Time-node datetime values follow the common date and time convention above.
+Offsetless values are treated as `Asia/Shanghai`; responses are normalized to
+UTC.
 
 Structured draft fields may include time nodes and controlled tags:
 

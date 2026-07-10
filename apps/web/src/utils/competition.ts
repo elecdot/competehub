@@ -1,5 +1,7 @@
 import type { CompetitionTimeNode } from '@/types/competition'
 
+const PRODUCT_TIME_ZONE = 'Asia/Shanghai'
+
 const NODE_LABELS: Record<string, string> = {
   registration_start: '报名开始',
   registration_period: '报名期',
@@ -41,6 +43,7 @@ export function formatNodeDate(node: CompetitionTimeNode, includeTime = false) {
 
   return new Intl.DateTimeFormat('zh-CN', {
     dateStyle: 'medium',
+    timeZone: PRODUCT_TIME_ZONE,
     ...(includeTime ? { timeStyle: 'short' as const } : {}),
   }).format(date)
 }

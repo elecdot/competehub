@@ -6,6 +6,13 @@ This document describes the initial domain data model for CompeteHub. It complem
 
 PostgreSQL is the system of record. Redis must not be the only storage location for any business fact described here.
 
+## Date And Time Convention
+
+Datetime fields represent timezone-aware instants and are normalized to UTC for
+storage and API output. User-facing dates, date-only filters, and offsetless
+administrator datetime input use the `Asia/Shanghai` product calendar time
+zone. See `docs/adr/0012-utc-instants-shanghai-calendar.md`.
+
 ## Entity Overview
 
 ```text
@@ -134,6 +141,7 @@ Common `node_type` values:
 Rules:
 
 - A competition can have multiple time nodes.
+- `starts_at` and `due_at` represent instants rather than offsetless local times.
 - Reminder generation uses future nodes and user subscription preferences.
 
 ### `competition_tags`

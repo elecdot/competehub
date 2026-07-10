@@ -51,6 +51,8 @@ npm --prefix apps/web run dev
 - Shared buttons, forms, tables, modals, drawers, tags, messages, and management
   controls should use Ant Design Vue.
 - Vite proxies `/api` to the Flask backend during local development.
+- User-facing competition dates use the `Asia/Shanghai` product calendar time
+  zone; API timestamps remain timezone-aware UTC instants.
 
 ## Quality Gates
 

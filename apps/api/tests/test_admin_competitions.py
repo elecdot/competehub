@@ -99,6 +99,31 @@ def test_create_draft_competition_records_source_and_audit(client, app) -> None:
         assert audit.result == "success"
 
 
+@pytest.mark.parametrize("due_at", ["2026-08-16T00:00:00", "2026-08-16T00:00:00+08:00"])
+def test_create_draft_normalizes_product_time_to_utc(client, app, due_at) -> None:
+    with app.app_context():
+        admin = create_admin_user()
+    login(client, admin)
+
+    response = client.post(
+        "/api/v1/admin/competitions",
+        json={
+            "title": "Shanghai Midnight Challenge",
+            "source_name": "School Notice",
+            "source_url": "https://example.edu/shanghai-midnight",
+            "time_nodes": [
+                {
+                    "node_type": "registration_deadline",
+                    "due_at": due_at,
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.get_json()["data"]["time_nodes"][0]["due_at"] == ("2026-08-15T16:00:00+00:00")
+
+
 def test_admin_competition_write_requires_admin_role(client, app) -> None:
     anonymous_response = client.post(
         "/api/v1/admin/competitions",

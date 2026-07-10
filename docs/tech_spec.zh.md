@@ -333,7 +333,15 @@ Redis 不用于：
 }
 ```
 
-### 9.2 关键接口组
+### 9.2 日期与时间约定
+
+- 数据库时间字段保存带时区的时间点，并统一归一为 UTC。
+- API 时间戳响应使用 UTC；带偏移输入转换为对应 UTC 时间点。
+- 不带偏移的管理员时间输入按 `Asia/Shanghai` 解释。
+- 学生端日期展示和日期型筛选按 `Asia/Shanghai` 产品日历日解释，查询时将上海午夜边界转换为 UTC。
+- 具体决策与替代方案见 `docs/adr/0012-utc-instants-shanghai-calendar.md`。
+
+### 9.3 关键接口组
 
 - `POST /api/v1/auth/register`
 - `POST /api/v1/auth/login`

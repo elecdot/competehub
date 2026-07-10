@@ -18,6 +18,30 @@ _Avoid_: CompetitionHub, ContestHub
 The canonical business object that students search, view, favorite, subscribe to, and that administrators review and publish. Use 竞赛 only as a broad everyday word or as part of the formal system name, not as the object name.
 _Avoid_: 比赛, 竞赛
 
+**公开赛事**:
+A 赛事 that is eligible for student or visitor discovery and detail views under the public visibility policy. In the current P1 default flow, only a reviewed and published 赛事 is public.
+_Avoid_: 未审核赛事, 草稿赛事
+
+**赛事时间节点**:
+A dated milestone in a 赛事 lifecycle, such as registration opening, 报名截止日期, submission deadline, competition start, review, or result announcement. Multiple赛事时间节点 can belong to one赛事.
+_Avoid_: 赛事日期, 单一截止时间
+
+**产品日历时区**:
+The `Asia/Shanghai` calendar used to interpret and display user-facing赛事 dates consistently. It is independent of a browser, server, or developer machine's local time zone.
+_Avoid_: 浏览器本地时区, 服务器本地时区, UTC 日历日
+
+**报名截止日期**:
+The due date of a registration-deadline赛事时间节点. In public赛事 discovery, a deadline date filter means报名截止日期; submission and later milestones do not satisfy that filter.
+_Avoid_: 任一节点截止日期, 作品提交截止日期
+
+**下一个关键时间节点**:
+The nearest current or future赛事时间节点 shown to help students understand what happens next. It is not synonymous with报名截止日期 and does not define the报名截止日期 filter.
+_Avoid_: 下一个报名截止日期
+
+**参赛形式**:
+How a student enters a赛事, currently either as an individual or as a team. Team-size constraints are separate赛事 information.
+_Avoid_: 团队人数, 报名条件
+
 **规则推荐**:
 A recommendation approach that ranks赛事 by explicit profile, tag, time, and configuration rules and expresses output through推荐理由 instead of a public赛事价值分数.
 _Avoid_: 智能评分, 含金量评分, 机器学习推荐

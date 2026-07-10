@@ -212,6 +212,32 @@ def test_public_competition_filters_preserve_visibility_contract(client) -> None
     assert [item["id"] for item in deadline_response.get_json()["data"]["items"]] == [106]
 
 
+def test_public_competition_deadline_filter_only_matches_registration_deadlines(client) -> None:
+    registration_deadline_response = client.get(
+        "/api/v1/competitions?deadline_from=2026-08-10&deadline_to=2026-08-16"
+    )
+    assert [item["id"] for item in registration_deadline_response.get_json()["data"]["items"]] == [
+        101
+    ]
+
+    submission_deadline_response = client.get(
+        "/api/v1/competitions?deadline_from=2026-09-01&deadline_to=2026-09-15"
+    )
+    assert submission_deadline_response.get_json()["data"]["items"] == []
+
+
+def test_public_competition_deadline_filter_uses_shanghai_calendar_dates(client) -> None:
+    shanghai_date_response = client.get(
+        "/api/v1/competitions?deadline_from=2026-08-16&deadline_to=2026-08-16"
+    )
+    assert [item["id"] for item in shanghai_date_response.get_json()["data"]["items"]] == [101]
+
+    utc_date_response = client.get(
+        "/api/v1/competitions?deadline_from=2026-08-15&deadline_to=2026-08-15"
+    )
+    assert utc_date_response.get_json()["data"]["items"] == []
+
+
 def test_public_competition_pagination_is_applied_after_filters(client) -> None:
     response = client.get("/api/v1/competitions?category=创新创业&page=2&page_size=1")
 

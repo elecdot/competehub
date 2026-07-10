@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import and_, case, cast, exists, false, func, or_, select
 from sqlalchemy.dialects.postgresql import JSONB
@@ -15,6 +15,7 @@ from competehub_api.models import (
     CompetitionTimeNode,
 )
 from competehub_api.models.enums import CompetitionStatus
+from competehub_api.timezones import product_date_start_utc
 
 PUBLIC_COMPETITION_STATUSES = frozenset({CompetitionStatus.PUBLISHED})
 
@@ -132,18 +133,16 @@ def _json_array_contains(column, value: str):
 
 
 def _deadline_condition(query: PublicCompetitionQuery):
-    conditions = []
+    if query.deadline_from is None and query.deadline_to is None:
+        return None
+
+    conditions = [CompetitionTimeNode.node_type == "registration_deadline"]
     if query.deadline_from is not None:
-        conditions.append(
-            CompetitionTimeNode.due_at
-            >= datetime.combine(query.deadline_from, time.min, tzinfo=UTC)
-        )
+        conditions.append(CompetitionTimeNode.due_at >= product_date_start_utc(query.deadline_from))
     if query.deadline_to is not None:
         exclusive_end = query.deadline_to + timedelta(days=1)
-        conditions.append(
-            CompetitionTimeNode.due_at < datetime.combine(exclusive_end, time.min, tzinfo=UTC)
-        )
-    return and_(*conditions) if conditions else None
+        conditions.append(CompetitionTimeNode.due_at < product_date_start_utc(exclusive_end))
+    return and_(*conditions)
 
 
 def _public_competition_order(now: datetime) -> tuple:

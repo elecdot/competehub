@@ -3,7 +3,7 @@ from __future__ import annotations
 from marshmallow import Schema, ValidationError, fields, validate, validates_schema
 
 from competehub_api.models.enums import ParticipantForm
-from competehub_api.schemas.common import NonBlankString
+from competehub_api.schemas.common import NonBlankString, UtcDateTime
 from competehub_api.services.competition_discovery import (
     competition_tag_names,
     next_time_node,
@@ -49,8 +49,8 @@ class CompetitionListQuerySchema(Schema):
 class PublicCompetitionTimeNodeSchema(Schema):
     id = fields.Integer(required=True)
     node_type = fields.String(required=True)
-    starts_at = fields.DateTime(allow_none=True)
-    due_at = fields.DateTime(allow_none=True)
+    starts_at = UtcDateTime(allow_none=True)
+    due_at = UtcDateTime(allow_none=True)
     description = fields.String(allow_none=True)
 
 
