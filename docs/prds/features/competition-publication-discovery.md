@@ -81,8 +81,9 @@ platform features.
   grades, tags, value notes, official URL, and attachment URL where available.
 - FR-002: Draft 赛事 are not visible in public student list, detail, or
   recommendation surfaces.
-- FR-003: 管理员 can submit a draft or returned 赛事 for review only when minimum
-  required publication fields are present.
+- FR-003: 管理员 can submit a draft, a returned record restored to `draft`, or a
+  corrected `rejected` 赛事 for review only when minimum required publication
+  fields are present.
 - FR-004: 管理员 reviewer can approve, reject, or return a pending 赛事 with a
   comment.
 - FR-005: Approved 赛事 become `published`; rejected or returned 赛事 remain

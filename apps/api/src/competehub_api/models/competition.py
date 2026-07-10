@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import JSON, BigInteger, DateTime, ForeignKey, String, Text
+from sqlalchemy import JSON, BigInteger, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -11,11 +11,13 @@ from competehub_api.models.enums import CompetitionStatus
 from competehub_api.models.mixins import TimestampMixin
 from competehub_api.models.user import enum_values
 
+BIGINT_PK = BigInteger().with_variant(Integer, "sqlite")
+
 
 class Competition(db.Model, TimestampMixin):
     __tablename__ = "competitions"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    id: Mapped[int] = mapped_column(BIGINT_PK, primary_key=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     short_title: Mapped[str | None] = mapped_column(String(120), index=True)
     category: Mapped[str | None] = mapped_column(String(120), index=True)
@@ -54,7 +56,7 @@ class Competition(db.Model, TimestampMixin):
 class CompetitionTimeNode(db.Model, TimestampMixin):
     __tablename__ = "competition_time_nodes"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    id: Mapped[int] = mapped_column(BIGINT_PK, primary_key=True)
     competition_id: Mapped[int] = mapped_column(ForeignKey("competitions.id"), nullable=False)
     node_type: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
     starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -67,7 +69,7 @@ class CompetitionTimeNode(db.Model, TimestampMixin):
 class CompetitionTag(db.Model, TimestampMixin):
     __tablename__ = "competition_tags"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    id: Mapped[int] = mapped_column(BIGINT_PK, primary_key=True)
     code: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     tag_type: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
@@ -77,7 +79,7 @@ class CompetitionTag(db.Model, TimestampMixin):
 class CompetitionTagLink(db.Model, TimestampMixin):
     __tablename__ = "competition_tag_links"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    id: Mapped[int] = mapped_column(BIGINT_PK, primary_key=True)
     competition_id: Mapped[int] = mapped_column(ForeignKey("competitions.id"), nullable=False)
     tag_id: Mapped[int] = mapped_column(ForeignKey("competition_tags.id"), nullable=False)
 
