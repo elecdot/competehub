@@ -58,7 +58,7 @@ def register():
     payload = request_json()
     role = payload.get("role") or UserRole.STUDENT.value
 
-    if role not in {UserRole.STUDENT.value, UserRole.ADMIN.value}:
+    if role != UserRole.STUDENT.value:
         return error_response(HTTPStatus.BAD_REQUEST, "validation_error", "用户角色不合法")
     if not payload.get("password"):
         return error_response(HTTPStatus.BAD_REQUEST, "validation_error", "密码不能为空")
@@ -83,7 +83,7 @@ def register():
         student_no=payload.get("student_no"),
         password_hash=generate_password_hash(payload["password"]),
         display_name=payload.get("display_name"),
-        role=UserRole(role),
+        role=UserRole.STUDENT,
         status=UserStatus.ACTIVE,
     )
     if user.role == UserRole.STUDENT:

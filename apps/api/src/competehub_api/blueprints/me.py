@@ -29,6 +29,7 @@ PREFERENCE_FIELDS = {
 }
 
 LIST_FIELDS = {"interest_tags", "goal_preferences", "blocked_tags"}
+TEXT_FIELDS = {"college", "major", "grade", "competition_experience"}
 
 
 def request_json() -> dict:
@@ -88,23 +89,42 @@ def profile_to_dict(profile: StudentProfile) -> dict:
     }
 
 
-def apply_allowed_fields(profile: StudentProfile, payload: dict, allowed_fields: set[str]) -> None:
+def apply_allowed_fields(
+    profile: StudentProfile,
+    payload: dict,
+    allowed_fields: set[str],
+) -> str | None:
+    updates = {}
     for field in allowed_fields:
         if field not in payload:
             continue
         value = payload[field]
-        if field in LIST_FIELDS and not isinstance(value, list):
-            continue
+        if field in TEXT_FIELDS and value is not None and not isinstance(value, str):
+            return field
+        if field in LIST_FIELDS and (
+            not isinstance(value, list)
+            or not all(isinstance(item, str) and item.strip() for item in value)
+        ):
+            return field
         if field == "default_remind_days":
-            try:
-                value = int(value)
-            except (TypeError, ValueError):
-                continue
-            if value < 0:
-                continue
-        if field == "message_enabled":
-            value = bool(value)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                return field
+        if field == "message_enabled" and not isinstance(value, bool):
+            return field
+        updates[field] = value
+
+    for field, value in updates.items():
         setattr(profile, field, value)
+    return None
+
+
+def profile_validation_error(field: str):
+    return error_response(
+        HTTPStatus.BAD_REQUEST,
+        "validation_error",
+        "profile field is invalid",
+        {"field": field},
+    )
 
 
 @me_bp.get("/me")
@@ -129,7 +149,9 @@ def update_profile():
     if response is not None:
         return response
 
-    apply_allowed_fields(profile, request_json(), PROFILE_FIELDS)
+    invalid_field = apply_allowed_fields(profile, request_json(), PROFILE_FIELDS)
+    if invalid_field is not None:
+        return profile_validation_error(invalid_field)
     db.session.commit()
 
     return success_response(profile_to_dict(profile))
@@ -141,7 +163,9 @@ def update_preferences():
     if response is not None:
         return response
 
-    apply_allowed_fields(profile, request_json(), PREFERENCE_FIELDS)
+    invalid_field = apply_allowed_fields(profile, request_json(), PREFERENCE_FIELDS)
+    if invalid_field is not None:
+        return profile_validation_error(invalid_field)
     db.session.commit()
 
     return success_response(profile_to_dict(profile))
