@@ -116,7 +116,9 @@ Competition filters:
 
 ### `POST /auth/register`
 
-Register a user.
+Register a student user. Public registration cannot create `admin` or other
+privileged roles; those accounts must be provisioned through an administrative
+or seed-data path.
 
 Request:
 

@@ -1,9 +1,10 @@
 import pytest
+from werkzeug.security import generate_password_hash
 
 from competehub_api import create_app
 from competehub_api.extensions import db
-from competehub_api.models import User
-from competehub_api.models.enums import UserStatus
+from competehub_api.models import StudentProfile, User
+from competehub_api.models.enums import UserRole, UserStatus
 
 
 @pytest.fixture()
@@ -26,6 +27,7 @@ def register_student(
     email="student@example.edu",
     phone="13800000000",
     student_no="20260001",
+    password="example-password",
 ):
     return client.post(
         "/api/v1/auth/register",
@@ -33,7 +35,7 @@ def register_student(
             "email": email,
             "phone": phone,
             "student_no": student_no,
-            "password": "example-password",
+            "password": password,
             "display_name": "student a",
             "role": "student",
         },
@@ -97,6 +99,68 @@ def test_login_logout_and_unauthorized_current_user(client) -> None:
 
     assert me_response.status_code == 401
     assert me_response.get_json()["error"]["code"] == "unauthorized"
+
+
+def test_login_disambiguates_cross_field_account_with_password(client) -> None:
+    register_student(client, email="shared-account", password="first-password")
+    client.post("/api/v1/auth/logout")
+    register_student(
+        client,
+        email="second@example.edu",
+        phone="13900000000",
+        student_no="shared-account",
+        password="second-password",
+    )
+    client.post("/api/v1/auth/logout")
+
+    first_login = client.post(
+        "/api/v1/auth/login",
+        json={"account": "shared-account", "password": "first-password"},
+    )
+    client.post("/api/v1/auth/logout")
+    second_login = client.post(
+        "/api/v1/auth/login",
+        json={"account": "shared-account", "password": "second-password"},
+    )
+
+    assert first_login.status_code == 200
+    assert first_login.get_json()["data"]["id"] == 1
+    assert second_login.status_code == 200
+    assert second_login.get_json()["data"]["id"] == 2
+
+
+def test_login_rejects_ambiguous_cross_field_credentials(client) -> None:
+    register_student(client, email="shared-account", password="shared-password")
+    client.post("/api/v1/auth/logout")
+    register_student(
+        client,
+        email="second@example.edu",
+        phone="13900000000",
+        student_no="shared-account",
+        password="shared-password",
+    )
+    client.post("/api/v1/auth/logout")
+
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"account": "shared-account", "password": "shared-password"},
+    )
+
+    assert response.status_code == 401
+    assert response.get_json()["error"]["code"] == "unauthorized"
+
+
+def test_auth_rejects_non_object_and_invalid_typed_json(client) -> None:
+    register_response = client.post("/api/v1/auth/register", json=["not", "an", "object"])
+    login_response = client.post(
+        "/api/v1/auth/login",
+        json={"account": ["student@example.edu"], "password": "example-password"},
+    )
+
+    assert register_response.status_code == 400
+    assert register_response.get_json()["error"]["code"] == "validation_error"
+    assert login_response.status_code == 400
+    assert login_response.get_json()["error"]["code"] == "validation_error"
 
 
 def test_update_and_fetch_profile(client) -> None:
@@ -219,6 +283,28 @@ def test_profile_updates_are_isolated_to_current_session_user(client) -> None:
 
     assert second_profile.get_json()["data"]["major"] == "计算机科学与技术"
     assert first_profile.get_json()["data"]["major"] == "软件工程"
+
+
+def test_get_profile_does_not_create_missing_profile(client, app) -> None:
+    with app.app_context():
+        user = User(
+            email="legacy-student@example.edu",
+            password_hash=generate_password_hash("example-password"),
+            display_name="Legacy Student",
+            role=UserRole.STUDENT,
+        )
+        db.session.add(user)
+        db.session.commit()
+        user_id = user.id
+    with client.session_transaction() as session:
+        session["user_id"] = user_id
+
+    response = client.get("/api/v1/me/profile")
+
+    assert response.status_code == 404
+    assert response.get_json()["error"]["code"] == "not_found"
+    with app.app_context():
+        assert db.session.query(StudentProfile).count() == 0
 
 
 def test_profile_requires_login(client) -> None:
