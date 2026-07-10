@@ -3,6 +3,7 @@
   background: #f7f8fa;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  letter-spacing: 0;
 }
 
 body {
@@ -12,6 +13,37 @@ body {
 a {
   color: inherit;
   text-decoration: none;
+  text-underline-offset: 3px;
+}
+
+a,
+button,
+[role="button"] {
+  -webkit-tap-highlight-color: rgb(23 107 77 / 18%);
+  touch-action: manipulation;
+}
+
+a:focus-visible {
+  outline: 3px solid #2f7bb7;
+  outline-offset: 3px;
+}
+
+.skip-link {
+  background: #ffffff;
+  border: 2px solid #176b4d;
+  border-radius: 6px;
+  color: #134e3a;
+  font-weight: 700;
+  left: 12px;
+  padding: 8px 12px;
+  position: fixed;
+  top: 12px;
+  transform: translateY(-160%);
+  z-index: 1000;
+}
+
+.skip-link:focus {
+  transform: translateY(0);
 }
 
 .app-shell {
@@ -33,6 +65,12 @@ a {
   font-weight: 700;
 }
 
+.brand:hover,
+.nav-links a:hover {
+  color: #176b4d;
+  text-decoration: underline;
+}
+
 .nav-links {
   display: flex;
   gap: 16px;
@@ -52,12 +90,15 @@ a {
 .page-title {
   font-size: 28px;
   margin: 0 0 12px;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
 }
 
 .page-description {
   color: #4b5563;
   line-height: 1.7;
   margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .competition-page {
@@ -76,6 +117,7 @@ a {
   color: #52606d;
   font-size: 14px;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
   padding-top: 7px;
   white-space: nowrap;
 }
@@ -109,6 +151,14 @@ a {
   gap: 8px;
   grid-column: 1 / -1;
   justify-content: flex-end;
+}
+
+.field-error {
+  color: #b42318;
+  font-size: 13px;
+  font-weight: 700;
+  grid-column: 3 / -1;
+  margin: -8px 0 0;
 }
 
 .competition-list {
@@ -154,12 +204,15 @@ a {
 .detail-section h2 {
   font-size: 18px;
   margin: 0;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
 }
 
 .card-description {
   color: #4b5563;
   line-height: 1.6;
   margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .card-organizer {
@@ -169,6 +222,8 @@ a {
   font-size: 14px;
   gap: 7px;
   margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .card-organizer .anticon {
@@ -184,6 +239,9 @@ a {
 .tag-row .ant-tag,
 .card-meta .ant-tag {
   margin-inline-end: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .next-node {
@@ -193,11 +251,39 @@ a {
   gap: 8px;
   line-height: 1.6;
   margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .next-node .anticon {
   color: #176b4d;
   margin-top: 4px;
+}
+
+.detail-link {
+  align-items: center;
+  background: #176b4d;
+  border: 1px solid #176b4d;
+  border-radius: 6px;
+  box-sizing: border-box;
+  color: #ffffff;
+  display: inline-flex;
+  font-weight: 700;
+  gap: 8px;
+  justify-content: center;
+  min-height: 32px;
+  padding: 4px 15px;
+  width: fit-content;
+}
+
+.detail-link:hover {
+  background: #12583f;
+  border-color: #12583f;
+  color: #ffffff;
+}
+
+.card-side .detail-link {
+  width: 100%;
 }
 
 .state-panel {
@@ -227,6 +313,12 @@ a {
   font-weight: 700;
   gap: 6px;
   width: fit-content;
+}
+
+.back-link:hover,
+.detail-section dd a:hover {
+  color: #104f86;
+  text-decoration: underline;
 }
 
 .detail-layout {
@@ -318,6 +410,7 @@ a {
 .detail-copy {
   line-height: 1.8;
   margin: 0;
+  overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
 
@@ -331,6 +424,17 @@ a {
   width: 1px;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 @media (max-width: 920px) {
   .filter-bar,
   .detail-grid {
@@ -338,6 +442,10 @@ a {
   }
 
   .detail-grid .detail-section:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .field-error {
     grid-column: 1 / -1;
   }
 }

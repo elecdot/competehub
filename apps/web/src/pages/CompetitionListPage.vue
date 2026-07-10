@@ -17,14 +17,15 @@ import {
   Skeleton as ASkeleton,
   Tag as ATag,
 } from 'ant-design-vue'
-import { onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, nextTick, ref, watch } from 'vue'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 
 import { fetchCompetitions } from '@/api/client'
 import { useCompetitionFilterStore } from '@/stores/competition_filter_store'
 import type { CompetitionSummary } from '@/types/competition'
 import { formatNodeDate, formatNodeLabel } from '@/utils/competition'
 
+const route = useRoute()
 const router = useRouter()
 const filters = useCompetitionFilterStore()
 const participantFormOptions = [
@@ -32,54 +33,130 @@ const participantFormOptions = [
   { label: '个人参赛', value: 'individual' },
   { label: '团队参赛', value: 'team' },
 ]
+type DatePickerRef = { $el: HTMLElement; focus: () => void }
+
 const competitions = ref<CompetitionSummary[]>([])
 const total = ref(0)
 const loading = ref(false)
 const errorMessage = ref('')
+const deadlineFromPicker = ref<DatePickerRef | null>(null)
+const deadlineToPicker = ref<DatePickerRef | null>(null)
+const formattedTotal = computed(() => new Intl.NumberFormat('zh-CN').format(total.value))
+const deadlineError = computed(() => {
+  if (
+    filters.deadlineFrom &&
+    filters.deadlineTo &&
+    filters.deadlineFrom > filters.deadlineTo
+  ) {
+    return '开始日期不能晚于结束日期。'
+  }
+  return ''
+})
+let requestSequence = 0
 
-async function loadCompetitions(page = filters.page) {
+function syncDeadlineAccessibility() {
+  // Ant DatePicker puts arbitrary ARIA attributes on its wrapper, not the actual input.
+  for (const picker of [deadlineFromPicker.value, deadlineToPicker.value]) {
+    const input = picker?.$el.querySelector('input')
+    if (!input) continue
+
+    if (deadlineError.value) {
+      input.setAttribute('aria-describedby', 'competition-deadline-error')
+      input.setAttribute('aria-invalid', 'true')
+    } else {
+      input.removeAttribute('aria-describedby')
+      input.removeAttribute('aria-invalid')
+    }
+  }
+}
+
+async function loadCompetitions() {
+  const requestId = ++requestSequence
   loading.value = true
   errorMessage.value = ''
-  filters.page = page
 
   try {
     const payload = await fetchCompetitions(filters.toQueryParams())
+    if (requestId !== requestSequence) return
     competitions.value = payload.items
     filters.page = payload.pagination.page
     filters.pageSize = payload.pagination.page_size
     total.value = payload.pagination.total
   } catch {
+    if (requestId !== requestSequence) return
     competitions.value = []
     total.value = 0
     errorMessage.value = '赛事列表暂时无法加载，请稍后再试。'
   } finally {
-    loading.value = false
+    if (requestId === requestSequence) loading.value = false
   }
 }
 
 function submitFilters() {
-  void loadCompetitions(1)
+  if (deadlineError.value) {
+    void nextTick(() => deadlineFromPicker.value?.focus())
+    return
+  }
+
+  filters.page = 1
+  void applyFiltersToRoute()
 }
 
 function clearFilters() {
   filters.reset()
-  void loadCompetitions(1)
+  void applyFiltersToRoute()
 }
 
-function openDetail(competitionId: number) {
-  void router.push(`/competitions/${competitionId}`)
+function changePage(page: number) {
+  filters.page = page
+  void applyFiltersToRoute()
 }
 
-onMounted(() => {
-  void loadCompetitions(filters.page)
+async function applyFiltersToRoute() {
+  const query = filters.toRouteQuery()
+  const target = router.resolve({ name: 'competitions', query })
+  if (target.fullPath === route.fullPath) {
+    await loadCompetitions()
+    return
+  }
+  await router.push({ name: 'competitions', query })
+}
+
+watch(deadlineError, () => {
+  void nextTick(syncDeadlineAccessibility)
 })
+
+watch(
+  () => route.query,
+  (query) => {
+    filters.replaceFromRouteQuery(query)
+
+    const canonicalQuery = filters.toRouteQuery()
+    const canonicalRoute = router.resolve({ name: 'competitions', query: canonicalQuery })
+    if (canonicalRoute.fullPath !== route.fullPath) {
+      void router.replace({ name: 'competitions', query: canonicalQuery })
+      return
+    }
+
+    if (deadlineError.value) {
+      requestSequence += 1
+      loading.value = false
+      errorMessage.value = ''
+      competitions.value = []
+      total.value = 0
+      return
+    }
+    void loadCompetitions()
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
   <section class="competition-page">
     <div class="page-heading">
       <h1 class="page-title">赛事列表</h1>
-      <span class="result-count" aria-live="polite">{{ total }} 项公开赛事</span>
+      <span class="result-count" aria-live="polite">{{ formattedTotal }} 项公开赛事</span>
     </div>
 
     <form class="filter-bar" aria-label="赛事筛选" @submit.prevent="submitFilters">
@@ -89,7 +166,10 @@ onMounted(() => {
           id="competition-keyword"
           v-model:value="filters.keyword"
           allow-clear
-          placeholder="名称、主办方、类别"
+          autocomplete="off"
+          name="keyword"
+          placeholder="输入名称、主办方或类别…"
+          type="search"
         />
       </label>
       <label for="competition-category">
@@ -98,7 +178,9 @@ onMounted(() => {
           id="competition-category"
           v-model:value="filters.category"
           allow-clear
-          placeholder="创新创业"
+          autocomplete="off"
+          name="category"
+          placeholder="输入类别，例如创新创业…"
         />
       </label>
       <label for="competition-major">
@@ -107,7 +189,9 @@ onMounted(() => {
           id="competition-major"
           v-model:value="filters.major"
           allow-clear
-          placeholder="软件工程"
+          autocomplete="off"
+          name="major"
+          placeholder="输入专业，例如软件工程…"
         />
       </label>
       <label for="competition-grade">
@@ -116,7 +200,9 @@ onMounted(() => {
           id="competition-grade"
           v-model:value="filters.grade"
           allow-clear
-          placeholder="大二"
+          autocomplete="off"
+          name="grade"
+          placeholder="输入年级，例如大二…"
         />
       </label>
       <label for="competition-tag">
@@ -125,7 +211,9 @@ onMounted(() => {
           id="competition-tag"
           v-model:value="filters.tag"
           allow-clear
-          placeholder="人工智能"
+          autocomplete="off"
+          name="tag"
+          placeholder="输入标签，例如人工智能…"
         />
       </label>
       <label for="competition-participant-form">
@@ -134,26 +222,39 @@ onMounted(() => {
           id="competition-participant-form"
           v-model:value="filters.participantForm"
           :options="participantFormOptions"
+          autocomplete="off"
         />
+        <input type="hidden" name="participant_form" :value="filters.participantForm" />
       </label>
       <label for="competition-deadline-from">
-        截止日期从
+        报名截止日期从
         <ADatePicker
           id="competition-deadline-from"
+          ref="deadlineFromPicker"
           v-model:value="filters.deadlineFrom"
+          :status="deadlineError ? 'error' : undefined"
+          autocomplete="off"
           value-format="YYYY-MM-DD"
-          placeholder="开始日期"
+          placeholder="选择开始日期…"
         />
+        <input type="hidden" name="deadline_from" :value="filters.deadlineFrom" />
       </label>
       <label for="competition-deadline-to">
-        截止日期至
+        报名截止日期至
         <ADatePicker
           id="competition-deadline-to"
+          ref="deadlineToPicker"
           v-model:value="filters.deadlineTo"
+          :status="deadlineError ? 'error' : undefined"
+          autocomplete="off"
           value-format="YYYY-MM-DD"
-          placeholder="结束日期"
+          placeholder="选择结束日期…"
         />
+        <input type="hidden" name="deadline_to" :value="filters.deadlineTo" />
       </label>
+      <p v-if="deadlineError" id="competition-deadline-error" class="field-error" role="alert">
+        {{ deadlineError }}
+      </p>
       <div class="filter-actions">
         <AButton type="primary" html-type="submit" :loading="loading">
           <template #icon><SearchOutlined /></template>
@@ -166,19 +267,20 @@ onMounted(() => {
       </div>
     </form>
 
-    <div v-if="loading" class="state-panel" aria-live="polite">
-      <span class="sr-only">正在加载赛事</span>
-      <ASkeleton active :paragraph="{ rows: 4 }" />
+    <div v-if="loading" class="state-panel" role="status" aria-live="polite">
+      <span class="sr-only">正在加载赛事…</span>
+      <ASkeleton aria-hidden="true" active :paragraph="{ rows: 4 }" />
     </div>
     <AResult
       v-else-if="errorMessage"
       class="state-panel"
+      role="alert"
       status="error"
       title="赛事列表加载失败"
       :sub-title="errorMessage"
     >
       <template #extra>
-        <AButton type="primary" @click="loadCompetitions(filters.page)">
+        <AButton type="primary" @click="loadCompetitions">
           <template #icon><ReloadOutlined /></template>
           重新加载
         </AButton>
@@ -188,6 +290,7 @@ onMounted(() => {
       v-else-if="competitions.length === 0"
       class="state-panel"
       description="没有匹配的已发布赛事"
+      role="status"
     />
 
     <template v-else>
@@ -223,10 +326,13 @@ onMounted(() => {
               </template>
               <template v-else>暂无后续时间</template>
             </p>
-            <AButton type="primary" @click="openDetail(competition.id)">
+            <RouterLink
+              class="detail-link"
+              :to="{ name: 'competition-detail', params: { id: competition.id } }"
+            >
               查看详情
-              <template #icon><ArrowRightOutlined /></template>
-            </AButton>
+              <ArrowRightOutlined />
+            </RouterLink>
           </div>
         </article>
       </div>
@@ -238,7 +344,7 @@ onMounted(() => {
         :total="total"
         :show-size-changer="false"
         show-less-items
-        @change="loadCompetitions"
+        @change="changePage"
       />
     </template>
   </section>

@@ -14,7 +14,7 @@ import {
 } from 'ant-design-vue'
 import { isAxiosError } from 'axios'
 import { onMounted, ref } from 'vue'
-import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { RouterLink, useRoute } from 'vue-router'
 
 import { fetchCompetitionDetail } from '@/api/client'
 import type { CompetitionDetail } from '@/types/competition'
@@ -25,7 +25,6 @@ import {
 } from '@/utils/competition'
 
 const route = useRoute()
-const router = useRouter()
 const competition = ref<CompetitionDetail | null>(null)
 const loading = ref(false)
 const errorMessage = ref('')
@@ -59,10 +58,6 @@ async function loadCompetition() {
   }
 }
 
-function returnToList() {
-  void router.push('/competitions')
-}
-
 onMounted(() => {
   void loadCompetition()
 })
@@ -75,27 +70,29 @@ onMounted(() => {
       返回赛事列表
     </RouterLink>
 
-    <div v-if="loading" class="state-panel" aria-live="polite">
-      <span class="sr-only">正在加载赛事详情</span>
-      <ASkeleton active :paragraph="{ rows: 8 }" />
+    <div v-if="loading" class="state-panel" role="status" aria-live="polite">
+      <span class="sr-only">正在加载赛事详情…</span>
+      <ASkeleton aria-hidden="true" active :paragraph="{ rows: 8 }" />
     </div>
     <AResult
       v-else-if="notFound"
       class="state-panel"
+      role="status"
       status="404"
       title="未找到公开赛事"
       sub-title="赛事不存在、尚未发布或已停止公开。"
     >
       <template #extra>
-        <AButton type="primary" @click="returnToList">
-          <template #icon><LeftOutlined /></template>
+        <RouterLink class="detail-link" to="/competitions">
+          <LeftOutlined />
           返回赛事列表
-        </AButton>
+        </RouterLink>
       </template>
     </AResult>
     <AResult
       v-else-if="errorMessage"
       class="state-panel"
+      role="alert"
       status="error"
       title="赛事详情加载失败"
       :sub-title="errorMessage"

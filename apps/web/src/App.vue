@@ -17,8 +17,9 @@ const theme = {
 <template>
   <ConfigProvider :locale="zhCN" :theme="theme">
     <div class="app-shell">
+      <a class="skip-link" href="#main-content">跳至主要内容</a>
       <header class="topbar">
-        <RouterLink class="brand" to="/">CompeteHub</RouterLink>
+        <RouterLink class="brand" to="/" translate="no">CompeteHub</RouterLink>
         <nav class="nav-links" aria-label="主导航">
           <RouterLink to="/competitions">赛事</RouterLink>
           <RouterLink to="/recommendations">推荐</RouterLink>
@@ -26,7 +27,7 @@ const theme = {
           <RouterLink to="/admin">后台</RouterLink>
         </nav>
       </header>
-      <main class="main-content">
+      <main id="main-content" class="main-content" tabindex="-1">
         <RouterView />
       </main>
     </div>
