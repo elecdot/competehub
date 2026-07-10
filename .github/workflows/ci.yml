@@ -72,6 +72,60 @@ jobs:
       - name: Build frontend
         run: npm --prefix apps/web run build
 
+  browser:
+    name: Browser E2E
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        run: python -m pip install --upgrade pip uv
+
+      - name: Cache uv packages
+        uses: actions/cache@v4
+        with:
+          path: .cache/uv
+          key: uv-${{ runner.os }}-${{ hashFiles('apps/api/uv.lock') }}
+          restore-keys: |
+            uv-${{ runner.os }}-
+
+      - name: Sync backend dependencies
+        run: ./scripts/agent-env.sh uv sync --project apps/api --locked
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm --prefix apps/web ci
+
+      - name: Install Playwright Chromium
+        run: npm --prefix apps/web run e2e:install -- --with-deps
+
+      - name: Run browser E2E
+        run: npm --prefix apps/web run test:e2e
+
+      - name: Upload browser failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-e2e-${{ github.run_id }}
+          path: |
+            .cache/playwright/report
+            .cache/playwright/test-results
+          if-no-files-found: ignore
+          retention-days: 7
+
   infrastructure:
     name: Infrastructure
     runs-on: ubuntu-latest

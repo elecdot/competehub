@@ -104,4 +104,5 @@ just check
 ```
 
 Use component recipes such as `just api-test`, `just web-build`,
-`just docs-build`, or `just infra-config` when you only need one area.
+`just web-e2e`, `just docs-build`, or `just infra-config` when you only need one
+area.

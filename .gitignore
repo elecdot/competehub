@@ -28,6 +28,10 @@ node_modules/
 apps/web/dist/
 apps/web/coverage/
 apps/web/node_modules/
+apps/web/playwright-report/
+apps/web/test-results/
+playwright-report/
+test-results/
 
 # Workspace-local tool caches
 .cache/

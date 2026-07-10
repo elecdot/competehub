@@ -20,13 +20,15 @@ Included:
 
 - Backend unit, API, integration, frontend static, frontend component, manual
   acceptance, and non-functional validation layers.
+- The shared Playwright browser harness, deterministic actor provisioning, and
+  failure-artifact policy used by feature slices.
 - Practical TDD usage for bugs, business rules, API validation, permissions,
   reminders, subscriptions, recommendations, and review publication workflows.
 - Course-inspection evidence for the student and administrator main workflow.
 
 Out of scope for this model slice:
 
-- Adding new test dependencies.
+- Feature-specific Playwright paths that belong to their implementation issues.
 - Replacing the existing agent TDD workflow.
 - Full performance benchmarking, deployment observability, or production SLOs.
 
@@ -46,7 +48,7 @@ project conventions.
 | Integration tests | Admin creates and publishes a 赛事 record, student searches it, subscribes, reminders create messages and calendar nodes. | Start with focused service/API integration tests when the database fixtures exist. Use manual acceptance until the automated surface is ready. | Test command output or an acceptance-script run record. |
 | Frontend static checks | Vue routes, TypeScript types, build output, import correctness. | Keep `vue-tsc --noEmit` through `just web-lint`; keep production build through `just web-build`. | `just web-lint` and `just web-build`. |
 | Frontend component tests | Search filters, detail status display, subscription state, message read state. | Add Vitest or equivalent after the P1 UI stabilizes. Do not add the dependency in a docs-only slice. | Future component-test command and changed component names. |
-| E2E or manual acceptance | Course demo main workflow and cross-role handoff. | Add Playwright with the P1 publication workbench and calendar, covering distinct editor/reviewer publication to student visibility plus desktop/mobile calendar view switching, same-day nodes, and revision refresh. Extend it in P2 for recommendation and the Review, Audit, and Statistics governance tabs, including representative filters and student permission denial; use manual acceptance for exploratory checks. | Project Playwright command plus acceptance record with date, actor, environment, result, and linked defects. |
+| E2E or manual acceptance | Course demo main workflow and cross-role handoff. | Use the shared Playwright Chromium harness through `just web-e2e`. It starts with deterministic student/editor/reviewer Cookie sessions and a nonblank smoke path, then feature issues add distinct editor/reviewer publication, calendar, recommendation, and governance scenarios. Use manual acceptance for exploratory and visual checks. | `just web-e2e` plus an acceptance record with date, actor, environment, result, and linked defects. |
 | Documentation and workflow checks | MkDocs navigation, source-of-truth alignment, PR checklist completeness. | Use `just docs-build`; require issue/PR validation evidence before marking done. | `just docs-build` and PR checklist review. |
 
 ## TDD Usage
@@ -72,6 +74,33 @@ The repository-local `.agents/skills/tdd` skill is a thin wrapper over this
 model and `docs/agents/tdd.md`. The durable workflow remains
 `docs/agents/tdd.md`; the skill must stay aligned with this model instead of
 duplicating or silently replacing it.
+
+## Shared Browser Harness
+
+Install dependencies and the Chromium browser from a clean checkout with:
+
+```bash
+just setup
+```
+
+Run the browser gate with:
+
+```bash
+just web-e2e
+```
+
+The underlying project command, also used by CI, is
+`npm --prefix apps/web run test:e2e`. It rebuilds only the isolated
+`.cache/tmp/competehub-e2e.db` database and provisions distinct Day 1 student,
+editor, and reviewer accounts through controlled test setup. Actor fixtures use
+the real login endpoint and browser Cookie state; they do not inject privileged
+frontend state or imply that public registration bypasses verification.
+
+The harness currently runs Chromium and treats uncaught page errors and browser
+console errors as failures. Screenshots are captured on failure, while traces
+and video are retained on failure. Reports and test results stay under
+`.cache/playwright`, are ignored by Git, and are uploaded by CI only when the
+browser job fails.
 
 ## Non-Functional Validation
 
