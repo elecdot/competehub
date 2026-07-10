@@ -73,6 +73,28 @@ body:
         - ...
     validations:
       required: true
+  - type: textarea
+    id: source_contracts
+    attributes:
+      label: Source Contracts
+      description: Name the exact PRD, specification, workflow, expected behavior, or other source documents. State why a Feature PRD is not applicable when relevant.
+      placeholder: |
+        Feature PRD: docs/prds/features/example.md or not applicable - reason
+        Other sources:
+        - docs/project_workflow.md
+        Coverage: exact stories, criteria, or rules supported
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      description: State observable outcomes independently from the implementation checklist below.
+      placeholder: |
+        - Given ..., when ..., then ...
+        - The validation owner can observe ...
+    validations:
+      required: true
   - type: checkboxes
     id: affected_surfaces
     attributes:
@@ -129,3 +151,16 @@ body:
       description: Relevant files, tradeoffs, constraints, or follow-up work.
     validations:
       required: false
+  - type: textarea
+    id: agent_quality_gate
+    attributes:
+      label: Agent Quality Gate
+      description: Keep this checklist in the issue. Complete it when agent-assisted implementation starts and before its PR is opened.
+      value: |
+        - [ ] Before implementation, run `/grill-with-docs` against this issue and its linked source documents; add an alignment comment with confirmed decisions, open questions, and affected surfaces.
+        - [ ] Do not invent unresolved product behavior; use `needs-info` for missing owner input or `blocked` for a known unmet dependency.
+        - [ ] Before opening the PR, self-review the complete diff against acceptance criteria, source documents, and repository standards.
+        - [ ] Fix blocking self-review findings, run required validation, and record acceptance evidence, skipped checks, fixed findings, and residual risk in the PR body.
+        - [ ] Treat author self-review as a prerequisite, not a replacement for independent review and human validation.
+    validations:
+      required: true

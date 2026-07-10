@@ -2,6 +2,24 @@
 
 -
 
+## Alignment
+
+- Issue: Closes
+- Source documents checked:
+- Pre-work `/grill-with-docs` comment:
+- Confirmed decisions or remaining questions:
+
+## Acceptance Evidence
+
+- Acceptance criterion -> evidence:
+
+## Author Self-Review
+
+- [ ] I reviewed the complete diff against the issue acceptance criteria, linked source documents, and repository standards.
+- [ ] I fixed all blocking findings from the self-review.
+- Fixed findings:
+- Residual risk:
+
 ## Validation
 
 Check what ran. Explain skipped relevant checks under "Not run".

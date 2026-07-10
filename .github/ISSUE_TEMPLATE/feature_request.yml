@@ -62,13 +62,13 @@ body:
   - type: textarea
     id: feature_prd
     attributes:
-      label: Feature PRD Need
-      description: Link an existing Feature PRD or explain whether one should be created under docs/prds/features/.
+      label: Source Feature PRD
+      description: Link the exact Feature PRD under docs/prds/features/ and identify the stories or acceptance criteria covered by this issue.
       placeholder: |
-        Existing Feature PRD:
-        Needs Feature PRD: yes/no/unsure
+        Feature PRD: docs/prds/features/example.md
+        Coverage: user stories 1-3; acceptance criteria 1-4
     validations:
-      required: false
+      required: true
   - type: checkboxes
     id: affected_surfaces
     attributes:
@@ -111,3 +111,16 @@ body:
       description: Docs, ADRs, setup notes, or MkDocs navigation that may need updates.
     validations:
       required: false
+  - type: textarea
+    id: agent_quality_gate
+    attributes:
+      label: Agent Quality Gate
+      description: Keep this checklist in the issue. Complete it when agent-assisted implementation starts and before its PR is opened.
+      value: |
+        - [ ] Before implementation, run `/grill-with-docs` against this issue and its linked source documents; add an alignment comment with confirmed decisions, open questions, and affected surfaces.
+        - [ ] Do not invent unresolved product behavior; use `needs-info` for missing owner input or `blocked` for a known unmet dependency.
+        - [ ] Before opening the PR, self-review the complete diff against acceptance criteria, source documents, and repository standards.
+        - [ ] Fix blocking self-review findings, run required validation, and record acceptance evidence, skipped checks, fixed findings, and residual risk in the PR body.
+        - [ ] Treat author self-review as a prerequisite, not a replacement for independent review and human validation.
+    validations:
+      required: true

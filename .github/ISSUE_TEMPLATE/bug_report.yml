@@ -35,6 +35,27 @@ body:
     validations:
       required: true
   - type: textarea
+    id: source_contracts
+    attributes:
+      label: Source Contracts
+      description: Name the exact PRD, specification, API/data contract, or documented expected behavior that defines the fix.
+      placeholder: |
+        Feature PRD: docs/prds/features/example.md or not applicable - reason
+        Other sources:
+        - docs/api_spec.md
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      description: State the observable regression outcome independently from implementation steps.
+      placeholder: |
+        - Given the reproduction, when the fix is applied, then ...
+        - The regression test fails before the fix and passes after it.
+    validations:
+      required: true
+  - type: textarea
     id: reproduce
     attributes:
       label: Reproduction Steps
@@ -59,3 +80,16 @@ body:
       description: Constraints, suspected cause, or related issues.
     validations:
       required: false
+  - type: textarea
+    id: agent_quality_gate
+    attributes:
+      label: Agent Quality Gate
+      description: Keep this checklist in the issue. Complete it when agent-assisted implementation starts and before its PR is opened.
+      value: |
+        - [ ] Before implementation, run `/grill-with-docs` against this issue and its linked source documents; add an alignment comment with confirmed decisions, open questions, and affected surfaces.
+        - [ ] Do not invent unresolved product behavior; use `needs-info` for missing owner input or `blocked` for a known unmet dependency.
+        - [ ] Before opening the PR, self-review the complete diff against expected behavior, source documents, and repository standards.
+        - [ ] Fix blocking self-review findings, run required validation, and record evidence, skipped checks, fixed findings, and residual risk in the PR body.
+        - [ ] Treat author self-review as a prerequisite, not a replacement for independent review and human validation.
+    validations:
+      required: true

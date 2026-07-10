@@ -55,6 +55,11 @@ repo-wide ADRs in `docs/adr/`. See `docs/agents/domain.md`.
 
 ## Change Workflow
 
+- Before implementing a non-trivial issue, use
+  `.agents/skills/grill-with-docs/SKILL.md` to align the issue with its linked
+  PRD, ADR, API, data, and workflow contracts. Record a short alignment comment
+  on the issue. Do not invent unresolved product behavior; surface the question
+  and keep the issue blocked or in `needs-info` as appropriate.
 - For bug fixes and behavior changes, prefer the TDD workflow in
 `docs/agents/tdd.md`: reproduce with a failing test when practical, make the
 smallest passing change, then refactor.
@@ -64,6 +69,11 @@ requires an explicit request and confirmation.
 - Do not rewrite unrelated files, reformat entire files unnecessarily, or
 change public contracts without updating documentation and validation.
 - When preparing commits, branches, or pull requests, follow `README-GIT.md`.
+- Before opening a pull request, the author must self-review the complete diff
+  against the issue acceptance criteria, linked source documents, and repository
+  standards. Fix blocking findings, run the required validation, and record
+  acceptance evidence and residual risk in the PR body. Author self-review does
+  not replace independent review.
 - Preserve user changes already present in the worktree; do not revert work you
 did not make unless explicitly requested.
 - Add appropriate comments when working, especially where a decision or complex
@@ -140,6 +150,8 @@ the same rules across documents.
 
 ## Definition Of Done
 
+- The issue contains pre-work alignment evidence for non-trivial implementation
+  work, and the PR records the author's completed self-review.
 - Relevant tests, builds, or checks were run, or the reason for skipping is
 stated.
 - Documentation changed with behavior, setup, CI, deployment, or public

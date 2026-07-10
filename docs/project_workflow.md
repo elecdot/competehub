@@ -85,10 +85,20 @@ GitHub Issues carry implementation work. A good issue should include:
 
 - Goal.
 - Scope and out of scope.
-- Acceptance criteria.
+- Source contracts. Feature and behavior work must link the exact Feature PRD
+  and identify the covered stories or acceptance criteria. Non-feature work may
+  state `Feature PRD: not applicable`, but must still name the governing
+  workflow, specification, expected behavior, or other source document.
+- Issue-specific acceptance criteria stated as observable outcomes. Do not use
+  an implementation or completion checklist as a substitute for acceptance.
 - Affected surfaces.
 - Validation plan.
 - Links to Feature PRDs or source documents when relevant.
+
+Child implementation issues own the observable acceptance for their slice.
+Parent acceptance issues map the children back to the complete Feature PRD and
+release acceptance path; child criteria supplement rather than replace that
+parent coverage.
 
 Each active implementation or documentation slice should also make responsibility
 explicit:
@@ -166,6 +176,47 @@ An issue is not ready for `ready-for-agent` until Delivery Ownership is complete
 Prefer vertical slices that can be implemented and reviewed independently. Avoid
 issues that split all data work, all API work, all UI work, and all tests into
 separate piles unless there is a clear integration plan.
+
+### Dependency And Readiness Semantics
+
+Release-sprint issues may be published before they are ready to start so the
+whole dependency graph, ownership, and later reconciliation remain visible in
+GitHub. Use these dependency types consistently:
+
+- `Blocked by`: a known dependency prevents effective implementation from
+  starting. Add the `blocked` label, name the issue or condition, and state the
+  unblock gate. Do not also use `ready-for-agent`.
+- `Completion dependencies`: useful implementation can start, but the issue
+  cannot be merged, closed, or fully accepted until the dependency is met. Do
+  not add `blocked` for this case.
+- `Related / Align with`: coordination is required, but it is not a start or
+  completion gate.
+
+Use `needs-info` only when the reporter or owner must supply missing information
+or make a decision. When a blocker merges, run the issue's specified validation,
+reconcile its API, data, migration, UI, and acceptance assumptions against
+`main`, record the reconciliation, remove `blocked`, and only then add
+`ready-for-agent`.
+
+### Agent Alignment And Author Self-Review
+
+Every non-trivial issue implemented with agent assistance has two observable
+quality gates:
+
+1. Before implementation, run the repository `grill-with-docs` workflow against
+   the issue and its linked source documents. Add a short issue comment naming
+   the documents checked, confirmed decisions, remaining questions, and affected
+   surfaces. Do not silently choose unresolved product behavior.
+2. Before opening a pull request, self-review the complete diff against the issue
+   acceptance criteria, linked PRD or contract, repository standards, and
+   relevant validation matrix. Fix blocking findings and put the acceptance
+   mapping, commands run, skipped checks, fixed findings, and residual risk in
+   the PR body.
+
+The author self-review is a minimum quality guarantee, not a replacement for the
+named independent reviewer or human validation owner. Parent acceptance issues
+that do not directly produce a PR must verify that every implementation child
+and PR completed these gates.
 
 ## Design Impact Checklist
 
@@ -272,7 +323,11 @@ Release Sprint Mode means:
 - Freeze scope around the current roadmap target.
 - Prefer vertical slices over horizontal layer-only tasks.
 - Use an explicit issue table for current work: issue, DRI, contributors,
-  reviewer, validation owner, docs impact, and demo path.
+  reviewer, validation owner, docs impact, delivery target, and demo path.
+- Give each issue a date- or milestone-level delivery target before adding
+  `ready-for-agent`. Avoid false hour-level precision. A blocked issue keeps its
+  target visible; if dependencies force a change, the DRI records the reason on
+  the issue and reconciles it in the next standup rather than silently moving it.
 - Run small, frequent checks instead of waiting for one late integration review.
 - Keep the runnable branch demo-ready every day.
 - Require validation evidence before marking work done.
