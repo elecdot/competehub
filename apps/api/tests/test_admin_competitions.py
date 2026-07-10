@@ -313,6 +313,30 @@ def test_status_maintenance_rejects_invalid_transition(client, app) -> None:
     assert response.get_json()["error"]["code"] == "conflict"
 
 
+def test_status_maintenance_returns_conflict_for_review_workflow_target(client, app) -> None:
+    with app.app_context():
+        admin = create_admin_user()
+        competition = Competition(
+            id=112,
+            title="Published Challenge",
+            source_name="School Notice",
+            source_url="https://example.edu/published",
+            status=CompetitionStatus.PUBLISHED,
+            created_by_id=admin,
+        )
+        db.session.add(competition)
+        db.session.commit()
+    login(client, admin)
+
+    response = client.patch(
+        "/api/v1/admin/competitions/112/status",
+        json={"status": "pending_review", "reason": "must use review workflow"},
+    )
+
+    assert response.status_code == 409
+    assert response.get_json()["error"]["code"] == "conflict"
+
+
 def test_submit_review_rejects_missing_publication_fields(client, app) -> None:
     with app.app_context():
         admin = create_admin_user()

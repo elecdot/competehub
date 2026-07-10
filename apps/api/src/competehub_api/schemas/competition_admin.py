@@ -90,14 +90,7 @@ class CompetitionReviewSchema(Schema):
 class CompetitionStatusSchema(Schema):
     status = fields.String(
         required=True,
-        validate=validate.OneOf(
-            [
-                CompetitionStatus.OFFLINE.value,
-                CompetitionStatus.ARCHIVED.value,
-                CompetitionStatus.CANCELLED.value,
-                CompetitionStatus.EXPIRED.value,
-            ]
-        ),
+        validate=validate.OneOf([status.value for status in CompetitionStatus]),
     )
     reason = NonBlankString(required=True)
 
