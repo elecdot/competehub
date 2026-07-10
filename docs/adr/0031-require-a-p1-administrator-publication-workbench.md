@@ -26,6 +26,12 @@ and submit revisions. Reviewers use a queue and inspect submitter, source facts,
 field/stage/node differences, and public/reminder impact before approving,
 rejecting, or returning with a comment.
 
+The workbench is backed by admin read APIs for series search, edition and
+revision lists, edition workspace state, revision content, the pending-review
+queue, completeness, immutable-base differences, stale state, and impact
+previews. Terminal review decisions remain a separate immutable evidence
+surface and cannot substitute for pending workflow reads.
+
 Status maintainers can cancel, archive, expire, or emergency-offline an edition.
 The UI previews visibility and reminder consequences and requires a reason where
 the domain contract requires one. Emergency-offline restoration still requires

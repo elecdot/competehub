@@ -232,6 +232,8 @@ Key fields:
 - `id`
 - `competition_id`
 - `revision_number`
+- `base_revision_id`: nullable FK to the public revision copied as the editing
+  and review baseline
 - `revision_status`
 - `title`
 - `short_title`
@@ -256,6 +258,8 @@ Key fields:
 - `created_by_id`
 - `submitted_by_id`
 - `created_at`
+- `updated_at`
+- `submitted_at`
 - `published_at`
 
 Rules:
@@ -272,8 +276,22 @@ Rules:
   present.
 - Draft revisions are editable. Submitted, approved, rejected, and returned
   snapshots are immutable; continued work creates a successor draft.
-- Approval atomically selects the revision as `published_revision_id` and
-  refreshes public search, recommendation, and detail reads.
+- P1 permits at most one active workflow revision (`draft` or `pending_review`)
+  per赛事届次. A partial unique constraint on `competition_id` for those states
+  enforces the boundary; creating another returns the existing active revision
+  rather than allowing parallel replacements.
+- An initial unpublished revision has `base_revision_id = null`. A replacement
+  stores the exact `published_revision_id` it copied. Draft and review read
+  models compare against that baseline and separately expose the current public
+  revision so stale state is visible.
+- Submission freezes server-derived node revisions against `base_revision_id`.
+  Unchanged logical nodes keep their prior `node_revision`; changed nodes
+  increment it and new nodes start at one. Clients never assign this value.
+- Approval locks the edition and submitted revision, verifies that
+  `base_revision_id` still equals `published_revision_id` (or both are null for
+  initial publication), then atomically selects the revision and refreshes
+  public search, recommendation, and detail reads. A mismatch returns
+  `409 stale_revision` and creates no terminal review decision.
 - `published_at` records the approval time at which a revision became public and
   supplies deterministic discovery tie-breaking.
 - Stages and time-node snapshots are scoped to the content revision while stable
@@ -353,6 +371,10 @@ Rules:
   An unchanged node copied into another competition revision receives a new
   snapshot `id` but keeps its node revision. Old snapshots remain immutable,
   and audit evidence retains old/new facts and the reason.
+- Revision comparison classifies `occurs_at` change, controlled `node_type`
+  change, and node addition or removal as schedule-semantic changes. Stage,
+  prominence, and description-only changes are presentation/context changes;
+  they can increment node revision but do not claim the schedule moved.
 - Each node has exactly one timezone-aware `occurs_at` instant. A source period
   is represented by separate start and end milestone nodes.
 - Current P1 publication requires at least one recognized time node with a valid
@@ -560,6 +582,11 @@ Rules:
 
 - Favorite and subscription are separate concepts.
 - Cancelling favorite should not cancel subscription.
+- New favorites may target `published`, `cancelled`, `archived`, or `expired`
+  editions because all retain public detail. `offline` and never-published
+  editions reject favorite creation.
+- An owner can deactivate an existing favorite regardless of current edition
+  lifecycle or public-detail availability.
 - A favorite targets one赛事届次 and is not copied to a later届次 in the same
   赛事系列.
 
@@ -581,10 +608,12 @@ Rules:
 
 - Active subscription can generate reminders.
 - Only a currently `published` edition accepts a new subscription. Existing
-  subscriptions remain active as historical follow relations after the edition
-  becomes `archived` or `expired`, but those lifecycle states are not eligible
-  for new reminder plans.
+  subscriptions remain owned relations after the edition becomes `cancelled`,
+  `archived`, `expired`, or `offline`, but those lifecycle states are not
+  eligible for new plans or setting changes.
 - Cancelling subscription should cancel future pending reminders.
+- An owner can cancel an existing subscription regardless of current edition
+  lifecycle or public-detail availability.
 - Subscription can exist independently from favorite.
 - Favorite creation never creates a subscription or reminder plan.
 - `reminder_enabled` is an explicitly confirmed per-subscription choice.
@@ -661,8 +690,11 @@ Rules:
   another edition without duplicate delivery inside one node revision.
 - Worker tasks must be idempotent.
 - Competition cancellation, offline status, or time node deletion should cancel pending reminders.
-- A time-node revision cancels pending reminders for the prior revision with a
-  supersession reason and creates only future plans for the current revision.
+- When a changed node receives a new `node_revision`, reconciliation cancels
+  its prior pending plan as superseded and creates only a still-future plan from
+  the new snapshot. If a node is copied unchanged and keeps its node revision,
+  reconciliation updates the pending plan's snapshot FK and title/body in place
+  so current public content is used without changing due time or plan identity.
 - Sent reminders are immutable and are never rewritten after a schedule change.
 - Trigger instants already in the past are not backfilled as immediate ordinary
   reminders after subscription, re-enablement, or reconciliation.
@@ -705,9 +737,15 @@ Rules:
 - User-triggered unsubscription or reminder disablement does not create a
   message. Competition cancellation or emergency offline creates one idempotent
   event message for each active subscriber before future plans are stopped.
-- A time-node revision for a published赛事届次 creates at most one time-change
-  message per active subscriber and revision. This message is not an ordinary
-  due reminder.
+- Approval creates at most one consolidated `competition_time_changed` message
+  per active subscriber and approved competition revision, and only when the
+  revision contains a schedule-semantic change affecting one of that
+  subscription's selected old or new node types. The idempotency key uses the
+  approved revision event rather than every node revision.
+- `occurs_at` change, selected node addition/removal, and selected controlled
+  node-type change are message-worthy. Stage, prominence, description, title,
+  or other presentation-only corrections refresh calendar/current pending
+  reminder content but do not create a misleading reschedule message.
 
 ### `review_records`
 
@@ -996,6 +1034,8 @@ Initial indexes should prioritize:
 - `competitions.published_revision_id`
 - `competition_revisions.competition_id, revision_number`
 - `competition_revisions.revision_status`
+- Partial unique index on `competition_revisions.competition_id` where
+  `revision_status IN ('draft', 'pending_review')`
 - `competition_revisions.title`
 - `competition_revisions.short_title`
 - `competition_revisions.category`

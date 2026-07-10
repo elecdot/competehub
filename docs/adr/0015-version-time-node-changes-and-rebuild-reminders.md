@@ -22,11 +22,14 @@ reconciliation matches snapshots by logical key and node revision. The service
 records old/new values and reason, cancels superseded pending plans, and creates
 plans only for future triggers. Sent reminders are immutable.
 
-For a published赛事届次, each effective node revision creates at most one
-赛事时间变更通知 per active subscriber. If the recalculated ordinary reminder time
-has already passed, the system does not backfill a message that pretends it was
-sent on time; the change notification explains the update instead. The personal
-赛事日历 reads the current node revision, while audit history retains prior
+For each approved replacement, the system creates at most one consolidated
+赛事时间变更通知 per affected active subscriber. It does so only when `occurs_at`,
+a selected node's controlled type, or the presence of a selected node changes;
+stage, prominence, description, title, and other presentation-only corrections
+do not claim that the schedule moved. Pending reminder content still reconciles
+to the new public snapshot. If a recalculated trigger is already past, the
+system does not backfill an ordinary message that pretends it was sent on time.
+The personal赛事日历 reads the current snapshot, while audit history retains old
 values.
 
 ## Consequences

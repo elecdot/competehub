@@ -26,6 +26,12 @@ edited and reviewed. Independent approval atomically switches
 `published_revision_id`. Review UI shows field-level differences and side-effect
 impact before the decision. There is no self-review bypass for minor copy edits.
 
+P1 permits one active `draft` or `pending_review` revision per赛事届次. Each
+replacement records the exact public `base_revision_id` it copied. Approval
+locks the edition and rejects a stale baseline instead of publishing content
+reviewed against a superseded version; this also serializes authoritative time
+node revision assignment.
+
 An administrator with `competition_maintainer` may immediately set an edition
 to `offline` with a required reason when current public content creates a
 serious safety, fraud, link-hijacking, or misinformation risk. This withdrawal

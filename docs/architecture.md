@@ -110,15 +110,17 @@ Student workflows:
 
 Admin workflows:
 
-- Create and edit competitions.
-- Review pending competitions.
+- Search/select competition series and editions, then create or edit the single
+  active workflow revision.
+- Review the pending queue with immutable-base differences, stale state, and
+  impact previews.
 - Manage base configuration.
 - Manage users and roles.
 - View audit logs and simple statistics.
 
 Pinia stores:
 
-- `auth_store`: current user and role.
+- `auth_store`: current user, role, and controlled capability discovery.
 - `profile_store`: student profile and preferences.
 - `competition_filter_store`: list query state.
 - `dictionary_store`: categories, tags, majors, grades.

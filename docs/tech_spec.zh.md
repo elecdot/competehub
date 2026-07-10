@@ -218,7 +218,7 @@ apps/web/
 
 Pinia stores：
 
-- `auth_store`：登录状态、当前用户、角色。
+- `auth_store`：登录状态、当前用户、角色和受控 capability 发现。
 - `profile_store`：学生画像和推荐偏好。
 - `competition_filter_store`：列表筛选条件、排序和分页。
 - `dictionary_store`：赛事类别、标签、专业、年级等基础字典。
@@ -238,7 +238,7 @@ Pinia stores：
 - `student_profiles`：专业、年级、兴趣方向、竞赛经历和目标偏好。
 - `competition_series`：赛事跨届稳定身份，由管理员根据来源事实确认。
 - `competitions`：一次具体赛事届次的身份、生命周期状态和当前公开修订指针。
-- `competition_revisions`：赛事届次的编号内容版本；已提交和已审核快照不可变。
+- `competition_revisions`：赛事届次的编号内容版本；已提交和已审核快照不可变。替换修订保存 `base_revision_id`，每届次通过 partial unique constraint 最多一个 `draft`/`pending_review` 进行中修订，审批锁定届次并拒绝 stale baseline。
 - `competition_stages`：赛事届次中的有序阶段或轮次，用于分组和校验成对时间节点。
 - `competition_time_nodes`：报名截止、作品提交、比赛开始等不可变节点快照；
   snapshot ID 精确引用一个赛事修订中的行，届次内稳定的
@@ -325,8 +325,8 @@ Redis 不用于：
 3. Worker 幂等创建 `messages`。
 4. 成功后将提醒状态更新为 `sent`；每次实际投递递增 `attempt_count`。瞬时失败写入受控 `last_error_code`、`failed_at` 和下一次重试时间，永久失败或耗尽重试后保持 `failed` 且不再安排时间。
 5. 赛事取消、下架或节点删除时，service 取消未发送提醒。归档/过期仅在不存在未来节点时允许，并在状态事务中取消任何异常残留的未发送提醒；它们保留历史订阅和过去日历节点，不产生消息。
-6. 同届节点改期时保留 `logical_node_key`、创建新的不可变 snapshot ID 并递增 `node_revision`；提醒以原 snapshot ID 外键保留精确依据，取消旧修订的未发送提醒并重建仍在未来的提醒，已发送提醒不可变。
-7. 已发布届次改期后，service 按“订阅者 + 节点修订”幂等生成一次赛事时间变更通知；已过去的普通触发时间不补发伪准时提醒。
+6. 同届节点事实变化时保留 `logical_node_key`、创建新的不可变 snapshot ID；在提交时由服务端相对基线冻结 `node_revision`。新节点修订取消旧修订的未发送提醒并重建未来计划；未变节点保持修订号并原地刷新 pending plan 的 snapshot FK 和文案，已发送提醒不可变。
+7. 每个批准修订按“订阅者 + 批准修订事件”最多幂等生成一条赛事时间变更汇总消息，仅覆盖发生时刻、所选节点增删或所选节点类型变化。阶段、重点级别、描述、标题等展示修正只刷新当前内容；已过去的普通触发时间不补发伪准时提醒。
 8. 首次订阅请求必须显式携带 `reminder_enabled`；开启时同时携带 `0–30` 的单一提前天数和非空受控节点类型。全局默认只用于前端确认面板预填，后端不得在字段缺失时推断同意。
 9. 关闭单项提醒只取消该订阅的未发送计划，关闭全局提醒取消用户全部未发送计划；两者均保留订阅和日历节点。重新开启时只重建未来有效计划。
 10. `reminder_settings` 是全局开关、默认提前天数和默认节点类型的唯一事实来源；`student_profiles` 不重复存储提醒字段。
@@ -410,8 +410,16 @@ Redis 不用于：
 - `POST /api/v1/admin/recommendation_rule_sets/{id}/submit_review`
 - `POST /api/v1/admin/recommendation_rule_sets/{id}/review`
 - `POST /api/v1/admin/competitions`
-- `POST /api/v1/admin/competitions/{id}/submit_review`
-- `POST /api/v1/admin/competitions/{id}/review`
+- `GET /api/v1/admin/competition_series`
+- `POST /api/v1/admin/competition_series`
+- `GET /api/v1/admin/competitions`
+- `GET /api/v1/admin/competitions/{id}`
+- `GET /api/v1/admin/competition_revisions`
+- `GET /api/v1/admin/competition_revisions/{revision_id}`
+- `POST /api/v1/admin/competitions/{id}/revisions`
+- `PATCH /api/v1/admin/competition_revisions/{revision_id}`
+- `POST /api/v1/admin/competition_revisions/{revision_id}/submit_review`
+- `POST /api/v1/admin/competition_revisions/{revision_id}/review`
 - `PATCH /api/v1/admin/competitions/{id}/status`
 - `GET /api/v1/admin/reviews`
 - `GET /api/v1/admin/audit_logs`
@@ -454,6 +462,7 @@ Redis 不用于：
 - `profile_status` 与 `missing_fields` 在读取时根据学院、专业、年级和至少一个兴趣标签动态计算，不在数据库保存完成布尔值。画像不完整不得阻断搜索、详情、收藏、订阅或提醒，只令推荐降级为带明确原因的通用可行动结果。
 - 未登录访客只能访问公开赛事列表和详情。
 - 管理员才能访问赛事录入、审核、配置、用户管理，以及审核、审计和统计治理证据；学生访问这些接口统一返回 `403`。
+- `GET /me` 返回角色和受控 capability 列表供前端发现工作台入口；学生列表为空，后端不得把该响应或前端隐藏当成授权检查。
 - 用户列表及角色、状态、capability 变更要求 `user_administrator`；禁止自我变更，并以事务约束保留至少一个 active 用户治理管理员。成功变更目标账号时递增其 `session_version`，记录原因和受控新旧值。
 - 赛事录入、赛事审核和发布后状态维护分别使用 `competition_editor`、`competition_reviewer` 和 `competition_maintainer` 管理员权限，不新增正式用户角色；当前修订的提交者不得审核该修订，维护权限不允许编辑、审核或直接恢复公开修订。
 - 推荐规则使用 `recommendation_editor` 和 `recommendation_reviewer` 管理员权限，不新增正式角色；候选规则集提交者不得审核该版本，激活必须原子退役旧版本。

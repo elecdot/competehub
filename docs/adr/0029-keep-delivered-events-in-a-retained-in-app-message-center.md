@@ -36,8 +36,11 @@ history.
 User-triggered unsubscription or reminder disablement does not create a message
 because the action itself provides feedback. Competition cancellation or
 emergency offline creates one event message per active subscriber and event
-before future plans stop. Schedule revisions keep their existing one-message-per
-subscriber-and-revision rule.
+before future plans stop. An approved competition revision creates at most one
+consolidated schedule-change message per affected subscriber and only for a
+planning-semantic time, selected-node-presence, or selected-node-type change;
+presentation-only corrections update current pending content without adding a
+message.
 
 Read and unread messages are retained for 365 days. Reading does not delete or
 rewrite a message. P1 offers no per-message deletion; a periodic task purges

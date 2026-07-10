@@ -81,6 +81,9 @@ boundaries to UTC before comparing stored instants. See
 | 403 | `forbidden` | Current user does not have permission. |
 | 404 | `not_found` | Resource does not exist or is not visible. |
 | 409 | `conflict` | Request conflicts with current resource state. |
+| 409 | `active_revision_exists` | The edition already has its one active draft or pending revision. |
+| 409 | `stale_revision` | A submitted replacement was reviewed against a public revision that is no longer current. |
+| 409 | `engagement_unavailable` | The current edition lifecycle does not permit the requested favorite/subscription mutation. |
 | 429 | `rate_limited` | Too many attempts; retry after the indicated delay. |
 | 500 | `internal_server_error` | Unexpected server error. |
 | 503 | `registration_unavailable` | Public registration is disabled because no production verification sender is configured. |
@@ -262,8 +265,22 @@ version or terminate other devices.
 
 ### `GET /me`
 
-Return current user and role without bound email, phone, or student-number
-identities.
+Return current user, role, and controlled capability set without bound email,
+phone, or student-number identities. Student `capabilities` is always an empty
+array. Administrator capabilities let the frontend discover eligible workbench
+surfaces, but every backend endpoint still performs its own authoritative role
+and capability check.
+
+Response data example:
+
+```json
+{
+  "id": 3,
+  "display_name": "Day 1 Admin",
+  "role": "admin",
+  "capabilities": ["competition_editor", "recommendation_editor"]
+}
+```
 
 Requires authentication.
 
@@ -574,9 +591,27 @@ state does not carry to another届次 in the same赛事系列. A future series-f
 API, if added, is a separate capability and cannot create an edition
 subscription without a new student action.
 
+Lifecycle mutation policy:
+
+| Edition lifecycle | Create favorite | Delete owned favorite | Create subscription | Update owned subscription settings | Delete owned subscription |
+|---|---|---|---|---|---|
+| `published` | allowed | allowed | allowed | allowed | allowed |
+| `cancelled` | allowed | allowed | rejected | rejected | allowed |
+| `archived` | allowed | allowed | rejected | rejected | allowed |
+| `expired` | allowed | allowed | rejected | rejected | allowed |
+| `offline` | rejected | allowed | rejected | rejected | allowed |
+| `unpublished` | rejected | allowed if an owned historical relation exists | rejected | rejected | allowed if an owned historical relation exists |
+
+Historical-viewable detail may therefore be saved as a favorite, but only a
+currently published edition accepts a new subscription or reminder-setting
+change. Owned DELETE operations resolve the personal relation independently of
+current public visibility, remain idempotent, and are always available so an
+offline target cannot trap engagement state. Rejected mutations return
+`409 engagement_unavailable` without altering existing relations.
+
 ### `POST /competitions/{id}/favorite`
 
-Favorite a competition.
+Favorite a published or historical-viewable competition.
 
 Requires `student`.
 
@@ -623,7 +658,8 @@ Trigger times already in the past are not backfilled as immediate due reminders.
 Update reminder settings for an existing subscription using the same explicit
 fields as subscription creation. Turning reminders off cancels pending plans but
 does not cancel the subscription or remove its calendar nodes. Turning them on
-reconciles only future eligible plans.
+reconciles only future eligible plans. The edition must still be `published`;
+historical or offline relations can be removed but not reconfigured.
 
 ### `DELETE /competitions/{id}/subscribe`
 
@@ -682,6 +718,14 @@ Response items contain immutable `title_snapshot`, `body_snapshot`,
 `is_read` and `read_at`, and a competition target snapshot. If the current
 target is unavailable, `target_available` is false and no public target URL is
 returned; the historical message remains readable.
+
+An approved replacement revision emits at most one consolidated
+`competition_time_changed` message per affected active subscriber. It is
+emitted only for an `occurs_at` change, selected controlled node-type change, or
+selected node addition/removal. Stage, prominence, description, title, and
+other presentation-only changes update calendar data and current pending
+reminder snapshots without emitting this message. Idempotency is scoped to user
+and approved revision event, not to every changed node row.
 
 Requires authentication.
 
@@ -804,9 +848,118 @@ Competition create/update/submit operations require `competition_editor`;
 approve/reject/return operations require `competition_reviewer`; post-publication
 status maintenance requires `competition_maintainer`.
 
+The competition workbench read endpoints require at least one of those three
+capabilities. They use the common list envelope, stable pagination, and
+controlled filters; possessing read access never authorizes a corresponding
+write action.
+
+### `GET /admin/competition_series`
+
+Search and select赛事系列. Query parameters are `keyword`, `page`, and
+`page_size`. Items include series id, canonical name, edition count, latest
+edition summary, and whether any edition has an active workflow revision.
+
+### `GET /admin/competitions`
+
+List赛事届次 for editing, review, and status maintenance. Controlled filters are
+`series_id`, `keyword`, `lifecycle_status`, `revision_status`,
+`has_active_revision`, `page`, and `page_size`. Items include edition identity,
+series identity, lifecycle status, current `published_revision_id`, public title
+summary, active draft/pending revision summary, and last-updated time.
+
+Filtering `revision_status=pending_review` supplies the workbench review queue;
+terminal decisions remain in `GET /admin/reviews` and are not synthesized as
+mutable pending review records.
+
+### `GET /admin/competitions/{id}`
+
+Load one edition workspace. The response includes series/edition identity,
+lifecycle status, current public revision summary, the single active workflow
+revision when present, revision history summaries, status-transition
+availability, and aggregate engagement/reminder impact counts without student
+identities.
+
+### `GET /admin/competition_revisions`
+
+List revision summaries. Controlled filters are `competition_id`,
+`revision_status`, `submitted_by`, `page`, and `page_size`. Items include
+revision id/number/status, `base_revision_id`, submitter, submitted/updated
+times, completeness state, current-public relation, and stale state. This
+endpoint supports both edition history and a global pending-review queue.
+
+### `GET /admin/competition_revisions/{revision_id}`
+
+Load the exact editable or immutable revision read model. It includes all
+source-backed fields, revision-scoped tags, ordered stages and time-node
+snapshots, workflow actor/times, and:
+
+```json
+{
+  "id": 42,
+  "competition_id": 7,
+  "revision_number": 2,
+  "revision_status": "pending_review",
+  "base_revision_id": 40,
+  "current_published_revision_id": 40,
+  "is_stale": false,
+  "submitted_by": {"id": 3, "display_name": "Day 1 Admin"},
+  "completeness": {
+    "is_complete": true,
+    "missing_fields": [],
+    "warnings": []
+  },
+  "comparison": {
+    "field_changes": [],
+    "stage_changes": [],
+    "time_node_changes": []
+  },
+  "impact": {
+    "as_of": "2026-07-10T08:00:00Z",
+    "public_visibility_change": "replace_public_revision",
+    "search_reindex_required": true,
+    "recommendation_refresh_required": true,
+    "affected_active_subscriptions": 12,
+    "pending_reminders_to_supersede": 4,
+    "future_reminders_to_create": 4,
+    "schedule_change_messages_estimate": 3
+  }
+}
+```
+
+Differences are derived against immutable `base_revision_id`; the response also
+reports the current public pointer so a stale baseline cannot be hidden. Draft
+completeness and impact are live previews. Submission freezes the content and
+server-derived node revisions, while engagement counts in impact remain an
+`as_of` preview until the approval transaction.
+
+Each `time_node_changes` item classifies `change_kind` and
+`schedule_semantic`. `occurs_at` changes, controlled node-type changes, and node
+addition/removal are schedule-semantic; stage, prominence, and description-only
+changes are not. Message estimates include only affected active subscriptions
+whose selected old or new node types intersect a schedule-semantic change.
+
+### `POST /admin/competition_series`
+
+Create a赛事系列 with a canonical name. Requires `competition_editor`. The
+response may include non-blocking similar-series suggestions, but similarity
+never auto-merges identities; an exact controlled duplicate returns a
+validation conflict.
+
+Request:
+
+```json
+{
+  "canonical_name": "全国大学生人工智能创新挑战赛"
+}
+```
+
 ### `POST /admin/competitions`
 
-Create a draft competition.
+Create a赛事届次 and its initial draft revision atomically. The response returns
+both identifiers; the initial revision has `base_revision_id = null`.
+`series_id` and source-backed `edition_label` are required. Reusing an edition
+identity already present in that series returns `409 conflict` with the existing
+edition id rather than creating a duplicate.
 
 Time-node datetime values follow the common date and time convention above.
 Offsetless values are treated as `Asia/Shanghai`; responses are normalized to
@@ -816,6 +969,8 @@ Structured draft fields may include time nodes and controlled tags:
 
 ```json
 {
+  "series_id": 5,
+  "edition_label": "2026",
   "title": "全国大学生人工智能创新挑战赛",
   "source_name": "示例高校竞赛通知",
   "source_url": "https://example.edu/notices/ai-challenge-2026",
@@ -841,7 +996,10 @@ Structured draft fields may include time nodes and controlled tags:
 
 Create a draft revision, copying the current public revision when one exists.
 The current public revision remains selected while this draft is edited or
-reviewed.
+reviewed. P1 permits only one active `draft` or `pending_review` revision for an
+edition. If one exists, return `409 active_revision_exists` with its revision id
+instead of creating a parallel candidate. A replacement stores the exact copied
+public revision as `base_revision_id`.
 
 ### `PATCH /admin/competition_revisions/{revision_id}`
 
@@ -865,6 +1023,10 @@ scope, at least one stage, and at least one primary core node. Team entry
 requires team-size facts. Optional official and attachment URLs must also use
 HTTP(S).
 
+Submission derives and freezes each time node's effective `node_revision`
+against the immutable base revision. Clients may submit logical keys and node
+facts but cannot assign authoritative node-revision numbers.
+
 ### `POST /admin/competition_revisions/{revision_id}/review`
 
 Approve, reject, or return a competition.
@@ -874,6 +1036,13 @@ context. The API rejects review when the current account submitted the target
 revision, even if that account also has reviewer permission. Approval atomically
 selects the revision for public reads; an existing approved revision remains
 public until that decision.
+
+Approval locks the edition and submitted revision and verifies that the
+candidate's `base_revision_id` still equals the edition's
+`published_revision_id`; initial publication requires both to be null. A
+mismatch returns `409 stale_revision`, changes no public pointer, and appends no
+terminal review decision. The reviewer must reload the comparison and an editor
+must create a successor from the current public revision.
 
 Request:
 

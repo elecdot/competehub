@@ -97,11 +97,16 @@ deferred.
 - FR-001: Students can log in, log out, and fetch current session user
   information using the cookie-session model and explicitly typed account
   identities defined in the API spec. Login never cross-searches identity types,
-  and only active accounts can establish a session.
+  and only active accounts can establish a session. Current-user responses
+  include a controlled capability array, empty for students, for frontend
+  discovery while backend checks remain authoritative.
 - FR-002: Students can fetch and update their own profile and reminder
   preferences.
-- FR-003: Students can favorite and unfavorite visible 赛事.
-- FR-004: Students can subscribe and unsubscribe from visible 赛事.
+- FR-003: Students can favorite published or historical-viewable 赛事 and can
+  unfavorite an owned relation in every lifecycle state.
+- FR-004: Only published 赛事 accept new subscriptions or setting changes;
+  students can unsubscribe an owned relation in every lifecycle state,
+  including when public detail is offline.
 - FR-005: 收藏 and 订阅 are separate records and state changes.
 - FR-006: Public list and detail responses include the authenticated student's
   favorite and subscription state when a session exists.
@@ -126,8 +131,11 @@ deferred.
   creates a new immutable snapshot with an incremented node revision only when
   behavior-bearing node facts change. Pending reminders retain an FK to the
   exact prior snapshot and are cancelled as superseded, future plans are
-  rebuilt from the new snapshot, sent reminders remain immutable, and active
-  subscribers receive at most one赛事时间变更通知 for the new revision.
+  rebuilt from the new snapshot, and sent reminders remain immutable. Each
+  approved revision creates at most one consolidated赛事时间变更通知 per affected
+  subscriber, only for occurrence, selected node presence, or selected node
+  type changes; presentation-only changes refresh pending content without a
+  message.
 - FR-015: Calendar results retain赛事阶段 and时间节点重点级别 metadata. All node
   types selected by the subscription remain visible, while primary nodes receive
   stronger display treatment without changing reminder consent.
@@ -267,6 +275,10 @@ deferred.
       then the latest profile and reminder preference fields are returned.
 - [ ] Given a logged-in student favorites a published 赛事, when they revisit the
       list or detail response, then `is_favorited` is true for that 赛事.
+- [ ] Given a cancelled, archived, or expired edition retains public detail,
+      when a student favorites it, then the relation is created; given an
+      offline target with existing engagement, owned DELETE operations still
+      remove favorite or subscription while new or update mutations are denied.
 - [ ] Given a logged-in student opens first subscription, when the confirmation
       is shown, then enabled state, one 0-to-30-day offset, and controlled node
       types are visible and editable; only explicit confirmation creates the
@@ -317,8 +329,13 @@ deferred.
       is called, then the response is unauthorized or forbidden.
 - [ ] Given a subscribed published赛事届次 time node changes, when reminder plans
       are reconciled, then old pending plans are cancelled, eligible future
-      plans use the new revision, sent reminders remain unchanged, and one
-      idempotent time-change message is visible to the student.
+      plans use the new revision, sent reminders remain unchanged, and at most
+      one idempotent consolidated time-change message is visible when an
+      occurrence, selected node presence, or selected node type changed.
+- [ ] Given only stage, prominence, description, title, or another
+      presentation field changes, when the revision is approved, then calendar
+      and pending reminder content refresh without a
+      `competition_time_changed` message or due-time change.
 
 ## Impact Surface
 

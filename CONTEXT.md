@@ -54,6 +54,12 @@ recommendation reads. Switching the public revision is an atomic result of
 review approval.
 _Avoid_: 待审核修订, 后台草稿
 
+**进行中赛事修订**:
+The single `draft` or `pending_review` revision currently moving through one
+赛事届次 publication workflow. It records the public revision used as its
+comparison baseline; P1 does not allow parallel active replacements.
+_Avoid_: 采集候选记录, 并行修订, 终态审核记录
+
 **紧急下架**:
 An immediate, reasoned withdrawal of the current public赛事届次 when leaving it
 visible creates a serious safety, fraud, link-hijacking, or misinformation risk.
@@ -89,6 +95,13 @@ represented by separate start and end milestones rather than one node carrying
 two times. The same milestone keeps one logical identity across corrected
 赛事届次修订 while each approved correction creates a new immutable snapshot.
 _Avoid_: 赛事日期, 时间段节点, 同时包含开始与截止的节点
+
+**赛程语义变更**:
+An approved change that alters a milestone occurrence, adds or removes a
+student-selected milestone, or changes its controlled node type. Stage,
+prominence, description, title, and other presentation-only corrections are
+not赛程语义变更 even when they create a new content snapshot.
+_Avoid_: 任意节点修订, 文案修改, 样式调整
 
 **赛事阶段**:
 A labeled and ordered group of related赛事时间节点 within one赛事届次, such as

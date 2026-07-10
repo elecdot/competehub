@@ -37,4 +37,6 @@ default list and recommendation queries remain published-only. Tests and demo
 acceptance must distinguish a cancelled or expired historical detail from an
 offline or never-published `404`. Historical list filters can be added later
 without changing this status boundary. Status maintenance must reject
-archival/expiry while any future node remains.
+archival/expiry while any future node remains. Historical detail may create a
+favorite, but new or reconfigured subscriptions require `published`; owned
+engagement deletion remains available even when detail is offline.

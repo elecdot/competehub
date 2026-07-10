@@ -163,7 +163,10 @@ platform features.
 - FR-018: 赛事届次 content is stored as numbered revisions. Published reads use
   the immutable `published_revision_id`; a later draft or pending revision is
   backend-only until independent approval atomically selects it. Submitted and
-  decided revisions cannot be edited in place.
+  decided revisions cannot be edited in place. P1 allows only one active draft
+  or pending revision per edition. Replacements persist the public
+  `base_revision_id`; approval locks the edition and returns
+  `409 stale_revision` if that baseline is no longer current.
 - FR-019: Emergency offline is an immediate audited lifecycle action with a
   required reason and status-maintenance permission. It removes public detail;
   restoration requires a corrected revision and independent approval rather
@@ -180,7 +183,10 @@ platform features.
   source-backed revision editing, staged paired-node controls, publication
   completeness, submission, independent diff review, status maintenance, and
   emergency offline. API, CLI, and seed paths are intermediate or test support
-  and do not satisfy product acceptance by themselves.
+  and do not satisfy product acceptance by themselves. Its read API supports
+  series search, edition/revision lists, edition workspace state, a global
+  pending queue, complete revision reads, completeness, base/current-public
+  comparison, stale state, and public/reminder impact previews.
 - FR-023: `archived` and `expired` are routine historical lifecycle states and
   are allowed only when the current public revision has no future time node.
   Otherwise status maintenance returns a conflict with the blocking nodes.
@@ -282,6 +288,14 @@ platform features.
 - [ ] Given a published赛事届次 receives an ordinary correction, when a replacement
       revision is drafted or pending, then public reads continue returning the
       prior approved revision until another reviewer approves the replacement.
+- [ ] Given one edition already has a draft or pending revision, when an editor
+      tries to create another, then the API returns
+      `409 active_revision_exists` with the existing revision and creates no
+      parallel node-revision namespace.
+- [ ] Given a submitted replacement's base differs from the current public
+      pointer, when approval is attempted, then the locked transaction returns
+      `409 stale_revision`, writes no terminal review decision, and requires a
+      successor from the current public revision.
 - [ ] Given a status maintainer urgently offlines a harmful public赛事届次, when a
       visitor opens it, then public detail is unavailable immediately; when the
       team wants to restore it, a corrected independently approved revision is
@@ -299,6 +313,11 @@ platform features.
       nodes, submits it, reviews the diff and impact, and approves it, then the
       public revision changes and the submitter cannot self-review through UI or
       API.
+- [ ] Given series, editions, drafts, and pending revisions exist, when an
+      authorized administrator uses the workbench read APIs, then searchable
+      selection, the pending queue, complete revision content, completeness,
+      base/current-public differences, stale state, and impact are available
+      without treating terminal review records as pending work.
 - [ ] Given a published edition requires cancellation, archival, expiry, or
       emergency offline, when the status maintainer uses the governance
       workbench, then impact is shown, required reasons are captured, public and
@@ -308,8 +327,9 @@ platform features.
 ## Impact Surface
 
 - Product docs: This PRD refines P1 behavior under the stable product boundary.
-- API: Public competition list/detail; admin competition create/update/submit
-  review/review/status endpoints; required non-blocking outbound click endpoint.
+- API: Public competition list/detail; admin series/edition/revision list and
+  detail reads; admin competition create/update/submit/review/status commands;
+  required non-blocking outbound click endpoint.
 - Data model: Adds `competition_series` and `competition_revisions`, treats
   `competitions` as赛事届次 identity, and versions stages and time-node facts;
   reuses logical `competition_time_nodes`,
