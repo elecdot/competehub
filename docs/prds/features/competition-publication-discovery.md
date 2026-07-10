@@ -56,8 +56,8 @@ platform features.
 8. As a 学生 or visitor, I want to search published 赛事 by keyword, so that I
    can quickly find relevant opportunities.
 9. As a 学生 or visitor, I want to filter public 赛事 by category, major, grade,
-   tag, deadline, and participant form where data exists, so that I can reduce
-   irrelevant results.
+   tag, 报名截止日期, and participant form where data exists, so that I can
+   reduce irrelevant results.
 10. As a 学生 or visitor, I want list results to show title, category,
     organizer, status, tags, and the next important time node, so that I can
     compare 赛事 quickly.
@@ -111,6 +111,8 @@ platform features.
   backend publication state. Anonymous users can read only public 赛事 data.
 - Maintainability: Route handlers stay thin; review and publication rules belong
   in services; query behavior belongs in repositories when reusable.
+- Time semantics: Time points remain timezone-aware UTC instants, while public
+  date display and date-only filtering use the `Asia/Shanghai` product calendar.
 - Observability or audit: Publication decisions and status changes must leave
   review or audit evidence that can be shown during acceptance.
 
@@ -141,6 +143,12 @@ platform features.
 - [ ] Given public 赛事 exist, when a student searches or filters the list, then
       the results preserve the response envelope and pagination shape in
       `docs/api_spec.md`.
+- [ ] Given a 赛事 has a submission deadline inside a selected date range but its
+      报名截止日期 is outside that range, when a student filters the public list
+      by 报名截止日期, then that 赛事 is not returned for the submission deadline.
+- [ ] Given a 报名截止日期 crosses a UTC calendar boundary, when a student views
+      and filters by its `Asia/Shanghai` calendar date, then the displayed date
+      and filtered result agree.
 - [ ] Given a student opens a public 赛事 detail page, when the API returns data,
       then source facts, time nodes, tags, value notes, and official channels
       are visible.

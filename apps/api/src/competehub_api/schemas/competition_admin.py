@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from marshmallow import Schema, ValidationError, fields, validate, validates_schema
 
-from competehub_api.models.enums import CompetitionStatus
-from competehub_api.schemas.common import NonBlankString
+from competehub_api.models.enums import CompetitionStatus, ParticipantForm
+from competehub_api.schemas.common import NonBlankString, ProductDateTime
 
 
 def _optional_text():
@@ -17,8 +17,8 @@ def _string_list():
 class CompetitionTimeNodeSchema(Schema):
     id = fields.Integer(dump_only=True)
     node_type = NonBlankString(required=True)
-    starts_at = fields.DateTime(allow_none=True)
-    due_at = fields.DateTime(allow_none=True)
+    starts_at = ProductDateTime(allow_none=True)
+    due_at = ProductDateTime(allow_none=True)
     description = _optional_text()
 
     @validates_schema
@@ -48,7 +48,10 @@ class CompetitionFieldsSchema(Schema):
     detail = _optional_text()
     eligibility = _optional_text()
     team_size = _optional_text()
-    participant_form = _optional_text()
+    participant_form = NonBlankString(
+        allow_none=True,
+        validate=validate.OneOf([form.value for form in ParticipantForm]),
+    )
     suitable_majors = _string_list()
     suitable_grades = _string_list()
     value_notes = _optional_text()

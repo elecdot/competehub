@@ -26,6 +26,11 @@ class CompetitionStatus(StrEnum):
     EXPIRED = "expired"
 
 
+class ParticipantForm(StrEnum):
+    INDIVIDUAL = "individual"
+    TEAM = "team"
+
+
 class ReminderStatus(StrEnum):
     PENDING = "pending"
     SENT = "sent"

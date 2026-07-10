@@ -60,6 +60,18 @@ List response:
 }
 ```
 
+## Date And Time
+
+Datetime values are timezone-aware ISO 8601 instants. API responses normalize
+them to UTC. Administrator datetime input with an explicit offset is converted
+to UTC; offsetless administrator datetime input is interpreted in the
+`Asia/Shanghai` product calendar time zone.
+
+Date-only query parameters represent `Asia/Shanghai` calendar dates, not UTC or
+browser-local calendar dates. Backend queries convert their local-midnight
+boundaries to UTC before comparing stored instants. See
+`docs/adr/0012-utc-instants-shanghai-calendar.md`.
+
 ## Common Errors
 
 | HTTP Status | Code | Meaning |
@@ -95,7 +107,7 @@ Common list query parameters:
 | Parameter | Type | Meaning |
 |---|---|---|
 | `page` | integer | Page number, starting from 1. |
-| `page_size` | integer | Items per page. |
+| `page_size` | integer | Items per page, from 1 to 100. |
 | `sort` | string | Sort key, such as `deadline`, `published_at`, `recommendation`, `popularity`. |
 
 Competition filters:
@@ -108,8 +120,8 @@ Competition filters:
 | `grade` | string | Suitable grade. |
 | `tag` | string | Reference or fit tag. |
 | `status` | string | Public-facing competition state. |
-| `deadline_from` | string | ISO date lower bound. |
-| `deadline_to` | string | ISO date upper bound. |
+| `deadline_from` | string | Inclusive `Asia/Shanghai` date lower bound for the registration deadline. |
+| `deadline_to` | string | Inclusive `Asia/Shanghai` date upper bound for the registration deadline. |
 | `participant_form` | string | Individual or team competition form. |
 
 ## Auth APIs
@@ -213,13 +225,15 @@ Request:
 
 ### `GET /competitions`
 
-Search, filter, sort, and paginate public competitions.
+Search, filter, and paginate public competitions.
 
 Visibility rules:
 
 - Return `published` competitions by default.
-- Do not return `draft`, `pending_review`, `rejected`, or `offline` competitions.
-- `archived`, `cancelled`, and `expired` competitions require explicit filters if exposed.
+- Do not return `draft`, `pending_review`, `rejected`, `offline`, `archived`,
+  `cancelled`, or `expired` competitions from the default public list.
+- In the Day 1 public tracer, `status` only exposes `published`; other status
+  filters return an empty public list rather than revealing hidden records.
 
 Response item:
 
@@ -227,33 +241,102 @@ Response item:
 {
   "id": 1,
   "title": "大学生创新创业竞赛",
+  "short_title": "创新创业竞赛",
   "category": "创新创业",
   "organizer": "示例主办方",
   "status": "published",
+  "source_name": "示例高校竞赛通知",
+  "source_url": "https://example.edu/notices/innovation",
+  "official_url": "https://example.org/innovation",
   "tags": ["校级推荐", "适合低年级"],
+  "suitable_majors": ["软件工程"],
+  "suitable_grades": ["大二"],
+  "value_notes": "校级推荐，适合有项目实践基础的学生",
   "next_node": {
+    "id": 11,
     "node_type": "registration_deadline",
-    "due_at": "2026-06-01T16:00:00Z"
+    "starts_at": null,
+    "due_at": "2026-12-15T16:00:00Z",
+    "description": "报名截止"
   },
   "is_favorited": false,
   "is_subscribed": false
 }
 ```
 
+`next_node` is the nearest current or future time node. Elapsed nodes remain in
+the detail timeline but are not returned as `next_node`. If a public competition
+has no upcoming time node, `next_node` is `null`.
+
+Supported Day 1 filters:
+
+- `keyword`
+- `category`
+- `major`
+- `grade`
+- `tag`
+- `status`
+- `participant_form`
+- `deadline_from`
+- `deadline_to`
+
+Deadline bounds are inclusive `Asia/Shanghai` calendar dates and match only
+`registration_deadline` time nodes with a `due_at` inside the requested
+interval. Other milestones, including `submission_deadline`, remain visible in
+the detail timeline but do not make a competition match this discovery filter.
+
+The list response uses the common list envelope with `items` and `pagination`.
+
 ### `GET /competitions/{id}`
 
-Return competition detail.
+Return public competition detail. Missing competitions and non-public
+competitions both return `404 not_found`.
 
-Response data includes:
+Response data extends the list item with detail fields:
 
-- Basic competition fields.
-- Source name and source URL.
-- Time nodes.
-- Eligibility and material requirements.
-- Suitable majors and grades.
-- Reference tags and value notes.
-- Official and attachment links.
-- Current user's favorite/subscription state when authenticated.
+```json
+{
+  "id": 1,
+  "title": "大学生创新创业竞赛",
+  "status": "published",
+  "source_name": "示例高校竞赛通知",
+  "source_url": "https://example.edu/notices/innovation",
+  "official_url": "https://example.org/innovation",
+  "attachment_url": "https://example.edu/notices/innovation.pdf",
+  "summary": "面向大学生的创新项目竞赛。",
+  "detail": "提交项目方案、作品材料和现场答辩。",
+  "eligibility": "在校本科生可报名。",
+  "team_size": "1-5人",
+  "participant_form": "team",
+  "suitable_majors": ["软件工程"],
+  "suitable_grades": ["大二"],
+  "tags": ["校级推荐", "适合低年级"],
+  "value_notes": "校级推荐，适合有项目实践基础的学生",
+  "next_node": {
+    "id": 11,
+    "node_type": "registration_deadline",
+    "starts_at": null,
+    "due_at": "2026-12-15T16:00:00Z"
+  },
+  "time_nodes": [
+    {
+      "id": 11,
+      "node_type": "registration_deadline",
+      "starts_at": null,
+      "due_at": "2026-12-15T16:00:00Z",
+      "description": "报名截止"
+    }
+  ],
+  "is_favorited": false,
+  "is_subscribed": false
+}
+```
+
+If a public competition has no time nodes yet, `time_nodes` is `[]` and
+`next_node` is `null`.
+
+Until the authenticated favorite/subscription slices are integrated,
+`is_favorited` and `is_subscribed` default to `false`.
 
 ### `POST /competitions/{id}/outbound_clicks`
 
@@ -362,6 +445,10 @@ Admin APIs require `admin`.
 ### `POST /admin/competitions`
 
 Create a draft competition.
+
+Time-node datetime values follow the common date and time convention above.
+Offsetless values are treated as `Asia/Shanghai`; responses are normalized to
+UTC.
 
 Structured draft fields may include time nodes and controlled tags:
 

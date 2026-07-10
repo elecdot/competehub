@@ -27,6 +27,7 @@ Use numbered lowercase filenames:
 - [0009 Flask Cookie Session Auth](./0009-flask-cookie-session-auth.md)
 - [0010 Staged Frontend Quality Gates](./0010-staged-frontend-quality-gates.md)
 - [0011 PostgreSQL Search First](./0011-postgresql-search-first.md)
+- [0012 UTC Instants and Shanghai Product Calendar](./0012-utc-instants-shanghai-calendar.md)
 
 ## Template
 
