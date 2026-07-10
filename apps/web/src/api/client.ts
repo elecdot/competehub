@@ -16,6 +16,8 @@ export interface CompetitionListParams {
   category?: string
   major?: string
   grade?: string
+  tag?: string
+  participant_form?: string
   page?: number
   page_size?: number
 }

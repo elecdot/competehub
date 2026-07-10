@@ -39,7 +39,8 @@ a {
 }
 
 .nav-links a.router-link-active {
-  color: #2563eb;
+  color: #176b4d;
+  font-weight: 700;
 }
 
 .main-content {
@@ -72,21 +73,22 @@ a {
 }
 
 .result-count {
-  background: #eef2ff;
-  border: 1px solid #c7d2fe;
-  border-radius: 999px;
-  color: #3730a3;
+  color: #52606d;
   font-size: 14px;
   font-weight: 700;
-  padding: 6px 12px;
+  padding-top: 7px;
   white-space: nowrap;
 }
 
 .filter-bar {
   align-items: end;
+  background: #ffffff;
+  border: 1px solid #dde2e7;
+  border-radius: 8px;
   display: grid;
   gap: 16px;
-  grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 18px;
 }
 
 .filter-bar label {
@@ -97,40 +99,15 @@ a {
   gap: 6px;
 }
 
-.filter-bar input {
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  box-sizing: border-box;
-  font: inherit;
-  min-height: 40px;
-  padding: 8px 10px;
+.filter-bar .ant-select {
   width: 100%;
 }
 
 .filter-actions {
   display: flex;
   gap: 8px;
-}
-
-button,
-.detail-link {
-  background: #2563eb;
-  border: 1px solid #2563eb;
-  border-radius: 6px;
-  color: #ffffff;
-  cursor: pointer;
-  display: inline-flex;
-  font: inherit;
-  font-weight: 700;
-  justify-content: center;
-  min-height: 40px;
-  padding: 8px 14px;
-}
-
-.secondary-button {
-  background: #ffffff;
-  color: #1f2937;
-  border-color: #cbd5e1;
+  grid-column: 1 / -1;
+  justify-content: flex-end;
 }
 
 .competition-list {
@@ -141,11 +118,11 @@ button,
 .competition-card {
   align-items: stretch;
   background: #ffffff;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #dde2e7;
   border-radius: 8px;
   display: grid;
   gap: 16px;
-  grid-template-columns: minmax(0, 1fr) 220px;
+  grid-template-columns: minmax(0, 1fr) 240px;
   padding: 18px;
 }
 
@@ -153,6 +130,7 @@ button,
 .card-side {
   display: grid;
   gap: 10px;
+  min-width: 0;
 }
 
 .card-side {
@@ -162,9 +140,12 @@ button,
 }
 
 .card-meta {
+  align-items: center;
   color: #64748b;
+  display: flex;
   font-size: 13px;
   font-weight: 700;
+  gap: 4px;
   margin: 0;
 }
 
@@ -183,36 +164,54 @@ button,
 .tag-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
 }
 
-.tag-row span {
-  background: #ecfdf5;
-  border: 1px solid #bbf7d0;
-  border-radius: 999px;
-  color: #166534;
-  font-size: 12px;
-  font-weight: 700;
-  padding: 4px 9px;
+.tag-row .ant-tag,
+.card-meta .ant-tag {
+  margin-inline-end: 0;
 }
 
-.state-message {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
+.next-node {
+  align-items: flex-start;
   color: #4b5563;
+  display: flex;
+  gap: 8px;
+  line-height: 1.6;
   margin: 0;
-  padding: 18px;
 }
 
-.state-message.error {
-  border-color: #fecaca;
-  color: #b91c1c;
+.next-node .anticon {
+  color: #176b4d;
+  margin-top: 4px;
+}
+
+.state-panel {
+  background: #ffffff;
+  border: 1px solid #dde2e7;
+  border-radius: 8px;
+  box-sizing: border-box;
+  min-height: 240px;
+  padding: 28px;
+}
+
+.state-panel.ant-result,
+.state-panel.ant-empty {
+  align-content: center;
+  display: grid;
+}
+
+.competition-pagination {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .back-link {
-  color: #2563eb;
+  align-items: center;
+  color: #165d9c;
+  display: inline-flex;
   font-weight: 700;
+  gap: 6px;
   width: fit-content;
 }
 
@@ -221,46 +220,60 @@ button,
   gap: 20px;
 }
 
-.detail-header,
-.detail-section {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
+.detail-header {
+  border-bottom: 1px solid #dde2e7;
   display: grid;
   gap: 12px;
-  padding: 20px;
+  padding: 8px 0 24px;
 }
 
 .detail-grid {
   display: grid;
-  gap: 16px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-dl {
+.detail-section {
+  border-top: 1px solid #dde2e7;
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  padding-top: 18px;
+}
+
+.detail-section-wide {
+  width: 100%;
+}
+
+.detail-section dl {
   display: grid;
   gap: 12px;
   margin: 0;
 }
 
-dl div {
+.detail-section dl div {
   display: grid;
   gap: 4px;
 }
 
-dt {
+.detail-section dt {
   color: #64748b;
   font-size: 13px;
   font-weight: 700;
 }
 
-dd {
+.detail-section dd {
+  line-height: 1.6;
   margin: 0;
+  overflow-wrap: anywhere;
 }
 
-dd a {
-  color: #2563eb;
+.detail-section dd a {
+  align-items: center;
+  color: #165d9c;
+  display: inline-flex;
   font-weight: 700;
+  gap: 6px;
 }
 
 .time-node-list {
@@ -273,30 +286,83 @@ dd a {
 
 .time-node-list li {
   align-items: center;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  border-bottom: 1px solid #e5e7eb;
   display: grid;
   gap: 6px;
   grid-template-columns: minmax(0, 180px) minmax(0, 1fr) minmax(0, 1fr);
-  padding: 12px;
+  padding: 12px 0;
+}
+
+.time-node-list li:last-child {
+  border-bottom: 0;
 }
 
 .time-node-list small {
   color: #64748b;
 }
 
-@media (max-width: 820px) {
+.detail-copy {
+  line-height: 1.8;
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.sr-only {
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+@media (max-width: 920px) {
+  .filter-bar,
+  .detail-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .detail-grid .detail-section:last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 640px) {
+  .topbar {
+    gap: 14px;
+    padding: 0 16px;
+  }
+
+  .nav-links {
+    gap: 12px;
+    margin-left: auto;
+  }
+
+  .main-content {
+    padding: 24px 16px;
+  }
+
   .page-heading,
-  .competition-card,
-  .filter-actions {
+  .competition-card {
     align-items: stretch;
     display: grid;
   }
 
   .filter-bar,
+  .competition-card,
   .detail-grid,
   .time-node-list li {
     grid-template-columns: 1fr;
+  }
+
+  .detail-grid .detail-section:last-child {
+    grid-column: auto;
+  }
+
+  .filter-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .card-side {
@@ -304,5 +370,25 @@ dd a {
     border-top: 1px solid #e5e7eb;
     padding-left: 0;
     padding-top: 16px;
+  }
+
+  .competition-pagination {
+    justify-content: center;
+  }
+}
+
+@media (max-width: 460px) {
+  .topbar {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+    padding-bottom: 10px;
+    padding-top: 10px;
+  }
+
+  .nav-links {
+    justify-content: space-between;
+    margin-left: 0;
+    width: 100%;
   }
 }

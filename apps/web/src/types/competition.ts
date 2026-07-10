@@ -4,7 +4,7 @@ export interface CompetitionSummary {
   short_title?: string | null
   category?: string | null
   organizer?: string | null
-  status: string
+  status: 'published'
   source_name: string
   source_url: string
   official_url?: string | null

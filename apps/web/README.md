@@ -44,9 +44,12 @@ npm --prefix apps/web run dev
 - Route-level components belong in `src/pages/`.
 - Reusable state belongs in Pinia stores, not ad hoc module globals.
 - Frontend permission checks are for UX only; backend APIs must enforce authorization.
-- Ant Design Vue is the accepted UI component library; see `docs/adr/0008-ant-design-vue-ui-library.md`.
+- Ant Design Vue is the installed UI component library; see
+  `docs/adr/0008-ant-design-vue-ui-library.md`. Import components locally in
+  Vue files so production builds can tree-shake unused controls.
 - Do not mix Element Plus, Naive UI, Arco, or another general-purpose UI component library into the same app without a superseding ADR.
-- Shared buttons, forms, tables, modals, drawers, tags, messages, and management controls should use Ant Design Vue once the dependency is installed by an implementation PR.
+- Shared buttons, forms, tables, modals, drawers, tags, messages, and management
+  controls should use Ant Design Vue.
 - Vite proxies `/api` to the Flask backend during local development.
 
 ## Quality Gates
