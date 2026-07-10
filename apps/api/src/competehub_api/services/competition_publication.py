@@ -4,8 +4,17 @@ from http import HTTPStatus
 from typing import Any
 
 from competehub_api.extensions import db
-from competehub_api.models import AuditLog, Competition, ReviewRecord, User
+from competehub_api.models import (
+    AuditLog,
+    Competition,
+    CompetitionTag,
+    CompetitionTagLink,
+    CompetitionTimeNode,
+    ReviewRecord,
+    User,
+)
 from competehub_api.models.enums import CompetitionStatus, ReviewStatus
+from competehub_api.repositories.competitions import get_competition_tag_by_code
 from competehub_api.repositories.reviews import latest_pending_competition_review
 from competehub_api.services.errors import ServiceError
 
@@ -30,7 +39,7 @@ REVIEW_ACTIONS: dict[str, tuple[ReviewStatus, CompetitionStatus, str]] = {
 SUBMITTABLE_STATUSES = {CompetitionStatus.DRAFT, CompetitionStatus.REJECTED}
 EDITABLE_STATUSES = {CompetitionStatus.DRAFT, CompetitionStatus.REJECTED}
 REVIEWABLE_STATUSES = {CompetitionStatus.PENDING_REVIEW}
-MAINTAINABLE_STATUSES = {
+POST_PUBLICATION_TARGET_STATUSES = {
     CompetitionStatus.OFFLINE,
     CompetitionStatus.ARCHIVED,
     CompetitionStatus.CANCELLED,
@@ -40,11 +49,16 @@ PUBLICATION_REQUIRED_FIELDS = ("title", "source_name", "source_url", "summary")
 
 
 def create_draft_competition(payload: dict[str, Any], actor: User) -> Competition:
+    payload = payload.copy()
+    time_nodes = payload.pop("time_nodes", [])
+    tags = _resolve_tags(payload.pop("tags", []))
     competition = Competition(
         **payload,
         status=CompetitionStatus.DRAFT,
         created_by_id=actor.id,
     )
+    _replace_time_nodes(competition, time_nodes)
+    _replace_tags(competition, tags)
     db.session.add(competition)
     db.session.flush()
     _write_audit(actor, "competition.create", competition, {"status": competition.status.value})
@@ -65,13 +79,23 @@ def update_competition(
             {"status": competition.status.value},
         )
 
+    payload = payload.copy()
+    changed_fields = sorted(payload)
+    time_nodes = payload.pop("time_nodes", None)
+    tag_payloads = payload.pop("tags", None)
+    tags = _resolve_tags(tag_payloads) if tag_payloads is not None else None
+
     for field, value in payload.items():
         setattr(competition, field, value)
+    if time_nodes is not None:
+        _replace_time_nodes(competition, time_nodes)
+    if tags is not None:
+        _replace_tags(competition, tags)
     _write_audit(
         actor,
         "competition.update",
         competition,
-        {"fields": sorted(payload)},
+        {"fields": changed_fields},
     )
     db.session.commit()
     return competition
@@ -119,7 +143,7 @@ def review_competition(
     competition: Competition,
     actor: User,
     action: str,
-    comment: str | None = None,
+    comment: str,
 ) -> Competition:
     if competition.status not in REVIEWABLE_STATUSES:
         raise ServiceError(
@@ -127,6 +151,13 @@ def review_competition(
             "conflict",
             "competition cannot be reviewed from its current status",
             {"status": competition.status.value},
+        )
+    if not comment.strip():
+        raise ServiceError(
+            HTTPStatus.BAD_REQUEST,
+            "validation_error",
+            "review comment is required",
+            {"field": "comment"},
         )
 
     try:
@@ -168,7 +199,10 @@ def maintain_competition_status(
     reason: str,
 ) -> Competition:
     status = CompetitionStatus(target_status)
-    if competition.status != CompetitionStatus.PUBLISHED or status not in MAINTAINABLE_STATUSES:
+    if (
+        competition.status != CompetitionStatus.PUBLISHED
+        or status not in POST_PUBLICATION_TARGET_STATUSES
+    ):
         raise ServiceError(
             HTTPStatus.CONFLICT,
             "conflict",
@@ -190,6 +224,31 @@ def maintain_competition_status(
     )
     db.session.commit()
     return competition
+
+
+def _resolve_tags(tag_payloads: list[dict[str, Any]]) -> list[CompetitionTag]:
+    tags = []
+    for payload in tag_payloads:
+        tag = get_competition_tag_by_code(payload["code"])
+        if tag is not None and (tag.name != payload["name"] or tag.tag_type != payload["tag_type"]):
+            raise ServiceError(
+                HTTPStatus.CONFLICT,
+                "conflict",
+                "tag code already exists with different facts",
+                {"code": payload["code"]},
+            )
+        if tag is None:
+            tag = CompetitionTag(**payload)
+        tags.append(tag)
+    return tags
+
+
+def _replace_time_nodes(competition: Competition, payloads: list[dict[str, Any]]) -> None:
+    competition.time_nodes = [CompetitionTimeNode(**payload) for payload in payloads]
+
+
+def _replace_tags(competition: Competition, tags: list[CompetitionTag]) -> None:
+    competition.tag_links = [CompetitionTagLink(tag=tag) for tag in tags]
 
 
 def _write_audit(

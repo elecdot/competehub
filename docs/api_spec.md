@@ -363,11 +363,38 @@ Admin APIs require `admin`.
 
 Create a draft competition.
 
+Structured draft fields may include time nodes and controlled tags:
+
+```json
+{
+  "title": "全国大学生人工智能创新挑战赛",
+  "source_name": "示例高校竞赛通知",
+  "source_url": "https://example.edu/notices/ai-challenge-2026",
+  "summary": "面向大学生的人工智能创新项目竞赛。",
+  "time_nodes": [
+    {
+      "node_type": "registration_deadline",
+      "due_at": "2026-08-15T16:00:00Z",
+      "description": "报名截止"
+    }
+  ],
+  "tags": [
+    {
+      "code": "ai",
+      "name": "人工智能",
+      "tag_type": "topic"
+    }
+  ]
+}
+```
+
 ### `PATCH /admin/competitions/{id}`
 
 Update editable fields on a `draft` or `rejected` competition. Published and
 pending-review records must not be edited without returning to an editable
 workflow state. Successful updates write `competition.update` audit evidence.
+When `time_nodes` or `tags` is supplied, that relationship list replaces the
+current draft list; an empty list clears it.
 
 ### `POST /admin/competitions/{id}/submit_review`
 
@@ -376,6 +403,9 @@ Submit competition for review.
 ### `POST /admin/competitions/{id}/review`
 
 Approve, reject, or return a competition.
+
+A non-empty review comment is required so every decision retains review
+context.
 
 Request:
 

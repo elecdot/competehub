@@ -14,6 +14,26 @@ def _string_list():
     return fields.List(NonBlankString(), allow_none=True)
 
 
+class CompetitionTimeNodeSchema(Schema):
+    id = fields.Integer(dump_only=True)
+    node_type = NonBlankString(required=True)
+    starts_at = fields.DateTime(allow_none=True)
+    due_at = fields.DateTime(allow_none=True)
+    description = _optional_text()
+
+    @validates_schema
+    def validate_has_time(self, data, **kwargs):
+        if data.get("starts_at") is None and data.get("due_at") is None:
+            raise ValidationError("A start or due time is required.")
+
+
+class CompetitionTagSchema(Schema):
+    code = NonBlankString(required=True)
+    name = NonBlankString(required=True)
+    tag_type = NonBlankString(required=True)
+    description = _optional_text()
+
+
 class CompetitionFieldsSchema(Schema):
     title = _optional_text()
     short_title = _optional_text()
@@ -32,6 +52,14 @@ class CompetitionFieldsSchema(Schema):
     suitable_majors = _string_list()
     suitable_grades = _string_list()
     value_notes = _optional_text()
+    time_nodes = fields.List(fields.Nested(CompetitionTimeNodeSchema()))
+    tags = fields.List(fields.Nested(CompetitionTagSchema()))
+
+    @validates_schema
+    def validate_unique_tag_codes(self, data, **kwargs):
+        tags = data.get("tags")
+        if tags is not None and len({tag["code"] for tag in tags}) != len(tags):
+            raise ValidationError("Tag codes must be unique.", field_name="tags")
 
 
 class CompetitionCreateSchema(CompetitionFieldsSchema):
@@ -56,7 +84,7 @@ class CompetitionReviewSchema(Schema):
         required=True,
         validate=validate.OneOf(["approve", "reject", "return"]),
     )
-    comment = _optional_text()
+    comment = NonBlankString(required=True)
 
 
 class CompetitionStatusSchema(Schema):
@@ -95,6 +123,12 @@ class CompetitionSchema(Schema):
     value_notes = fields.String(allow_none=True)
     status = fields.String(required=True)
     created_by_id = fields.Integer(allow_none=True)
+    time_nodes = fields.List(fields.Nested(CompetitionTimeNodeSchema()))
+    tags = fields.Method("serialize_tags")
+
+    def serialize_tags(self, competition):
+        tags = [link.tag for link in competition.tag_links if link.tag is not None]
+        return CompetitionTagSchema().dump(tags, many=True)
 
 
 competition_create_schema = CompetitionCreateSchema()

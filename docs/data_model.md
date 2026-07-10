@@ -327,20 +327,15 @@ Examples:
 ### Competition Status
 
 ```text
-draft
-  -> pending_review
-  -> published
-  -> archived
-
-pending_review
-  -> rejected
-  -> draft
-
-published
-  -> offline
-  -> cancelled
-  -> expired
+draft -> pending_review
+rejected -> pending_review
+pending_review -> published | rejected | draft
+published -> offline | archived | cancelled | expired
 ```
+
+`return` is a review action, not a competition status; it moves a
+`pending_review` record back to `draft`. A rejected record may be edited and
+resubmitted. Post-publication maintenance requires an audit reason.
 
 Status meanings:
 

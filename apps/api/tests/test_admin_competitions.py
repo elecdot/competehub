@@ -52,6 +52,20 @@ def test_create_draft_competition_records_source_and_audit(client, app) -> None:
             "source_url": "https://example.edu/notice",
             "category": "innovation",
             "organizer": "Example University",
+            "time_nodes": [
+                {
+                    "node_type": "registration_deadline",
+                    "due_at": "2026-08-15T16:00:00Z",
+                    "description": "Registration closes",
+                }
+            ],
+            "tags": [
+                {
+                    "code": "innovation",
+                    "name": "创新创业",
+                    "tag_type": "category",
+                }
+            ],
         },
     )
 
@@ -61,12 +75,23 @@ def test_create_draft_competition_records_source_and_audit(client, app) -> None:
     assert body["data"]["status"] == "draft"
     assert body["data"]["source_name"] == "School Notice"
     assert body["data"]["source_url"] == "https://example.edu/notice"
+    assert body["data"]["time_nodes"][0]["node_type"] == "registration_deadline"
+    assert body["data"]["tags"] == [
+        {
+            "code": "innovation",
+            "description": None,
+            "name": "创新创业",
+            "tag_type": "category",
+        }
+    ]
 
     with app.app_context():
         competition = db.session.get(Competition, body["data"]["id"])
         assert competition is not None
         assert competition.status == CompetitionStatus.DRAFT
         assert competition.status not in PUBLIC_COMPETITION_STATUSES
+        assert competition.time_nodes[0].description == "Registration closes"
+        assert competition.tag_links[0].tag.code == "innovation"
         audit = AuditLog.query.one()
         assert audit.action == "competition.create"
         assert audit.actor_id == admin
@@ -140,6 +165,19 @@ def test_update_editable_competition_records_audit_evidence(client, app) -> None
         json={
             "summary": "Updated publication summary.",
             "suitable_majors": ["软件工程"],
+            "time_nodes": [
+                {
+                    "node_type": "submission_deadline",
+                    "due_at": "2026-09-10T16:00:00Z",
+                }
+            ],
+            "tags": [
+                {
+                    "code": "ai",
+                    "name": "人工智能",
+                    "tag_type": "topic",
+                }
+            ],
         },
     )
 
@@ -149,9 +187,16 @@ def test_update_editable_competition_records_audit_evidence(client, app) -> None
         competition = db.session.get(Competition, 106)
         assert competition.summary == "Updated publication summary."
         assert competition.suitable_majors == ["软件工程"]
+        assert [node.node_type for node in competition.time_nodes] == ["submission_deadline"]
+        assert [link.tag.code for link in competition.tag_links] == ["ai"]
         audit = AuditLog.query.filter_by(action="competition.update").one()
         assert audit.actor_id == admin
-        assert set(audit.detail["fields"]) == {"summary", "suitable_majors"}
+        assert set(audit.detail["fields"]) == {
+            "summary",
+            "suitable_majors",
+            "tags",
+            "time_nodes",
+        }
 
 
 def test_update_non_editable_competition_is_rejected(client, app) -> None:
@@ -204,7 +249,12 @@ def test_update_rejects_clearing_required_competition_fields(client, app, field)
     assert response.get_json()["error"]["code"] == "validation_error"
 
 
-def test_status_maintenance_hides_published_competition_and_records_audit(client, app) -> None:
+@pytest.mark.parametrize("target_status", ["offline", "archived", "cancelled", "expired"])
+def test_status_maintenance_hides_published_competition_and_records_audit(
+    client,
+    app,
+    target_status,
+) -> None:
     with app.app_context():
         admin = create_admin_user()
         competition = Competition(
@@ -222,20 +272,20 @@ def test_status_maintenance_hides_published_competition_and_records_audit(client
 
     response = client.patch(
         "/api/v1/admin/competitions/108/status",
-        json={"status": "offline", "reason": "official link unavailable"},
+        json={"status": target_status, "reason": "status maintenance"},
     )
 
     assert response.status_code == 200
-    assert response.get_json()["data"]["status"] == "offline"
+    assert response.get_json()["data"]["status"] == target_status
     with app.app_context():
         competition = db.session.get(Competition, 108)
-        assert competition.status == CompetitionStatus.OFFLINE
+        assert competition.status == CompetitionStatus(target_status)
         assert competition.status not in PUBLIC_COMPETITION_STATUSES
-        audit = AuditLog.query.filter_by(action="competition.offline").one()
+        audit = AuditLog.query.filter_by(action=f"competition.{target_status}").one()
         assert audit.detail == {
             "from_status": "published",
-            "reason": "official link unavailable",
-            "to_status": "offline",
+            "reason": "status maintenance",
+            "to_status": target_status,
         }
 
 
@@ -353,6 +403,31 @@ def test_review_approve_publishes_competition_and_records_review(client, app) ->
         assert review.comment == "source checked"
         audit = AuditLog.query.filter_by(action="competition.approve").one()
         assert audit.target_id == 103
+
+
+def test_review_requires_comment(client, app) -> None:
+    with app.app_context():
+        admin = create_admin_user()
+        competition = Competition(
+            id=111,
+            title="Pending Challenge",
+            source_name="School Notice",
+            source_url="https://example.edu/notice",
+            summary="Ready for review.",
+            status=CompetitionStatus.PENDING_REVIEW,
+            created_by_id=admin,
+        )
+        db.session.add(competition)
+        db.session.commit()
+    login(client, admin)
+
+    response = client.post(
+        "/api/v1/admin/competitions/111/review",
+        json={"action": "approve"},
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["error"]["code"] == "validation_error"
 
 
 def test_review_reject_and_return_keep_competitions_non_public(client, app) -> None:
