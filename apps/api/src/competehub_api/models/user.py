@@ -8,6 +8,7 @@ from competehub_api.extensions import db
 from competehub_api.models.enums import UserRole, UserStatus
 from competehub_api.models.mixins import TimestampMixin
 
+
 def enum_values(enum_cls):
     return [item.value for item in enum_cls]
 

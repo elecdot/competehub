@@ -365,7 +365,9 @@ Create a draft competition.
 
 ### `PATCH /admin/competitions/{id}`
 
-Update draft, rejected, or editable competition fields.
+Update editable fields on a `draft` or `rejected` competition. Published and
+pending-review records must not be edited without returning to an editable
+workflow state. Successful updates write `competition.update` audit evidence.
 
 ### `POST /admin/competitions/{id}/submit_review`
 
@@ -392,7 +394,10 @@ Allowed actions:
 
 ### `PATCH /admin/competitions/{id}/status`
 
-Change competition status.
+Perform post-publication status maintenance. The P1 flow allows a `published`
+competition to move to `offline`, `archived`, `cancelled`, or `expired`. Other
+transitions use the submit/review workflow or return `409 conflict`. A non-empty
+reason is required, and successful changes write status-specific audit evidence.
 
 Request:
 

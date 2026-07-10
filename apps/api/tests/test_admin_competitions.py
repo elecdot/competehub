@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from competehub_api.extensions import db
 from competehub_api.models import AuditLog, Competition, ReviewRecord, User
 from competehub_api.models.enums import CompetitionStatus, ReviewStatus, UserRole
@@ -13,6 +15,19 @@ def create_admin_user(user_id: int = 1) -> int:
         password_hash="not-used",
         display_name="Admin",
         role=UserRole.ADMIN,
+    )
+    db.session.add(user)
+    db.session.commit()
+    return user_id
+
+
+def create_student_user(user_id: int = 2) -> int:
+    user = User(
+        id=user_id,
+        email=f"student-{user_id}@example.edu",
+        password_hash="not-used",
+        display_name="Student",
+        role=UserRole.STUDENT,
     )
     db.session.add(user)
     db.session.commit()
@@ -57,6 +72,195 @@ def test_create_draft_competition_records_source_and_audit(client, app) -> None:
         assert audit.actor_id == admin
         assert audit.target_id == competition.id
         assert audit.result == "success"
+
+
+def test_admin_competition_write_requires_admin_role(client, app) -> None:
+    anonymous_response = client.post(
+        "/api/v1/admin/competitions",
+        json={
+            "title": "Unauthorized Challenge",
+            "source_name": "School Notice",
+            "source_url": "https://example.edu/notice",
+        },
+    )
+    with app.app_context():
+        student = create_student_user()
+    login(client, student)
+    student_response = client.post(
+        "/api/v1/admin/competitions",
+        json={
+            "title": "Forbidden Challenge",
+            "source_name": "School Notice",
+            "source_url": "https://example.edu/notice",
+        },
+    )
+
+    assert anonymous_response.status_code == 401
+    assert anonymous_response.get_json()["error"]["code"] == "unauthorized"
+    assert student_response.status_code == 403
+    assert student_response.get_json()["error"]["code"] == "forbidden"
+
+
+def test_create_draft_rejects_invalid_list_items(client, app) -> None:
+    with app.app_context():
+        admin = create_admin_user()
+    login(client, admin)
+
+    response = client.post(
+        "/api/v1/admin/competitions",
+        json={
+            "title": "Invalid Challenge",
+            "source_name": "School Notice",
+            "source_url": "https://example.edu/notice",
+            "suitable_majors": ["软件工程", 42],
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["error"]["code"] == "validation_error"
+
+
+def test_update_editable_competition_records_audit_evidence(client, app) -> None:
+    with app.app_context():
+        admin = create_admin_user()
+        competition = Competition(
+            id=106,
+            title="Editable Challenge",
+            source_name="School Notice",
+            source_url="https://example.edu/editable",
+            status=CompetitionStatus.DRAFT,
+            created_by_id=admin,
+        )
+        db.session.add(competition)
+        db.session.commit()
+    login(client, admin)
+
+    response = client.patch(
+        "/api/v1/admin/competitions/106",
+        json={
+            "summary": "Updated publication summary.",
+            "suitable_majors": ["软件工程"],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["data"]["summary"] == "Updated publication summary."
+    with app.app_context():
+        competition = db.session.get(Competition, 106)
+        assert competition.summary == "Updated publication summary."
+        assert competition.suitable_majors == ["软件工程"]
+        audit = AuditLog.query.filter_by(action="competition.update").one()
+        assert audit.actor_id == admin
+        assert set(audit.detail["fields"]) == {"summary", "suitable_majors"}
+
+
+def test_update_non_editable_competition_is_rejected(client, app) -> None:
+    with app.app_context():
+        admin = create_admin_user()
+        competition = Competition(
+            id=107,
+            title="Published Challenge",
+            source_name="School Notice",
+            source_url="https://example.edu/published",
+            summary="Already published.",
+            status=CompetitionStatus.PUBLISHED,
+            created_by_id=admin,
+        )
+        db.session.add(competition)
+        db.session.commit()
+    login(client, admin)
+
+    response = client.patch(
+        "/api/v1/admin/competitions/107",
+        json={"summary": "Unreviewed replacement."},
+    )
+
+    assert response.status_code == 409
+    assert response.get_json()["error"]["code"] == "conflict"
+
+
+@pytest.mark.parametrize("field", ["title", "source_name", "source_url"])
+def test_update_rejects_clearing_required_competition_fields(client, app, field) -> None:
+    with app.app_context():
+        admin = create_admin_user()
+        competition = Competition(
+            id=110,
+            title="Editable Challenge",
+            source_name="School Notice",
+            source_url="https://example.edu/editable",
+            status=CompetitionStatus.DRAFT,
+            created_by_id=admin,
+        )
+        db.session.add(competition)
+        db.session.commit()
+    login(client, admin)
+
+    response = client.patch(
+        "/api/v1/admin/competitions/110",
+        json={field: None},
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["error"]["code"] == "validation_error"
+
+
+def test_status_maintenance_hides_published_competition_and_records_audit(client, app) -> None:
+    with app.app_context():
+        admin = create_admin_user()
+        competition = Competition(
+            id=108,
+            title="Published Challenge",
+            source_name="School Notice",
+            source_url="https://example.edu/published",
+            summary="Ready to go offline.",
+            status=CompetitionStatus.PUBLISHED,
+            created_by_id=admin,
+        )
+        db.session.add(competition)
+        db.session.commit()
+    login(client, admin)
+
+    response = client.patch(
+        "/api/v1/admin/competitions/108/status",
+        json={"status": "offline", "reason": "official link unavailable"},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["data"]["status"] == "offline"
+    with app.app_context():
+        competition = db.session.get(Competition, 108)
+        assert competition.status == CompetitionStatus.OFFLINE
+        assert competition.status not in PUBLIC_COMPETITION_STATUSES
+        audit = AuditLog.query.filter_by(action="competition.offline").one()
+        assert audit.detail == {
+            "from_status": "published",
+            "reason": "official link unavailable",
+            "to_status": "offline",
+        }
+
+
+def test_status_maintenance_rejects_invalid_transition(client, app) -> None:
+    with app.app_context():
+        admin = create_admin_user()
+        competition = Competition(
+            id=109,
+            title="Draft Challenge",
+            source_name="School Notice",
+            source_url="https://example.edu/draft",
+            status=CompetitionStatus.DRAFT,
+            created_by_id=admin,
+        )
+        db.session.add(competition)
+        db.session.commit()
+    login(client, admin)
+
+    response = client.patch(
+        "/api/v1/admin/competitions/109/status",
+        json={"status": "offline", "reason": "not published"},
+    )
+
+    assert response.status_code == 409
+    assert response.get_json()["error"]["code"] == "conflict"
 
 
 def test_submit_review_rejects_missing_publication_fields(client, app) -> None:
