@@ -4,6 +4,7 @@ import type {
   ApiEnvelope,
   CompetitionDetail,
   CompetitionListPayload,
+  ParticipantForm,
 } from '@/types/competition'
 
 export const apiClient = axios.create({
@@ -17,7 +18,7 @@ export interface CompetitionListParams {
   major?: string
   grade?: string
   tag?: string
-  participant_form?: string
+  participant_form?: ParticipantForm
   deadline_from?: string
   deadline_to?: string
   page?: number

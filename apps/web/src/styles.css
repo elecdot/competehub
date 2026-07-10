@@ -162,6 +162,19 @@ a {
   margin: 0;
 }
 
+.card-organizer {
+  align-items: center;
+  color: #52606d;
+  display: flex;
+  font-size: 14px;
+  gap: 7px;
+  margin: 0;
+}
+
+.card-organizer .anticon {
+  color: #176b4d;
+}
+
 .tag-row {
   display: flex;
   flex-wrap: wrap;

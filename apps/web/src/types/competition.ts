@@ -1,3 +1,5 @@
+export type ParticipantForm = 'individual' | 'team'
+
 export interface CompetitionSummary {
   id: number
   title: string
@@ -32,7 +34,7 @@ export interface CompetitionDetail extends CompetitionSummary {
   detail?: string | null
   eligibility?: string | null
   team_size?: string | null
-  participant_form?: string | null
+  participant_form?: ParticipantForm | null
   time_nodes: CompetitionTimeNode[]
 }
 

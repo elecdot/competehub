@@ -230,6 +230,7 @@ def test_public_competition_pagination_is_applied_after_filters(client) -> None:
         "page_size=101",
         "deadline_from=invalid",
         "deadline_from=2026-09-01&deadline_to=2026-08-01",
+        "participant_form=unsupported",
     ],
 )
 def test_public_competition_rejects_invalid_query_parameters(client, query) -> None:

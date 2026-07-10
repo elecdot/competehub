@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   ArrowRightOutlined,
+  BankOutlined,
   CalendarOutlined,
   ReloadOutlined,
   SearchOutlined,
@@ -16,56 +17,40 @@ import {
   Skeleton as ASkeleton,
   Tag as ATag,
 } from 'ant-design-vue'
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { fetchCompetitions } from '@/api/client'
-import type { CompetitionSummary, Pagination } from '@/types/competition'
+import { useCompetitionFilterStore } from '@/stores/competition_filter_store'
+import type { CompetitionSummary } from '@/types/competition'
 import { formatNodeDate, formatNodeLabel } from '@/utils/competition'
 
 const router = useRouter()
-const filters = reactive({
-  keyword: '',
-  category: '',
-  major: '',
-  grade: '',
-  tag: '',
-  participant_form: '',
-  deadline_from: '',
-  deadline_to: '',
-})
+const filters = useCompetitionFilterStore()
 const participantFormOptions = [
   { label: '不限参赛形式', value: '' },
   { label: '个人参赛', value: 'individual' },
   { label: '团队参赛', value: 'team' },
 ]
 const competitions = ref<CompetitionSummary[]>([])
-const pagination = ref<Pagination>({ page: 1, page_size: 20, total: 0 })
+const total = ref(0)
 const loading = ref(false)
 const errorMessage = ref('')
 
-async function loadCompetitions(page = 1) {
+async function loadCompetitions(page = filters.page) {
   loading.value = true
   errorMessage.value = ''
+  filters.page = page
 
   try {
-    const payload = await fetchCompetitions({
-      keyword: filters.keyword || undefined,
-      category: filters.category || undefined,
-      major: filters.major || undefined,
-      grade: filters.grade || undefined,
-      tag: filters.tag || undefined,
-      participant_form: filters.participant_form || undefined,
-      deadline_from: filters.deadline_from || undefined,
-      deadline_to: filters.deadline_to || undefined,
-      page,
-      page_size: pagination.value.page_size,
-    })
+    const payload = await fetchCompetitions(filters.toQueryParams())
     competitions.value = payload.items
-    pagination.value = payload.pagination
+    filters.page = payload.pagination.page
+    filters.pageSize = payload.pagination.page_size
+    total.value = payload.pagination.total
   } catch {
     competitions.value = []
-    pagination.value = { page, page_size: pagination.value.page_size, total: 0 }
+    total.value = 0
     errorMessage.value = '赛事列表暂时无法加载，请稍后再试。'
   } finally {
     loading.value = false
@@ -77,14 +62,7 @@ function submitFilters() {
 }
 
 function clearFilters() {
-  filters.keyword = ''
-  filters.category = ''
-  filters.major = ''
-  filters.grade = ''
-  filters.tag = ''
-  filters.participant_form = ''
-  filters.deadline_from = ''
-  filters.deadline_to = ''
+  filters.reset()
   void loadCompetitions(1)
 }
 
@@ -93,7 +71,7 @@ function openDetail(competitionId: number) {
 }
 
 onMounted(() => {
-  void loadCompetitions()
+  void loadCompetitions(filters.page)
 })
 </script>
 
@@ -101,7 +79,7 @@ onMounted(() => {
   <section class="competition-page">
     <div class="page-heading">
       <h1 class="page-title">赛事列表</h1>
-      <span class="result-count" aria-live="polite">{{ pagination.total }} 项公开赛事</span>
+      <span class="result-count" aria-live="polite">{{ total }} 项公开赛事</span>
     </div>
 
     <form class="filter-bar" aria-label="赛事筛选" @submit.prevent="submitFilters">
@@ -154,7 +132,7 @@ onMounted(() => {
         参赛形式
         <ASelect
           id="competition-participant-form"
-          v-model:value="filters.participant_form"
+          v-model:value="filters.participantForm"
           :options="participantFormOptions"
         />
       </label>
@@ -162,7 +140,7 @@ onMounted(() => {
         截止日期从
         <ADatePicker
           id="competition-deadline-from"
-          v-model:value="filters.deadline_from"
+          v-model:value="filters.deadlineFrom"
           value-format="YYYY-MM-DD"
           placeholder="开始日期"
         />
@@ -171,7 +149,7 @@ onMounted(() => {
         截止日期至
         <ADatePicker
           id="competition-deadline-to"
-          v-model:value="filters.deadline_to"
+          v-model:value="filters.deadlineTo"
           value-format="YYYY-MM-DD"
           placeholder="结束日期"
         />
@@ -200,7 +178,7 @@ onMounted(() => {
       :sub-title="errorMessage"
     >
       <template #extra>
-        <AButton type="primary" @click="loadCompetitions(pagination.page)">
+        <AButton type="primary" @click="loadCompetitions(filters.page)">
           <template #icon><ReloadOutlined /></template>
           重新加载
         </AButton>
@@ -225,8 +203,12 @@ onMounted(() => {
               <span>{{ competition.category ?? '未分类' }}</span>
             </div>
             <h2>{{ competition.title }}</h2>
+            <p class="card-organizer">
+              <BankOutlined />
+              {{ competition.organizer ?? '主办方未填写' }}
+            </p>
             <p class="card-description">
-              {{ competition.value_notes ?? competition.organizer ?? competition.source_name }}
+              {{ competition.value_notes ?? competition.source_name }}
             </p>
             <div v-if="competition.tags.length" class="tag-row">
               <ATag v-for="tag in competition.tags" :key="tag" color="cyan">{{ tag }}</ATag>
@@ -251,9 +233,9 @@ onMounted(() => {
 
       <APagination
         class="competition-pagination"
-        :current="pagination.page"
-        :page-size="pagination.page_size"
-        :total="pagination.total"
+        :current="filters.page"
+        :page-size="filters.pageSize"
+        :total="total"
         :show-size-changer="false"
         show-less-items
         @change="loadCompetitions"

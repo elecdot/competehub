@@ -26,7 +26,11 @@ class CompetitionListQuerySchema(Schema):
     grade = OptionalQueryText(load_default=None, allow_none=True)
     tag = OptionalQueryText(load_default=None, allow_none=True)
     status = OptionalQueryText(load_default=None, allow_none=True)
-    participant_form = OptionalQueryText(load_default=None, allow_none=True)
+    participant_form = OptionalQueryText(
+        load_default=None,
+        allow_none=True,
+        validate=validate.OneOf(["individual", "team", None]),
+    )
     deadline_from = fields.Date(load_default=None, allow_none=True)
     deadline_to = fields.Date(load_default=None, allow_none=True)
 
