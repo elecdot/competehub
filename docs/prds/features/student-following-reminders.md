@@ -2,10 +2,10 @@
 
 ## Status
 
-- Draft
+- Accepted
 - Roadmap phase: P1
 - Owner: Product owner / tech lead
-- Related issues: None yet
+- Related issues: #22, #25, #26
 
 ## Source Documents Checked
 
@@ -30,6 +30,13 @@ reminders, messages, and frontend route shells. The goal is to connect the
 smallest useful student workflow that supports the course demo path without
 building a broad account-management platform.
 
+P1 runs inside one configured部署高校. Student numbers and colleges are local
+to that deployment; multi-institution account tenancy is not part of this
+slice. Typed identity support is separate from registration-channel scope:
+email self-registration is available only with a configured real sender,
+student numbers use a controlled institution path, and phone registration is
+deferred.
+
 ## Users
 
 - 学生: logs in, maintains a minimal profile, favorites and subscribes to 赛事,
@@ -41,8 +48,9 @@ building a broad account-management platform.
 
 ## User Stories
 
-1. As a 学生, I want to register or log in, so that my profile, 收藏, 订阅,
-   reminders, and calendar can be saved.
+1. As a 学生, I want to activate and log in with an institution-provisioned
+   account or an enabled verified registration method, so that my profile,
+   收藏, 订阅, reminders, and calendar can be saved.
 2. As a 学生, I want to see my current user identity, so that the frontend can
    show the right personal actions.
 3. As a 学生, I want to maintain college, major, grade, interests, and reminder
@@ -78,11 +86,18 @@ building a broad account-management platform.
 17. As the team owner, I want this slice to be demo-ready before broader
     preference features, so that the product proves the student follow-up value
     inside the four-day window.
+18. As a 学生, I want 收藏 and 订阅 to remain attached to the赛事届次 I selected,
+    so that a future届次 does not create reminders without new consent.
+19. As a 学生, I want an explicit赛事时间变更通知 when a subscribed published届次
+    is rescheduled, so that stale pending reminders are replaced without
+    rewriting messages I already received.
 
 ## Functional Requirements
 
-- FR-001: Students can register, log in, log out, and fetch current session user
-  information using the cookie-session model defined in the API spec.
+- FR-001: Students can log in, log out, and fetch current session user
+  information using the cookie-session model and explicitly typed account
+  identities defined in the API spec. Login never cross-searches identity types,
+  and only active accounts can establish a session.
 - FR-002: Students can fetch and update their own profile and reminder
   preferences.
 - FR-003: Students can favorite and unfavorite visible 赛事.
@@ -94,27 +109,87 @@ building a broad account-management platform.
   types when reminders are enabled.
 - FR-008: Unsubscription cancels future pending reminders for that student and
   赛事.
-- FR-009: Calendar API returns subscribed 赛事 nodes by date range and supports a
-  thin list view even if full month/week UI is deferred.
-- FR-010: Message API returns current user's in-app messages and supports marking
-  a message as read.
+- FR-009: Calendar API returns subscribed赛事 nodes by date range as one source
+  for the required month, week, and list views.
+- FR-010: Message API returns only the current user's retained in-app messages,
+  supports all/unread and controlled-type filters, unread count, one-message
+  read, and read-all actions.
 - FR-011: Reminder dispatch is idempotent: repeated dispatch for the same due
   reminder must not create duplicate messages.
-- FR-012: Frontend surfaces show personal action states on list/detail, plus a
-  calendar or list page for subscribed nodes. A dedicated message page may be
-  deferred if reminder evidence is visible another way in Day 1 implementation.
+- FR-012: Frontend surfaces show personal action states on list/detail, a
+  calendar or list page for subscribed nodes, and a dedicated compact message
+  center reached from a global unread badge.
+- FR-013: 收藏, 订阅, reminders, and calendar nodes belong to one赛事届次. A new届次
+  in the same赛事系列 does not inherit engagement state. A future关注赛事系列 action
+  is separate and cannot create a届次订阅 automatically.
+- FR-014: A赛事时间节点 correction preserves node identity and creates an
+  auditable revision. Pending reminders for the prior revision are cancelled as
+  superseded, future plans are rebuilt, sent reminders remain immutable, and
+  active subscribers receive at most one赛事时间变更通知 for the new revision.
+- FR-015: Calendar results retain赛事阶段 and时间节点重点级别 metadata. All node
+  types selected by the subscription remain visible, while primary nodes receive
+  stronger display treatment without changing reminder consent.
+- FR-016: When a real email sender is configured, P1 email registration creates
+  a pending account, verifies it through a single-use limited-lifetime code, and
+  activates it without creating a session. Without that sender, public
+  registration is unavailable and demo or deployed users come from a controlled
+  provisioning path. Phone registration and self-asserted student-number
+  registration are unavailable.
+- FR-017: P1 single-factor passwords contain 15 to 128 Unicode code points after
+  NFC normalization, allow spaces and password-manager workflows, have no
+  character-composition rule, and are rejected by a local weak-password
+  blocklist when commonly compromised or context-specific. Authentication uses
+  explicit adaptive-hash parameters and rate-limited generic failures.
+- FR-018: Every protected request requires an active account and matching
+  session version. Student sessions expire after 24 hours idle or seven days
+  absolute; administrator sessions expire after 30 minutes idle or eight hours
+  absolute. Disabling an account or terminating all sessions invalidates every
+  device on its next request, while ordinary logout affects only the current
+  browser.
+- FR-019: Student profile readiness is derived as `recommendation_ready` only
+  when controlled college, major, grade, and 1 to 10 interest tags are valid,
+  including the college-major relationship. Other profile fields are optional.
+  Incomplete profiles remain usable for search, detail, favorite, subscription,
+  and reminders, while recommendation explicitly falls back to general mode.
+- FR-020: Favorite never creates reminder obligations. First subscription shows
+  and requires confirmation of reminder enabled state, one 0-to-30-day offset,
+  and controlled primary core node types. Global defaults are enabled, three
+  days, and registration deadline, submission deadline, and competition start,
+  but they only prefill the choice. Reminder-disabled subscriptions remain in
+  follow lists and calendars.
+- FR-021: Disabling global reminders cancels all pending plans without deleting
+  subscriptions or calendar nodes; re-enabling reconciles future eligible plans
+  only. P1 creates one ordinary reminder per selected node and never backfills a
+  trigger that already passed as an immediate due reminder.
+- FR-022: Delivered messages are immutable 365-day snapshots with independent
+  unread/read state. P1 types are `reminder_due`,
+  `competition_time_changed`, `competition_cancelled`, and
+  `competition_offline`. Domain-event idempotency prevents duplicates; user
+  cancellation creates no message, while competition-side cancellation or
+  emergency offline creates one message per active subscriber and event.
+- FR-023: The personal calendar provides month, week, and list views over one
+  subscribed-node source of truth. Desktop defaults to month and mobile to list,
+  with the last device choice retained. Favorites never enter the calendar;
+  reminder-disabled subscriptions do. Views preserve Shanghai date grouping,
+  stage/pair metadata, primary prominence, same-day access, current revisions,
+  and unavailable-target state.
 
 ## Non-Functional Requirements
 
 - Performance: Calendar and message views should remain responsive for the demo
   seed dataset and should not block public search/detail.
 - Security or permission: Students can only access their own profile,
-  favorites, subscriptions, reminders, calendar, and messages.
+  favorites, subscriptions, reminders, calendar, and messages. Pending accounts
+  cannot authenticate or create those records, and registration responses do
+  not expose whether an identity already exists.
 - Maintainability: Reminder generation and cancellation rules belong in
   services; Celery tasks call services instead of duplicating business rules.
 - Observability or audit: This P1 slice does not require audit logs for ordinary
   student actions, but reminder state should be inspectable enough to validate
   pending, sent, read, cancelled, and failed behavior.
+- Retention: Read and unread messages remain available for 365 days. P1 does not
+  support per-message deletion, and target unavailability does not erase the
+  historical snapshot.
 
 ## Out Of Scope
 
@@ -123,34 +198,109 @@ building a broad account-management platform.
 - Not included: advanced notification preference UI beyond default remind days,
   enabled state, and node types needed by the thin slice.
 - Not included: social following, comments, team posts, or content materials.
-- Not included: full account recovery, verification-code flows, or enterprise
-  identity integration.
+- Not included: phone/SMS registration, full account recovery, or enterprise
+  identity integration. The bounded email activation flow is included only when
+  a real sender is configured.
 - Not included: teacher or organizer access to student follow-up state.
+- Not included: 关注赛事系列 or automatic cross-edition subscription renewal.
 - Not included: a polished full calendar component if a date-ordered subscribed
   node list satisfies the first demo path.
 
 ## Acceptance Criteria
 
-- [ ] Given a student registers or logs in successfully, when the frontend calls
-      current-user API, then the student identity and role are returned through
-      the standard response envelope.
+- [ ] Given a provisioned and active student logs in successfully, when the
+      frontend calls current-user API, then the student identity and role are
+      returned through the standard response envelope.
+- [ ] Given email registration is enabled, when a student registers, then the
+      account remains pending and no session exists until a valid single-use
+      code is accepted; verification activates the account but still requires a
+      normal login.
+- [ ] Given no real email sender is configured, when the registration surface is
+      loaded or called, then the frontend hides the entry and the API reports
+      registration unavailable; no verification code is returned or logged.
+- [ ] Given a new password is shorter than 15 characters, longer than 128
+      characters, or appears in the local weak-password blocklist, when account
+      creation is requested, then it is rejected with actionable guidance; a
+      valid Unicode passphrase with spaces is accepted without a composition
+      requirement or truncation.
+- [ ] Given repeated failed logins for one typed identity or request source,
+      when the configured threshold is reached, then attempts are progressively
+      rate-limited without revealing account state or permanently locking the
+      account.
+- [ ] Given an authenticated student account is disabled or its session version
+      is incremented, when an existing browser next calls any protected API,
+      then the session is cleared, a generic `401` is returned, and no route
+      behavior is executed.
+- [ ] Given a student or administrator session crosses its role-specific idle or
+      absolute deadline, when the next protected request is made, then the
+      server rejects it; activity may refresh the idle deadline but never the
+      absolute deadline.
+- [ ] Given the same account has two active sessions, when one browser logs out,
+      then only that browser is logged out; when terminate-all is applied, both
+      are rejected on their next request.
+- [ ] Given a student has not completed college, major, grade, or one interest
+      tag, when profile and recommendation APIs are called, then the profile
+      reports `incomplete` with exact missing fields and recommendation uses an
+      explicit general fallback without blocking personal follow-up actions.
+- [ ] Given a student submits a complete dictionary-backed profile, when it is
+      read again, then the API derives `recommendation_ready`; an invalid
+      college-major pair, unknown dictionary value, duplicate tag, or more than
+      10 interest tags is rejected without losing the submitted form state.
+- [ ] Given two users have the same literal text under different identity types,
+      when either logs in with an explicit type, then only the matching typed
+      identity is considered and password matching cannot select another user.
 - [ ] Given a logged-in student updates their profile, when they fetch it again,
       then the latest profile and reminder preference fields are returned.
 - [ ] Given a logged-in student favorites a published 赛事, when they revisit the
       list or detail response, then `is_favorited` is true for that 赛事.
-- [ ] Given a logged-in student subscribes to a published 赛事 with future time
-      nodes, when the subscription completes, then active subscription state and
-      pending reminder records exist.
+- [ ] Given a logged-in student opens first subscription, when the confirmation
+      is shown, then enabled state, one 0-to-30-day offset, and controlled node
+      types are visible and editable; only explicit confirmation creates the
+      subscription and eligible pending plans.
+- [ ] Given a student favorites a赛事 or subscribes with reminders disabled, when
+      records are inspected, then favorite creates no reminder obligation and
+      the reminder-disabled subscription remains visible in follow and calendar
+      surfaces without pending plans.
 - [ ] Given a logged-in student cancels a subscription, when calendar and
       pending reminders are checked, then future nodes for that subscription are
       removed or cancelled.
+- [ ] Given global reminders are disabled and later re-enabled, when plans are
+      reconciled, then subscriptions and calendar nodes remain, old pending
+      plans are cancelled, only still-future triggers are recreated, and passed
+      triggers are not delivered immediately.
 - [ ] Given due reminders exist, when reminder dispatch runs more than once,
       then the student receives no duplicate message for the same reminder.
+- [ ] Given retained read and unread messages exist, when the student opens the
+      global unread badge and message center, then all/unread and controlled-type
+      filters, stable pagination, one-message read, and read-all update the
+      unread count without changing message snapshots.
+- [ ] Given a subscribed competition is cancelled or emergency-offlined, when
+      the domain event is handled repeatedly, then one durable event message per
+      student and event remains readable even if its target is unavailable, and
+      future reminders stop without duplicate messages.
+- [ ] Given a message reaches 365 days old, when retention cleanup runs, then it
+      is removed regardless of read state; no per-message delete API or UI is
+      available before expiry.
 - [ ] Given a student opens their calendar date range, when subscriptions exist,
-      then subscribed 赛事 nodes are returned in a usable order with links to
-      detail.
+      then month, week, and list views render the same subscribed nodes in
+      `Asia/Shanghai`, with primary/current/next prominence, paired labels,
+      stable same-day order, and only available detail links.
+- [ ] Given a subscription has reminders disabled, when the calendar is opened,
+      then its selected nodes remain; given only a favorite exists, no calendar
+      node is created.
+- [ ] Given desktop and mobile viewports, when the calendar is first opened and
+      switched, then desktop defaults to month, mobile defaults to list, the
+      device remembers the last selection, and Playwright verifies non-overlap
+      and usable same-day expansion.
+- [ ] Given a student 收藏s or 订阅s one赛事届次, when a new届次 is published in the
+      same赛事系列, then the new届次 is neither favorited nor subscribed and no
+      reminder is created without a new student action.
 - [ ] Given a student tries to access another user's personal data, when the API
       is called, then the response is unauthorized or forbidden.
+- [ ] Given a subscribed published赛事届次 time node changes, when reminder plans
+      are reconciled, then old pending plans are cancelled, eligible future
+      plans use the new revision, sent reminders remain unchanged, and one
+      idempotent time-change message is visible to the student.
 
 ## Impact Surface
 
@@ -158,18 +308,24 @@ building a broad account-management platform.
   product boundary.
 - API: Auth, current user, profile, preferences, favorite, subscription,
   calendar, messages, and message read APIs.
-- Data model: Reuses `users`, `student_profiles`, `favorites`,
+- Data model: Reuses `users`, `user_identities`,
+  `identity_verification_challenges`, `student_profiles`, `favorites`,
   `subscriptions`, `reminder_settings`, `reminders`, `messages`, and
   `competition_time_nodes`.
 - Frontend: Auth-aware list/detail actions, profile surface if included,
-  personal calendar route, and optional message/read state surface.
+  personal calendar route, global unread badge, and required compact message
+  center with all/unread filters and read actions. Calendar uses FullCalendar's
+  Vue 3 standard month/week/list capabilities rather than a hand-built grid.
 - Backend: Auth, user/profile, subscription, notification, and reminder task
   services/routes.
 - Permissions: Cookie-session authentication; student ownership checks for all
   personal data.
-- Tests: API tests for auth/session, ownership, favorite/subscription
+- Tests: API tests for registration capability, verification/activation,
+  password boundaries, weak-password blocking, login throttling,
+  auth/session version and timeout boundaries, ownership, favorite/subscription
   idempotency, reminder generation/cancellation, dispatch idempotency, and
-  calendar/message shape; frontend lint/build; manual acceptance.
+  calendar/message shape; frontend lint/build; Playwright calendar and message
+  paths across desktop/mobile; manual exploratory acceptance.
 - Reports: Module report references M1 and M4; update course reports only when
   preparing deliverables.
 - MkDocs navigation: This PRD is listed under Feature PRDs.
@@ -178,22 +334,17 @@ building a broad account-management platform.
 
 - Automated: `just api-test` for API behavior and reminder services;
   `just api-lint`; `just web-lint` and `just web-build` for frontend surfaces
-  touched; `just docs-build` when docs change.
+  touched; the project Playwright suite for desktop/mobile calendar and message
+  paths; `just docs-build` when docs change.
 - Manual: Run release-sprint acceptance steps from student login/profile through
   search, favorite, subscribe, calendar, and reminder/message evidence. Record
   branch or commit, seed data, passed steps, failed steps, and linked defects.
 
-## Risks And Open Questions
+## Risks
 
 - Risk: Full authentication can consume more time than the Day 1 half-day
-  allows; the first implementation issue may need a thin but real session-based
-  login before richer profile UX.
+  allows; Day 1 uses a verified active seed account, while the optional email
+  registration path remains independently testable and production-gated.
 - Risk: Reminder behavior depends on durable time-node data from the publication
   PRD; implementation sequencing should not start reminder UI before the 赛事
   detail contract is stable.
-- Open question: For the first demo, is a date-ordered 个人赛事日历 list acceptable,
-  or must it visually present month/week calendar modes?
-- Open question: Should Day 1 include a message center page, or is API-backed
-  reminder evidence enough until the next day?
-- Open question: Which exact profile fields are mandatory for first registration
-  versus optional profile completion?

@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted; E2E timing amended by ADR 0031
 
 ## Context
 
@@ -10,7 +10,12 @@ The Vue app currently has Vite, TypeScript, Vue Router, Pinia, Axios, and `vue-t
 
 ## Decision
 
-Adopt frontend quality gates in stages. The immediate gate remains `vue-tsc --noEmit` through `just web-lint`, plus `just web-build`. After P1 pages and stores stabilize, add ESLint with `eslint-plugin-vue` and Prettier. After the core components and stores stabilize, add Vitest and Vue Test Utils for stores, filters, detail states, and message states. After the main workflow is stable, add Playwright for the administrator publication to student subscription and reminder path.
+Adopt frontend quality gates in stages. The immediate gate remains `vue-tsc --noEmit` through `just web-lint`, plus `just web-build`. After P1 pages and stores stabilize, add ESLint with `eslint-plugin-vue` and Prettier. After the core components and stores stabilize, add Vitest and Vue Test Utils for stores, filters, detail states, and message states.
+
+ADR 0031 now requires Playwright when the P1 administrator governance workbench
+is completed, beginning with distinct editor/reviewer publication to student
+visibility. Component-test staging and incremental expansion of the E2E path
+remain unchanged.
 
 ## Consequences
 
