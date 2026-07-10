@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from marshmallow import Schema, ValidationError, fields, validate, validates_schema
 
+from competehub_api.models.enums import ParticipantForm
 from competehub_api.schemas.common import NonBlankString
 from competehub_api.services.competition_discovery import (
     competition_tag_names,
@@ -29,7 +30,7 @@ class CompetitionListQuerySchema(Schema):
     participant_form = OptionalQueryText(
         load_default=None,
         allow_none=True,
-        validate=validate.OneOf(["individual", "team", None]),
+        validate=validate.OneOf([*[form.value for form in ParticipantForm], None]),
     )
     deadline_from = fields.Date(load_default=None, allow_none=True)
     deadline_to = fields.Date(load_default=None, allow_none=True)

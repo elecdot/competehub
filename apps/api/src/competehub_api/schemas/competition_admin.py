@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from marshmallow import Schema, ValidationError, fields, validate, validates_schema
 
-from competehub_api.models.enums import CompetitionStatus
+from competehub_api.models.enums import CompetitionStatus, ParticipantForm
 from competehub_api.schemas.common import NonBlankString
 
 
@@ -48,7 +48,10 @@ class CompetitionFieldsSchema(Schema):
     detail = _optional_text()
     eligibility = _optional_text()
     team_size = _optional_text()
-    participant_form = _optional_text()
+    participant_form = NonBlankString(
+        allow_none=True,
+        validate=validate.OneOf([form.value for form in ParticipantForm]),
+    )
     suitable_majors = _string_list()
     suitable_grades = _string_list()
     value_notes = _optional_text()

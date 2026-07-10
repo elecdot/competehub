@@ -145,6 +145,25 @@ def test_create_draft_rejects_invalid_list_items(client, app) -> None:
     assert response.get_json()["error"]["code"] == "validation_error"
 
 
+def test_create_draft_rejects_unsupported_participant_form(client, app) -> None:
+    with app.app_context():
+        admin = create_admin_user()
+    login(client, admin)
+
+    response = client.post(
+        "/api/v1/admin/competitions",
+        json={
+            "title": "Invalid Participant Form Challenge",
+            "source_name": "School Notice",
+            "source_url": "https://example.edu/notice",
+            "participant_form": "unsupported",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["error"]["code"] == "validation_error"
+
+
 def test_update_editable_competition_records_audit_evidence(client, app) -> None:
     with app.app_context():
         admin = create_admin_user()
