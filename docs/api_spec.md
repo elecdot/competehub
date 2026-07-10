@@ -117,10 +117,16 @@ Initial roles:
 - `student`
 - `admin`
 
-Administrator capabilities include `competition_editor` and
-`competition_reviewer`. They do not create new formal product roles. One account
-may hold both capabilities, but it cannot review a competition revision it
-submitted.
+Administrator capabilities include `competition_editor`,
+`competition_reviewer`, `competition_maintainer`, `recommendation_editor`, and
+`recommendation_reviewer`. They do not create new formal product roles. One
+account may hold multiple capabilities, but it cannot review a competition
+revision or recommendation rule-set version it submitted.
+
+`competition_maintainer` authorizes cancellation, expiry, archival, and
+emergency offline with a required reason and impact context. It does not
+authorize revision editing or approval, and restoring public availability still
+requires an independently reviewed corrected revision.
 
 Future candidate roles, not current formal product roles:
 
@@ -423,6 +429,10 @@ Time-node responses include their赛事阶段 identity, stage label and order, a
 `primary` or `secondary` prominence. Detail clients group nodes by stage and
 must not infer pairing or importance from free-text descriptions.
 
+Tags and fit/value fields belong to the selected public revision. Candidate
+revision tag changes do not appear in list, detail, outbound-link context, or
+recommendations before approval switches `published_revision_id`.
+
 `registration_status` is computed from current registration stages and nodes;
 it is not stored. Multiple rounds aggregate with `open` first, then `upcoming`,
 then `closed`, otherwise `unknown`. `not_applicable` requires an explicit admin
@@ -578,11 +588,14 @@ Request:
 }
 ```
 
-`reminder_enabled` is required. When true, `remind_days` is one integer from 0
-to 30 and `node_types` is a non-empty subset of controlled primary core node
-types present in the edition. P1 creates at most one ordinary reminder per time
-node. When false, the subscription remains valid for the follow list and
-calendar without reminder plans.
+`reminder_enabled`, `remind_days`, and `node_types` are all required regardless
+of reminder state. `remind_days` is one integer from 0 to 30 and `node_types` is
+a non-empty subset of controlled primary core node types present in the edition.
+The selected types define calendar projection as well as potential reminder
+plans. When reminders are enabled, P1 creates at most one ordinary reminder per
+selected time node. When disabled, the subscription retains the confirmed
+offset and node selection for the follow list and calendar but creates no
+reminder plans.
 
 The response includes the effective configuration, `scheduled_reminder_count`,
 `next_reminder_at`, and `unscheduled_reason` when no future plan is eligible.
@@ -740,17 +753,24 @@ detail navigation.
 Raw request items retain random request id, edition, position, mode, rule-set
 version, reason codes, actor kind, returned time, optional impressed time, and
 optional clicked time for 90 days. They do not store user id, account identity,
-profile fields, IP address, User-Agent, or a cross-request visitor id. Daily
-aggregates use `Asia/Shanghai` date and are labeled as recorded impressions,
-clicks, and best-effort click-through ratio rather than people, quality, or
-registration conversion.
+profile fields, IP address, User-Agent, or a cross-request visitor id.
+
+Daily aggregation writes item-level totals by `Asia/Shanghai` date, edition,
+position, mode, rule-set version, and actor kind, counting each request item
+once regardless of reason count. A separate reason-attribution aggregate uses
+the same dimensions plus one deduplicated `reason_code`; a multi-reason item can
+contribute to several attribution rows. Overall impressions, clicks, and ratio
+come only from item-level totals. Reason rows are never summed as totals and are
+labeled attribution rather than cause. Neither aggregate represents people,
+quality, or registration conversion.
 
 ## Admin APIs
 
 Admin APIs require `admin`.
 
 Competition create/update/submit operations require `competition_editor`;
-approve/reject/return operations require `competition_reviewer`.
+approve/reject/return operations require `competition_reviewer`; post-publication
+status maintenance requires `competition_maintainer`.
 
 ### `POST /admin/competitions`
 
@@ -845,9 +865,9 @@ competition to move to `offline`, `archived`, `cancelled`, or `expired`. Other
 transitions use the submit/review workflow or return `409 conflict`. A non-empty
 reason is required, and successful changes write status-specific audit evidence.
 
-Emergency `offline` is immediate for an authorized status maintainer. Returning
-an offline edition to `published` is not accepted through this endpoint; it
-requires approval of a corrected revision.
+Emergency `offline` is immediate for an administrator with
+`competition_maintainer`. Returning an offline edition to `published` is not
+accepted through this endpoint; it requires approval of a corrected revision.
 
 Request:
 
@@ -949,12 +969,18 @@ Initial metrics:
 - Seven-day and 30-day recorded outbound click counts.
 - Seven-day and 30-day recorded recommendation impression and click counts,
   plus their explicitly labeled best-effort ratio.
+- Seven-day and 30-day reason-attribution counts, explicitly non-additive and
+  separate from overall recommendation totals.
 
 P2 thin includes current published and pending-review counts, active favorite
 and subscription counts, message delivery state counts, outbound click daily
 counts, and recommendation recorded impression/click counts and ratio. It does
 not expose named-user drill-down, real-time streaming, BI export, or claims of
 unique people, recommendation quality, or registration conversion.
+
+Recommendation totals and ratio read only item-level daily totals. Optional
+reason breakdown reads the separate attribution aggregate; clients must not sum
+reason rows into an overall count.
 
 All review, audit, and statistics endpoints require `admin`; a student receives
 `403 forbidden`. Stable pagination and filters are part of the contract.

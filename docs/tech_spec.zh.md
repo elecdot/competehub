@@ -242,7 +242,7 @@ Pinia stores：
 - `competition_stages`：赛事届次中的有序阶段或轮次，用于分组和校验成对时间节点。
 - `competition_time_nodes`：报名截止、作品提交、比赛开始等关键节点。
 - `competition_tags`：参考标签和适配标签。
-- `competition_tag_links`：赛事与标签关系。
+- `competition_tag_links`：不可变赛事修订与受控标签关系；公开读取只解析当前 `published_revision_id` 的标签快照。
 - `outbound_click_events`：隐私最小化的外链原始点击事件，保留 90 天。
 - `outbound_click_daily_stats`：按上海产品日历日期和受控维度聚合的外链点击次数。
 - `favorites`：收藏记录。
@@ -255,33 +255,43 @@ Pinia stores：
 - `recommendation_rule_sets`：版本化推荐规则集及草稿、审核、激活和退役事实。
 - `recommendation_rules`：从属于一个规则集版本的受控规则、结构化条件、内部权重和理由模板。
 - `recommendation_request_items`：推荐响应中每个返回项及其可选曝光/点击时间的隐私最小化 90 天快照。
-- `recommendation_daily_stats`：按上海产品日历日期、规则版本、模式、位置、理由和赛事聚合的曝光/点击计数。
+- `recommendation_daily_stats`：按上海产品日历日期、规则版本、模式、位置、登录状态类别和赛事聚合的 item-level 曝光/点击总量，每个 request item 最多计一次。
+- `recommendation_reason_daily_stats`：在相同维度上增加理由代码的非加总归因计数；多理由 item 可进入多个理由行，理由行不得相加为总体。
 - `system_configs`：消息模板、权重等通用配置。
 
 ### 7.2 状态枚举
 
-赛事状态：
+赛事届次生命周期状态：
 
-- `draft`
-- `pending_review`
+- `unpublished`
 - `published`
-- `rejected`
 - `offline`
 - `archived`
 - `cancelled`
 - `expired`
 
+赛事修订状态：
+
+- `draft`
+- `pending_review`
+- `approved`
+- `rejected`
+- `returned`
+
 提醒状态：
 
 - `pending`
 - `sent`
-- `read`
 - `cancelled`
 - `failed`
 
-审核状态：
+消息阅读状态：
 
-- `pending`
+- `unread`
+- `read`
+
+审核决定状态：
+
 - `approved`
 - `rejected`
 - `returned`
@@ -327,7 +337,7 @@ Redis 不用于：
 
 每次推荐响应为返回项创建随机 request ID 下的 90 天服务端快照。前端实际渲染后批量尽力记录曝光，从推荐页导航详情时尽力记录点击；统计失败不影响展示或导航。事件 API 只接受 request ID、事件类型和赛事 ID，从服务端快照读取位置、模式、规则版本、理由代码和登录状态类别。曝光和点击分别按 request item 幂等，点击要求已有曝光。原始行不保存用户、账号、画像、IP、User-Agent 或跨 request 标识，也不用于自动个性化。
 
-周期任务按 `Asia/Shanghai` 日期、规则版本、模式、位置、理由代码、登录状态类别和赛事幂等聚合曝光/点击，并删除超过 90 天的原始行。管理端仅展示 best-effort 记录曝光、点击及其比值。若后续数据量增长，可预计算推荐结果，但版本和理由仍必须可追溯。
+周期任务在删除超过 90 天的原始行前写入两类幂等聚合：item-level 总量按 `Asia/Shanghai` 日期、规则版本、模式、位置、登录状态类别和赛事计数，每个 request item 最多一次；reason-level 归因在相同维度增加去重后的理由代码，一个多理由 item 可进入多个归因行。管理端总体曝光、点击及其 best-effort 比值只读取 item-level 总量，理由行明确标注为不可加总的归因而非因果。若后续数据量增长，可预计算推荐结果，但版本和理由仍必须可追溯。
 
 ### 8.4 外链点击统计
 
@@ -442,7 +452,7 @@ Redis 不用于：
 - `profile_status` 与 `missing_fields` 在读取时根据学院、专业、年级和至少一个兴趣标签动态计算，不在数据库保存完成布尔值。画像不完整不得阻断搜索、详情、收藏、订阅或提醒，只令推荐降级为带明确原因的通用可行动结果。
 - 未登录访客只能访问公开赛事列表和详情。
 - 管理员才能访问赛事录入、审核、配置、用户管理，以及审核、审计和统计治理证据；学生访问这些接口统一返回 `403`。
-- 赛事录入与赛事审核使用 `competition_editor` 和 `competition_reviewer` 管理员权限，不新增正式用户角色；当前修订的提交者不得审核该修订。
+- 赛事录入、赛事审核和发布后状态维护分别使用 `competition_editor`、`competition_reviewer` 和 `competition_maintainer` 管理员权限，不新增正式用户角色；当前修订的提交者不得审核该修订，维护权限不允许编辑、审核或直接恢复公开修订。
 - 推荐规则使用 `recommendation_editor` 和 `recommendation_reviewer` 管理员权限，不新增正式角色；候选规则集提交者不得审核该版本，激活必须原子退役旧版本。
 - 后端必须对每个后台接口做权限检查。
 

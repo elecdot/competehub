@@ -153,10 +153,11 @@ deferred.
   and reminders, while recommendation explicitly falls back to general mode.
 - FR-020: Favorite never creates reminder obligations. First subscription shows
   and requires confirmation of reminder enabled state, one 0-to-30-day offset,
-  and controlled primary core node types. Global defaults are enabled, three
-  days, and registration deadline, submission deadline, and competition start,
-  but they only prefill the choice. Reminder-disabled subscriptions remain in
-  follow lists and calendars.
+  and a non-empty set of controlled primary core node types regardless of
+  whether reminders are enabled. Global defaults are enabled, three days, and
+  registration deadline, submission deadline, and competition start, but they
+  only prefill the choice. Reminder-disabled subscriptions create no reminder
+  plans but retain the confirmed node selection for follow lists and calendars.
 - FR-021: Disabling global reminders cancels all pending plans without deleting
   subscriptions or calendar nodes; re-enabling reconciles future eligible plans
   only. P1 creates one ordinary reminder per selected node and never backfills a
@@ -186,7 +187,8 @@ deferred.
   services; Celery tasks call services instead of duplicating business rules.
 - Observability or audit: This P1 slice does not require audit logs for ordinary
   student actions, but reminder state should be inspectable enough to validate
-  pending, sent, read, cancelled, and failed behavior.
+  pending, sent, cancelled, and failed plan behavior, while message state is
+  separately inspectable as unread or read.
 - Retention: Read and unread messages remain available for 365 days. P1 does not
   support per-message deletion, and target unavailability does not erase the
   historical snapshot.
@@ -203,8 +205,9 @@ deferred.
   a real sender is configured.
 - Not included: teacher or organizer access to student follow-up state.
 - Not included: 关注赛事系列 or automatic cross-edition subscription renewal.
-- Not included: a polished full calendar component if a date-ordered subscribed
-  node list satisfies the first demo path.
+- Not included: external calendar synchronization, custom calendar-grid logic,
+  or calendar views beyond the required FullCalendar month, week, and list
+  capabilities.
 
 ## Acceptance Criteria
 

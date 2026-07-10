@@ -109,8 +109,9 @@ learning, public scoring, broad dashboards, and later M7 content extensions.
   counts, active favorites and subscriptions, message delivery states, and
   7-day/30-day outbound click and recommendation impression/click counts. Every
   metric includes a definition, `as_of`, time zone, window, and best-effort
-  caveat where applicable; it does not claim unique people, quality, or
-  registration conversion.
+  caveat where applicable. Recommendation totals and ratio count each request
+  item once; reason breakdown is separate non-additive attribution. Neither
+  claims unique people, causality, quality, or registration conversion.
 - FR-010: Frontend recommendation page consumes the recommendation API and
   renders loading, populated, empty, and error states with visible 推荐理由.
 - FR-011: The administrator governance home shows pending-task counts,
@@ -125,8 +126,9 @@ learning, public scoring, broad dashboards, and later M7 content extensions.
 - FR-014: Each recommendation response creates opaque 90-day request-item
   snapshots. Frontend rendering records idempotent impressions and detail
   navigation records idempotent non-blocking clicks only for returned items.
-  Raw rows omit user/device/profile identifiers and feed Shanghai-date daily
-  aggregates by rule version, mode, position, reason code, actor kind, and赛事.
+  Raw rows omit user/device/profile identifiers and feed two Shanghai-date
+  aggregates: item-level totals that count each request item once, and separate
+  non-additive reason attribution that counts each distinct displayed reason.
 
 ## Non-Functional Requirements
 
@@ -143,7 +145,8 @@ learning, public scoring, broad dashboards, and later M7 content extensions.
   analytics identifiers.
 - Analytics privacy: Recommendation events do not store user id, account
   identity, profile fields, IP, User-Agent, or cross-request identifiers and do
-  not automatically tune individual recommendations.
+  not automatically tune individual recommendations. Overall metrics come only
+  from item-level totals; reason attribution is explicitly non-additive.
 - Governance: Recommendation editing and review use
   `recommendation_editor`/`recommendation_reviewer` administrator capabilities.
   Submission, review, activation, retirement, version differences, and reasons
@@ -221,9 +224,10 @@ learning, public scoring, broad dashboards, and later M7 content extensions.
       once as impressions, the real opened item counts once as a click, and
       client attempts to forge position/rule/reason/item dimensions are denied.
 - [ ] Given recommendation raw request items cross 90 days, when aggregation and
-      retention run repeatedly, then raw rows expire, daily impression/click
-      counts remain idempotent, and the displayed ratio is labeled best-effort
-      rather than user count, quality, or conversion.
+      retention run repeatedly, then raw rows expire, item-level totals remain
+      idempotent and drive the displayed best-effort ratio, while multi-reason
+      attribution remains separately labeled and is never summed as overall
+      user count, quality, or conversion.
 - [ ] Given a non-admin user calls admin governance or config endpoints, when the
       API checks permissions, then access is denied.
 
@@ -237,8 +241,9 @@ learning, public scoring, broad dashboards, and later M7 content extensions.
   `competition_tag_links`, versioned `recommendation_rule_sets` and rules,
   `system_configs`,
   `review_records`, `audit_logs`, the discovery slice's
-  `outbound_click_daily_stats`, and privacy-minimized recommendation request-item
-  and daily aggregate tables. User-level tracking tables are not part of scope.
+  `outbound_click_daily_stats`, and privacy-minimized recommendation request-item,
+  item-total, and reason-attribution daily tables. User-level tracking tables
+  are not part of scope.
 - Frontend: Recommendation page plus the required governance home and Review,
   Audit, and Statistics tabs.
 - Backend: Recommendation, configuration, audit, review, and admin stats

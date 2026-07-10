@@ -17,8 +17,8 @@ ordinary typo creates unnecessary public downtime.
 Separate赛事届次 identity and lifecycle from numbered赛事届次修订 content.
 `competitions` retains edition identity, lifecycle status, and the selected
 `published_revision_id`. A revision contains source-backed display fields,
-stages, and time-node snapshots. Draft revisions are editable; submitted,
-approved, rejected, and returned snapshots are immutable.
+revision-scoped tag links, stages, and time-node snapshots. Draft revisions are
+editable; submitted, approved, rejected, and returned snapshots are immutable.
 
 After initial publication, an editor copies the public revision into a new
 draft. The current approved revision remains public while the replacement is
@@ -26,12 +26,12 @@ edited and reviewed. Independent approval atomically switches
 `published_revision_id`. Review UI shows field-level differences and side-effect
 impact before the decision. There is no self-review bypass for minor copy edits.
 
-An authorized status maintainer may immediately set an edition to `offline`
-with a required reason when current public content creates a serious safety,
-fraud, link-hijacking, or misinformation risk. This withdrawal is audited and
-does not require prior review. Restoration is never a direct status flip: a
-corrected revision must receive independent approval, which then selects it and
-returns the edition to `published`.
+An administrator with `competition_maintainer` may immediately set an edition
+to `offline` with a required reason when current public content creates a
+serious safety, fraud, link-hijacking, or misinformation risk. This withdrawal
+is audited and does not require prior review. Restoration is never a direct
+status flip: a corrected revision must receive independent approval, which then
+selects it and returns the edition to `published`.
 
 ## Consequences
 

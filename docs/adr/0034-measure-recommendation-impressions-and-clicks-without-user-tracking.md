@@ -36,17 +36,24 @@ but no account identity, profile fields, IP address, User-Agent, or identifier
 that links separate requests or days. Events do not automatically tune an
 individual's recommendations.
 
-Raw request items expire after 90 days. Before expiry, an idempotent job
-aggregates recorded impressions and clicks by `Asia/Shanghai` product date,
-rule-set version, mode, position, reason code, actor kind, and edition. Admin
-surfaces may derive recorded clicks divided by recorded impressions but must
-label it as a best-effort station interaction ratio, not unique users,
-recommendation quality, or registration conversion.
+Raw request items expire after 90 days. Before expiry, an idempotent job writes
+two aggregates. Item-level daily totals use `Asia/Shanghai` product date,
+rule-set version, mode, position, actor kind, and edition and count each request
+item once regardless of its number of reasons. Separate reason-attribution rows
+add one deduplicated row per displayed reason code. A multi-reason item may
+therefore contribute to several attribution rows, which are never summed to
+derive overall totals.
+
+Admin overall impressions, clicks, and recorded clicks divided by recorded
+impressions come only from item-level totals. Reason rows are labeled
+best-effort attribution, not causal effects. Both surfaces must avoid claims of
+unique users, recommendation quality, or registration conversion.
 
 ## Consequences
 
 P2 gains an interpretable recommendation interaction measure without a
 third-party analytics SDK or named-student tracking. Implementation adds raw
-request-item and daily aggregate tables, render/click calls, validation,
-retention, and statistics tests. A/B experiments, funnel attribution,
-user-level drill-down, and automated learning remain outside P2 thin.
+request-item, item-total, and reason-attribution daily tables, render/click
+calls, validation, retention, and statistics tests. A/B experiments, funnel
+attribution, user-level drill-down, and automated learning remain outside P2
+thin.

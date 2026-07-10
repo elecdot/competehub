@@ -151,9 +151,12 @@ platform features.
   `team`, or both. Major and grade适配范围 are each explicit `all`, `selected`,
   or `unknown`; `selected` requires a non-empty controlled-value list. Empty
   arrays do not mean both universal applicability and missing information.
-- FR-017: 赛事编辑权限 and赛事审核权限 are admin capabilities, not new formal
-  roles. An account may hold both, but a submitted revision cannot be reviewed
-  by its submitter. An editor may withdraw a still-pending submission to draft.
+- FR-017: 赛事编辑权限, 赛事审核权限, and赛事维护权限 are admin capabilities,
+  not new formal roles. An account may hold multiple capabilities, but a
+  submitted revision cannot be reviewed by its submitter. An editor may withdraw
+  a still-pending submission to draft. `competition_maintainer` authorizes
+  cancellation, expiry, archival, and emergency offline with required impact
+  context and reason, but not revision editing, approval, or direct restoration.
 - FR-018: 赛事届次 content is stored as numbered revisions. Published reads use
   the immutable `published_revision_id`; a later draft or pending revision is
   backend-only until independent approval atomically selects it. Submitted and

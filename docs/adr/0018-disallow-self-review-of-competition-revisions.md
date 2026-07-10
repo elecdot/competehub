@@ -14,11 +14,14 @@ to perform both duties on different records.
 
 ## Decision
 
-Keep `admin` as the formal product role and grant赛事编辑权限 and赛事审核权限 as
-administrator capabilities. One account may hold both capabilities, but the
-reviewer of a submitted revision must differ from that revision's submitter.
-Backend authorization enforces this separation from persisted revision and
-review facts.
+Keep `admin` as the formal product role and grant赛事编辑权限, 赛事审核权限, and
+赛事维护权限 as independent administrator capabilities. One account may hold
+multiple capabilities, but the reviewer of a submitted revision must differ
+from that revision's submitter. 赛事维护权限 authorizes cancellation, expiry,
+archival, and emergency offline with a reason; it does not authorize revision
+editing or approval, and restoration still requires an independently reviewed
+corrected revision. Backend authorization enforces these boundaries from
+persisted revision, review, and capability facts.
 
 An editor may withdraw an unreviewed submission back to an editable draft.
 Approve, reject, and return actions require another administrator account with
@@ -29,5 +32,7 @@ emergency override requires a separate decision and strong audit evidence.
 
 Review records need the target revision, submitter, and reviewer identity.
 Admin provisioning and Day 1 seed data need distinct editor and reviewer
-accounts even when each person has both capabilities for other work. Tests must
-reject self-review independently of frontend controls.
+accounts. The canonical editor also holds `recommendation_editor`; the canonical
+reviewer holds competition review and maintenance plus
+`recommendation_reviewer`, so P1/P2 acceptance remains executable with two
+admins. Tests must reject self-review independently of frontend controls.

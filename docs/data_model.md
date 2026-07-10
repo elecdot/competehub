@@ -30,7 +30,7 @@ CompetitionSeries
   |-- Competition (edition)
         |-- CompetitionRevision
         |     |-- CompetitionStage -- CompetitionTimeNode snapshot
-        |-- CompetitionTagLink -- CompetitionTag
+        |     |-- CompetitionTagLink -- CompetitionTag
         |-- Favorite
         |-- Subscription
         |-- Reminder
@@ -43,6 +43,7 @@ RecommendationRuleSet -- RecommendationRule
 SystemConfig
 OutboundClickDailyStat
 RecommendationDailyStat
+RecommendationReasonDailyStat
 ```
 
 ## Core Tables
@@ -58,6 +59,7 @@ Key fields:
 - `session_version`
 - `display_name`
 - `role`
+- `capabilities`
 - `status`
 - `created_at`
 - `updated_at`
@@ -65,6 +67,13 @@ Key fields:
 Constraints:
 
 - `role` must be one of the controlled role values.
+- Student capabilities are empty. Administrator capabilities are a controlled
+  set containing zero or more of `competition_editor`,
+  `competition_reviewer`, `competition_maintainer`, `recommendation_editor`,
+  and `recommendation_reviewer`; they are permissions within the `admin` role,
+  not additional formal roles.
+- `competition_maintainer` authorizes post-publication cancellation, expiry,
+  archival, and emergency offline but not revision editing or review.
 - `status` is `pending_activation`, `active`, or `disabled`.
 - Pending accounts cannot authenticate or create personal product state.
 - Disabled users cannot log in.
@@ -356,11 +365,22 @@ Common `tag_type` values:
 
 ### `competition_tag_links`
 
-Connects competitions and tags.
+Connects immutable competition revisions and controlled tags.
+
+Key fields:
+
+- `competition_revision_id`
+- `tag_id`
 
 Rules:
 
-- Tags shown to users must be traceable to this relation or competition fields.
+- `(competition_revision_id, tag_id)` is unique.
+- Public list, detail, recommendation, and outbound-link context resolve only
+  tag links belonging to the selected `published_revision_id`.
+- Editing tags on a draft or pending candidate cannot change current public
+  output; approval exposes the candidate's tag snapshot with the rest of the
+  revision.
+- Tags shown to users must be traceable to this relation or revision fields.
 - Future college-level tags must not override system-level facts.
 
 ### `outbound_click_events`
@@ -444,7 +464,37 @@ Rules:
 
 ### `recommendation_daily_stats`
 
-Stores durable `Asia/Shanghai` daily recorded impression and click aggregates.
+Stores durable item-level `Asia/Shanghai` daily recorded impression and click
+totals. Each request item contributes at most once to each event total,
+regardless of how many reasons it displays.
+
+Key fields:
+
+- `stat_date`
+- `competition_id`
+- `rule_set_version`: nullable for general mode
+- `recommendation_mode`
+- `position`
+- `actor_kind`
+- `impression_count`
+- `click_count`
+
+Rules:
+
+- Aggregation is idempotent for the dimension tuple and counts one request item
+  once; it never expands an item by `reason_codes`.
+- Click-through ratio is derived as recorded clicks divided by recorded
+  impressions. It is not an independent-user, recommendation-quality, or
+  registration-conversion measure.
+- Overall impression, click, and ratio metrics in `/admin/stats` come only from
+  this item-level table.
+
+### `recommendation_reason_daily_stats`
+
+Stores reason-level attribution for the same recorded recommendation events.
+One request item contributes at most once to each distinct reason code it
+displayed, so these rows explain which reasons accompanied interactions but are
+not additive item totals.
 
 Key fields:
 
@@ -455,15 +505,18 @@ Key fields:
 - `position`
 - `reason_code`
 - `actor_kind`
-- `impression_count`
-- `click_count`
+- `attributed_impression_count`
+- `attributed_click_count`
 
 Rules:
 
-- Aggregation is idempotent for the dimension tuple.
-- Click-through ratio is derived as recorded clicks divided by recorded
-  impressions. It is not an independent-user, recommendation-quality, or
-  registration-conversion measure.
+- The dimension tuple is unique and aggregation is idempotent after reason-code
+  deduplication within each request item.
+- A multi-reason item may increment multiple reason rows. Summing reason rows
+  does not produce overall impressions or clicks and must never be presented as
+  such.
+- Reason-level values are labeled attribution counts, not causal effects,
+  unique users, recommendation quality, or registration conversion.
 
 ### `favorites`
 
@@ -502,10 +555,12 @@ Rules:
 - Cancelling subscription should cancel future pending reminders.
 - Subscription can exist independently from favorite.
 - Favorite creation never creates a subscription or reminder plan.
-- `reminder_enabled` is an explicitly confirmed per-subscription choice. When
-  enabled, `remind_days` is one integer from 0 to 30 and `node_types` is a
-  non-empty controlled set; P1 has one ordinary plan per selected time node.
-- Reminder-disabled subscriptions remain in follow lists and calendars.
+- `reminder_enabled` is an explicitly confirmed per-subscription choice.
+  `remind_days` is always one integer from 0 to 30 and `node_types` is always a
+  non-empty controlled set, regardless of reminder state. When enabled, P1 has
+  one ordinary plan per selected time node; when disabled, no plan is created.
+- Reminder-disabled subscriptions retain their confirmed offset and node
+  selection and remain in follow lists and calendars.
 - Calendar projection reads active subscriptions only, never favorites, and
   includes selected nodes independently of reminder-plan state.
 - Calendar grouping uses `Asia/Shanghai`; current stage, prominence, and pair
@@ -844,20 +899,21 @@ Rules:
 - Rejected, returned, active, and retired versions are retained for audit and
   cannot be edited in place.
 
-### Review Status
+### Review Decision Status
 
 ```text
-pending -> approved
-pending -> rejected
-pending -> returned
-returned -> pending
+approved | rejected | returned
 ```
 
 Rules:
 
-- `approved` can publish or unlock the target object.
-- `rejected` keeps target non-public.
-- `returned` means the submitter can revise and resubmit.
+- Pending work belongs to the target revision or rule-set workflow state; it is
+  not an incomplete mutable review-decision row.
+- A review action appends one terminal immutable decision for the exact target
+  snapshot: `approved`, `rejected`, or `returned`.
+- `approved` can publish or activate the target object. `rejected` keeps the
+  target non-public or inactive. `returned` requires a successor draft and a
+  later independent decision rather than mutation of the earlier row.
 
 ## Data Ownership
 
@@ -870,11 +926,15 @@ Rules:
 
 Initial indexes should prioritize:
 
-- `competitions.status`
-- `competitions.title`
-- `competitions.short_title`
-- `competitions.category`
-- `competition_time_nodes.occurs_at`
+- `competitions.lifecycle_status`
+- `competitions.series_id`
+- `competitions.published_revision_id`
+- `competition_revisions.competition_id, revision_number`
+- `competition_revisions.revision_status`
+- `competition_revisions.title`
+- `competition_revisions.short_title`
+- `competition_revisions.category`
+- `competition_time_nodes.competition_revision_id, occurs_at`
 - `favorites.user_id`
 - `subscriptions.user_id`
 - `reminders.status`

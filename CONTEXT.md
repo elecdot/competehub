@@ -279,6 +279,13 @@ revision. A person may hold both editor and reviewer permissions but cannot
 review a revision they submitted.
 _Avoid_: 自审权限, 新用户角色
 
+**赛事维护权限**:
+An administrator capability to cancel, expire, archive, or urgently offline a
+published赛事届次 with required impact context and audit reason. It does not
+authorize editing or approving a revision, and restoration still requires an
+independently reviewed corrected revision.
+_Avoid_: 赛事编辑权限, 赛事审核权限, 直接恢复发布
+
 **辅助干系人**:
 Teachers, teaching secretaries, competition organizers, and student organizations whose needs inform the system without being current formal product roles.
 _Avoid_: 正式用户角色

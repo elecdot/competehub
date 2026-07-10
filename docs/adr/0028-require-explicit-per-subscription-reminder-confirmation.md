@@ -23,12 +23,15 @@ deadline, submission deadline, and competition start where those nodes exist.
 They are displayed defaults, not consent. The API requires the confirmed fields
 and does not infer them when omitted.
 
-Each subscription may enable or disable reminders independently. When enabled,
-P1 accepts one integer offset from 0 through 30 days and a non-empty controlled
-node-type set, creating at most one ordinary reminder per selected time node. A
-reminder-disabled subscription remains active in follow lists and the personal
-calendar. Subsequent subscription actions may prefill the saved defaults but
-must report the effective reminder configuration and offer undo or settings.
+Each subscription may enable or disable reminders independently. P1 always
+requires one integer offset from 0 through 30 days and a non-empty controlled
+node-type set, because the selected types define both potential reminder plans
+and calendar projection. When enabled, the subscription creates at most one
+ordinary reminder per selected time node. When disabled, it creates no reminder
+plans but retains the confirmed offset and node selection in follow lists and
+the personal calendar. Subsequent subscription actions may prefill the saved
+defaults but must report the effective reminder configuration and offer undo or
+settings.
 
 `reminder_settings` is the single source of truth for the global enabled state,
 default offset, and default node types; profile rows do not duplicate these
