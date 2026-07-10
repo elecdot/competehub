@@ -33,6 +33,8 @@ This directory contains product, technical, setup, and engineering convention do
 - `api_spec.md`: REST API contract, response envelope, auth boundaries, and endpoint plan.
 - `data_model.md`: Core data model, relationships, states, and migration rules.
 - `testing.md`: Test strategy, manual acceptance path, and non-functional validation model.
+- `demo/`: Demo runbooks, including Day 1 acceptance, canonical example seed,
+  and validation evidence format.
 - `tech_spec.zh.md`: Technical architecture and implementation design.
 - `CONVENTIONS.md`: Repository naming and path conventions.
 - `setup.md`: Contributor setup guide.

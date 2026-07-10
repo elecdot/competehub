@@ -95,6 +95,9 @@ nav:
   - Delivery:
       - Project Workflow: project_workflow.md
       - Testing Model: testing.md
+      - Demo Runbooks:
+          - Overview: demo/README.md
+          - Day 1 Acceptance: demo/day1-acceptance.md
       - Tooling: tooling.md
       - Conventions: CONVENTIONS.md
   - Agents:
