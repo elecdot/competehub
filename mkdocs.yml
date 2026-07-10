@@ -93,6 +93,29 @@ nav:
           - Staged Frontend Quality Gates: adr/0010-staged-frontend-quality-gates.md
           - PostgreSQL Search First: adr/0011-postgresql-search-first.md
           - UTC Instants and Shanghai Product Calendar: adr/0012-utc-instants-shanghai-calendar.md
+          - Competition Status Public Visibility: adr/0013-competition-status-public-visibility.md
+          - Separate Competition Series and Editions: adr/0014-separate-competition-series-and-editions.md
+          - Version Time Node Changes and Rebuild Reminders: adr/0015-version-time-node-changes-and-rebuild-reminders.md
+          - Time Nodes Are Single-Instant Milestones: adr/0016-time-nodes-are-single-instant-milestones.md
+          - Group Time Nodes into Stages and Prominence: adr/0017-group-time-nodes-into-stages-and-prominence.md
+          - Disallow Self-Review of Competition Revisions: adr/0018-disallow-self-review-of-competition-revisions.md
+          - Publish Immutable Competition Revisions: adr/0019-publish-immutable-competition-revisions.md
+          - Derive Registration Status from Current Stages: adr/0020-derive-registration-status-from-current-stages.md
+          - Default Public Discovery to Actionable Order: adr/0021-default-public-discovery-to-actionable-order.md
+          - Single-Institution Deployment Boundary: adr/0022-single-institution-deployment-boundary.md
+          - Model Typed User Identities: adr/0023-model-typed-user-identities.md
+          - Gate Public Registration on Real Verification Delivery: adr/0024-gate-public-registration-on-real-verification-delivery.md
+          - Use Length-First Passwords and Explicit Adaptive Hashing: adr/0025-use-length-first-passwords-and-explicit-adaptive-hashing.md
+          - Enforce Versioned Role-Specific Cookie Sessions: adr/0026-enforce-versioned-role-specific-cookie-sessions.md
+          - Derive Recommendation Readiness from Profile Facts: adr/0027-derive-recommendation-readiness-from-profile-facts.md
+          - Require Explicit Per-Subscription Reminder Confirmation: adr/0028-require-explicit-per-subscription-reminder-confirmation.md
+          - Keep Delivered Events in a Retained In-App Message Center: adr/0029-keep-delivered-events-in-a-retained-in-app-message-center.md
+          - Record Privacy-Minimized Non-Blocking Outbound Clicks: adr/0030-record-privacy-minimized-non-blocking-outbound-clicks.md
+          - Require a P1 Administrator Publication Workbench: adr/0031-require-a-p1-administrator-publication-workbench.md
+          - Provide Month Week and List Personal Calendar Views: adr/0032-provide-month-week-and-list-personal-calendar-views.md
+          - Activate Versioned Recommendation Rule Sets through Independent Review: adr/0033-activate-versioned-recommendation-rule-sets-through-independent-review.md
+          - Measure Recommendation Impressions and Clicks without User Tracking: adr/0034-measure-recommendation-impressions-and-clicks-without-user-tracking.md
+          - Require Complementary Review Audit and Statistics Evidence: adr/0035-require-complementary-review-audit-and-statistics-evidence.md
   - Delivery:
       - Project Workflow: project_workflow.md
       - Testing Model: testing.md

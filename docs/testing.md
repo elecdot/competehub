@@ -46,7 +46,7 @@ project conventions.
 | Integration tests | Admin creates and publishes a 赛事 record, student searches it, subscribes, reminders create messages and calendar nodes. | Start with focused service/API integration tests when the database fixtures exist. Use manual acceptance until the automated surface is ready. | Test command output or an acceptance-script run record. |
 | Frontend static checks | Vue routes, TypeScript types, build output, import correctness. | Keep `vue-tsc --noEmit` through `just web-lint`; keep production build through `just web-build`. | `just web-lint` and `just web-build`. |
 | Frontend component tests | Search filters, detail status display, subscription state, message read state. | Add Vitest or equivalent after the P1 UI stabilizes. Do not add the dependency in a docs-only slice. | Future component-test command and changed component names. |
-| E2E or manual acceptance | Course demo main workflow and cross-role handoff. | Use a scripted manual acceptance path first; add Playwright after the route/API contract stabilizes. | Acceptance script with date, actor, environment, result, and linked defects. |
+| E2E or manual acceptance | Course demo main workflow and cross-role handoff. | Add Playwright with the P1 publication workbench and calendar, covering distinct editor/reviewer publication to student visibility plus desktop/mobile calendar view switching, same-day nodes, and revision refresh. Extend it in P2 for recommendation and the Review, Audit, and Statistics governance tabs, including representative filters and student permission denial; use manual acceptance for exploratory checks. | Project Playwright command plus acceptance record with date, actor, environment, result, and linked defects. |
 | Documentation and workflow checks | MkDocs navigation, source-of-truth alignment, PR checklist completeness. | Use `just docs-build`; require issue/PR validation evidence before marking done. | `just docs-build` and PR checklist review. |
 
 ## TDD Usage
@@ -58,8 +58,9 @@ test surface exists:
   review publication, API validation, auth, and permissions should usually start
   with a failing test.
 - Bug fixes should reproduce the bug with a failing test when practical.
-- Frontend behavior should use static checks now, and component tests after the
-  component-test harness is intentionally introduced.
+- Frontend behavior uses static checks, targeted Playwright for the accepted P1
+  cross-role publication/calendar paths and P2 recommendation/governance paths,
+  and component tests after that harness is intentionally introduced.
 - Pure documentation, process, template, or exploratory changes use manual
   validation and `just docs-build` instead of test-first implementation.
 
@@ -82,6 +83,10 @@ risk.
 | Permission safety | Students cannot access admin APIs; users cannot read or mutate other users' profiles, subscriptions, reminders, or messages. | API tests for `401` and `403` cases; manual role-switch check before demos. |
 | Data consistency | Status changes affect list/detail/recommendation visibility; cancelling a subscription cancels future pending reminders and calendar nodes. | Service or API tests around state transitions and subscription changes. |
 | Idempotency and reliability | Reminder dispatch does not create duplicate messages when retried; failed reminder work can be retried without corrupting state. | Service tests for dispatch keys and repeated worker calls. |
+| Revision concurrency | One edition has at most one active draft/pending revision; approval locks and rejects a stale base without a terminal review decision. | Constraint/service/API tests for `active_revision_exists`, `stale_revision`, public-pointer stability, and server-owned node revisions. |
+| Workbench read model | Authorized admins can search/select series and editions, derive the pending queue, and load completeness, base/current-public diff, stale state, and impact. | API contract tests for filters, pagination, capability reads, immutable terminal review separation, and impact `as_of`. |
+| Lifecycle engagement | Historical-viewable editions accept favorite only; new/update subscription mutations require published state; owners can always delete existing relations. | Table-driven API tests across published, cancelled, archived, expired, offline, and unpublished states. |
+| Schedule-change messaging | Planning-semantic changes create at most one consolidated message per subscriber and approved revision; presentation-only changes refresh pending content without a message. | Service/API tests for occurrence, selected-node add/remove/type changes, description/prominence-only changes, and repeated handlers. |
 | Response-time smoke | With a documented local seed size, list/search/detail pages remain usable and do not exceed the PRD's 3-second target in ordinary local conditions. | Local smoke script or manual browser/API timing record with seed size and machine context. |
 | Usability | A teacher or student can complete the main workflow from script without hidden setup knowledge. | Manual acceptance script run by someone other than the implementer when possible. |
 | Maintainability | Repository checks stay aligned with CI; docs change with behavior and public contracts. | `just check` before broad merges, or relevant component checks plus `just docs-build` for focused slices. |
@@ -95,8 +100,8 @@ maintainable, and aligned with its current P1-P3 scope.
 Use this as the default manual acceptance path for the midterm release sprint:
 
 1. Student registers or logs in and maintains a basic profile.
-2. Admin logs in, creates a 赛事 record from a trusted source, and submits it for review.
-3. Admin reviewer approves and publishes the 赛事.
+2. Editor admin logs in, creates a 赛事 record from a trusted source, and submits it for review.
+3. A distinct reviewer admin inspects the revision diff and impact, then approves and publishes the 赛事; self-review remains blocked.
 4. Student searches and filters public 赛事, opens the detail page, and verifies
    source information and key time nodes.
 5. Student favorites and subscribes to the 赛事.
@@ -104,8 +109,9 @@ Use this as the default manual acceptance path for the midterm release sprint:
    reminder surface.
 7. Recommendation list shows published 赛事 with a traceable recommendation
    reason, not a public value score.
-8. Admin checks audit or review records for the publication and key state
-   changes.
+8. Admin uses the Review, Audit, and Statistics tabs to inspect immutable
+   decisions, key state-change events, and defined current/7-day/30-day metrics;
+   a student cannot access those surfaces.
 
 Record manual acceptance evidence with:
 
