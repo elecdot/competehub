@@ -110,8 +110,11 @@ learning, public scoring, broad dashboards, and later M7 content extensions.
   7-day/30-day outbound click and recommendation impression/click counts. Every
   metric includes a definition, `as_of`, time zone, window, and best-effort
   caveat where applicable. Recommendation totals and ratio count each request
-  item once; reason breakdown is separate non-additive attribution. Neither
-  claims unique people, causality, quality, or registration conversion.
+  item at most once per event type. Impressions use the Shanghai date of
+  `impressed_at`, clicks use the date of `clicked_at`, and the window ratio is
+  an event-period interaction ratio rather than an impression cohort. Reason
+  breakdown is separate non-additive attribution. Neither claims unique people,
+  causality, quality, or registration conversion.
 - FR-010: Frontend recommendation page consumes the recommendation API and
   renders loading, populated, empty, and error states with visible 推荐理由.
 - FR-011: The administrator governance home shows pending-task counts,
@@ -127,8 +130,11 @@ learning, public scoring, broad dashboards, and later M7 content extensions.
   snapshots. Frontend rendering records idempotent impressions and detail
   navigation records idempotent non-blocking clicks only for returned items.
   Raw rows omit user/device/profile identifiers and feed two Shanghai-date
-  aggregates: item-level totals that count each request item once, and separate
-  non-additive reason attribution that counts each distinct displayed reason.
+  aggregates: item-level totals that count each request item once per event
+  type, and separate non-additive reason attribution that counts each distinct
+  displayed reason.
+  Each event uses its own occurrence date, so one item may contribute an
+  impression and click on different aggregate dates.
 
 ## Non-Functional Requirements
 
@@ -228,6 +234,10 @@ learning, public scoring, broad dashboards, and later M7 content extensions.
       idempotent and drive the displayed best-effort ratio, while multi-reason
       attribution remains separately labeled and is never summed as overall
       user count, quality, or conversion.
+- [ ] Given an item is impressed before Shanghai midnight and clicked after it,
+      when daily aggregation runs, then the impression and click enter their
+      respective event dates and the 7/30-day ratio is labeled as event-period
+      interaction rather than cohort conversion.
 - [ ] Given a non-admin user calls admin governance or config endpoints, when the
       API checks permissions, then access is denied.
 

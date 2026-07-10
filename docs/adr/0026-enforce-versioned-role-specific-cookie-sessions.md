@@ -27,12 +27,13 @@ minutes idle or eight hours absolute. Activity refreshes only the idle timestamp
 and cannot extend the absolute deadline. P1 has no user-selectable remember-me
 mode.
 
-Disabling an account, confirming credential compromise, or explicitly
-terminating all sessions atomically increments `session_version`. All existing
-devices are rejected on their next request, the presented session is cleared,
-and the API returns a generic `401` before executing route behavior. Ordinary
-logout clears only the current browser. P1 permits concurrent sessions and does
-not add a device-session registry or per-device revocation UI.
+Changing an account's role or capabilities, disabling it, confirming credential
+compromise, or explicitly terminating all sessions atomically increments
+`session_version`. All existing devices are rejected on their next request, the
+presented session is cleared, and the API returns a generic `401` before
+executing route behavior. Ordinary logout clears only the current browser. P1
+permits concurrent sessions and does not add a device-session registry or
+per-device revocation UI.
 
 ## Consequences
 

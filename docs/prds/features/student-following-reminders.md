@@ -122,10 +122,12 @@ deferred.
 - FR-013: 收藏, 订阅, reminders, and calendar nodes belong to one赛事届次. A new届次
   in the same赛事系列 does not inherit engagement state. A future关注赛事系列 action
   is separate and cannot create a届次订阅 automatically.
-- FR-014: A赛事时间节点 correction preserves node identity and creates an
-  auditable revision. Pending reminders for the prior revision are cancelled as
-  superseded, future plans are rebuilt, sent reminders remain immutable, and
-  active subscribers receive at most one赛事时间变更通知 for the new revision.
+- FR-014: A赛事时间节点 correction preserves its edition-scoped logical key and
+  creates a new immutable snapshot with an incremented node revision only when
+  behavior-bearing node facts change. Pending reminders retain an FK to the
+  exact prior snapshot and are cancelled as superseded, future plans are
+  rebuilt from the new snapshot, sent reminders remain immutable, and active
+  subscribers receive at most one赛事时间变更通知 for the new revision.
 - FR-015: Calendar results retain赛事阶段 and时间节点重点级别 metadata. All node
   types selected by the subscription remain visible, while primary nodes receive
   stronger display treatment without changing reminder consent.
@@ -143,9 +145,9 @@ deferred.
 - FR-018: Every protected request requires an active account and matching
   session version. Student sessions expire after 24 hours idle or seven days
   absolute; administrator sessions expire after 30 minutes idle or eight hours
-  absolute. Disabling an account or terminating all sessions invalidates every
-  device on its next request, while ordinary logout affects only the current
-  browser.
+  absolute. Changing an account's role or capabilities, disabling it, or
+  terminating all sessions invalidates every device on its next request, while
+  ordinary logout affects only the current browser.
 - FR-019: Student profile readiness is derived as `recommendation_ready` only
   when controlled college, major, grade, and 1 to 10 interest tags are valid,
   including the college-major relationship. Other profile fields are optional.
@@ -174,6 +176,15 @@ deferred.
   reminder-disabled subscriptions do. Views preserve Shanghai date grouping,
   stage/pair metadata, primary prominence, same-day access, current revisions,
   and unavailable-target state.
+- FR-024: Every actual reminder delivery attempt increments an attempt count.
+  Transient failures record a controlled error and next-attempt time, then move
+  through `failed -> pending` before retry; permanent or exhausted failures
+  remain `failed` and are not selected by ordinary pending dispatch.
+- FR-025: Archival or expiry is accepted only after all edition nodes have
+  elapsed. Existing subscriptions remain historical follow relations and past
+  selected nodes remain queryable in calendar ranges; stale pending reminders
+  are cancelled, no new plan is eligible, and no archival/expiry message is
+  created.
 
 ## Non-Functional Requirements
 
@@ -273,6 +284,10 @@ deferred.
       triggers are not delivered immediately.
 - [ ] Given due reminders exist, when reminder dispatch runs more than once,
       then the student receives no duplicate message for the same reminder.
+- [ ] Given reminder delivery fails transiently, when its retry time arrives,
+      then the retry scheduler moves it from failed to pending before another
+      idempotent dispatch; permanent or exhausted failures remain inspectable
+      without being selected again.
 - [ ] Given retained read and unread messages exist, when the student opens the
       global unread badge and message center, then all/unread and controlled-type
       filters, stable pagination, one-message read, and read-all update the

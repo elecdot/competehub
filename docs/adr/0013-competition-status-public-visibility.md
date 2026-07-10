@@ -23,6 +23,12 @@ withdrawn from both discovery and public detail. Draft, pending-review, and
 rejected records have never entered public visibility and also have no public
 detail.
 
+Archival and expiry are routine historical transitions, permitted only after
+the current public revision has no future node. They retain historical
+subscriptions and past calendar nodes, cancel only stale pending plans, and do
+not create a subscriber message. A future schedule that must stop uses
+cancellation or emergency offline instead.
+
 ## Consequences
 
 Public list eligibility and public detail eligibility are separate policies.
@@ -30,4 +36,5 @@ The detail API and frontend must support historical-viewable statuses, while
 default list and recommendation queries remain published-only. Tests and demo
 acceptance must distinguish a cancelled or expired historical detail from an
 offline or never-published `404`. Historical list filters can be added later
-without changing this status boundary.
+without changing this status boundary. Status maintenance must reject
+archival/expiry while any future node remains.

@@ -37,17 +37,18 @@ that links separate requests or days. Events do not automatically tune an
 individual's recommendations.
 
 Raw request items expire after 90 days. Before expiry, an idempotent job writes
-two aggregates. Item-level daily totals use `Asia/Shanghai` product date,
-rule-set version, mode, position, actor kind, and edition and count each request
-item once regardless of its number of reasons. Separate reason-attribution rows
-add one deduplicated row per displayed reason code. A multi-reason item may
-therefore contribute to several attribution rows, which are never summed to
-derive overall totals.
+two aggregates. An impression uses the `Asia/Shanghai` date of `impressed_at`
+and a click uses the date of `clicked_at`, so one item may contribute events on
+different dates. Item-level totals also use rule-set version, mode, position,
+actor kind, and edition and count each request item once per event type.
+Separate reason-attribution rows add one deduplicated row per displayed reason
+code and are never summed to derive overall totals.
 
-Admin overall impressions, clicks, and recorded clicks divided by recorded
-impressions come only from item-level totals. Reason rows are labeled
-best-effort attribution, not causal effects. Both surfaces must avoid claims of
-unique users, recommendation quality, or registration conversion.
+Admin overall impressions, clicks, and event-period recorded clicks divided by
+recorded impressions come only from item-level totals. This ratio is not an
+impression-date cohort conversion. Reason rows are labeled best-effort
+attribution, not causal effects. Both surfaces must avoid claims of unique
+users, recommendation quality, or registration conversion.
 
 ## Consequences
 

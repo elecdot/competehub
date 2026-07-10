@@ -86,7 +86,8 @@ A milestone in a赛事届次 lifecycle with one semantic type and exactly one
 `occurs_at` instant, such as registration opening, 报名截止日期, submission
 deadline, competition start, review, or result announcement. A source period is
 represented by separate start and end milestones rather than one node carrying
-two times.
+two times. The same milestone keeps one logical identity across corrected
+赛事届次修订 while each approved correction creates a new immutable snapshot.
 _Avoid_: 赛事日期, 时间段节点, 同时包含开始与截止的节点
 
 **赛事阶段**:
@@ -285,6 +286,12 @@ published赛事届次 with required impact context and audit reason. It does not
 authorize editing or approving a revision, and restoration still requires an
 independently reviewed corrected revision.
 _Avoid_: 赛事编辑权限, 赛事审核权限, 直接恢复发布
+
+**用户治理权限**:
+An administrator capability to list governed accounts and change another
+account's role, status, or controlled capabilities. It cannot target its own
+holder, and the system always retains at least one active holder.
+_Avoid_: 普通管理员权限, 自我授权, 唯一管理员锁死
 
 **辅助干系人**:
 Teachers, teaching secretaries, competition organizers, and student organizations whose needs inform the system without being current formal product roles.

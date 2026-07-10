@@ -240,7 +240,9 @@ Pinia stores：
 - `competitions`：一次具体赛事届次的身份、生命周期状态和当前公开修订指针。
 - `competition_revisions`：赛事届次的编号内容版本；已提交和已审核快照不可变。
 - `competition_stages`：赛事届次中的有序阶段或轮次，用于分组和校验成对时间节点。
-- `competition_time_nodes`：报名截止、作品提交、比赛开始等关键节点。
+- `competition_time_nodes`：报名截止、作品提交、比赛开始等不可变节点快照；
+  snapshot ID 精确引用一个赛事修订中的行，届次内稳定的
+  `logical_node_key` 用于跨修订对齐，`node_revision` 随审核通过的改期递增。
 - `competition_tags`：参考标签和适配标签。
 - `competition_tag_links`：不可变赛事修订与受控标签关系；公开读取只解析当前 `published_revision_id` 的标签快照。
 - `outbound_click_events`：隐私最小化的外链原始点击事件，保留 90 天。
@@ -255,7 +257,7 @@ Pinia stores：
 - `recommendation_rule_sets`：版本化推荐规则集及草稿、审核、激活和退役事实。
 - `recommendation_rules`：从属于一个规则集版本的受控规则、结构化条件、内部权重和理由模板。
 - `recommendation_request_items`：推荐响应中每个返回项及其可选曝光/点击时间的隐私最小化 90 天快照。
-- `recommendation_daily_stats`：按上海产品日历日期、规则版本、模式、位置、登录状态类别和赛事聚合的 item-level 曝光/点击总量，每个 request item 最多计一次。
+- `recommendation_daily_stats`：按事件发生的上海产品日历日期、规则版本、模式、位置、登录状态类别和赛事聚合的 item-level 曝光/点击总量，每个 request item 对每类事件最多计一次。
 - `recommendation_reason_daily_stats`：在相同维度上增加理由代码的非加总归因计数；多理由 item 可进入多个理由行，理由行不得相加为总体。
 - `system_configs`：消息模板、权重等通用配置。
 
@@ -319,11 +321,11 @@ Redis 不用于：
 站内提醒以数据库为事实来源：
 
 1. 用户订阅赛事后，API 根据赛事时间节点和提醒配置生成 `reminders`。
-2. Celery beat 周期扫描 `status = pending` 且 `due_at <= now` 的提醒。
+2. Celery beat 周期扫描 `status = pending` 且 `due_at <= now` 的提醒；独立重试任务把已到 `next_attempt_at` 的可重试 `failed` 记录先转回 `pending`。
 3. Worker 幂等创建 `messages`。
-4. 成功后将提醒状态更新为 `sent`。
-5. 赛事取消、下架或节点删除时，service 取消未发送提醒。
-6. 同届节点改期时保留节点 ID 并产生新修订，取消旧修订的未发送提醒、重建仍在未来的提醒；已发送提醒不可变。
+4. 成功后将提醒状态更新为 `sent`；每次实际投递递增 `attempt_count`。瞬时失败写入受控 `last_error_code`、`failed_at` 和下一次重试时间，永久失败或耗尽重试后保持 `failed` 且不再安排时间。
+5. 赛事取消、下架或节点删除时，service 取消未发送提醒。归档/过期仅在不存在未来节点时允许，并在状态事务中取消任何异常残留的未发送提醒；它们保留历史订阅和过去日历节点，不产生消息。
+6. 同届节点改期时保留 `logical_node_key`、创建新的不可变 snapshot ID 并递增 `node_revision`；提醒以原 snapshot ID 外键保留精确依据，取消旧修订的未发送提醒并重建仍在未来的提醒，已发送提醒不可变。
 7. 已发布届次改期后，service 按“订阅者 + 节点修订”幂等生成一次赛事时间变更通知；已过去的普通触发时间不补发伪准时提醒。
 8. 首次订阅请求必须显式携带 `reminder_enabled`；开启时同时携带 `0–30` 的单一提前天数和非空受控节点类型。全局默认只用于前端确认面板预填，后端不得在字段缺失时推断同意。
 9. 关闭单项提醒只取消该订阅的未发送计划，关闭全局提醒取消用户全部未发送计划；两者均保留订阅和日历节点。重新开启时只重建未来有效计划。
@@ -337,7 +339,7 @@ Redis 不用于：
 
 每次推荐响应为返回项创建随机 request ID 下的 90 天服务端快照。前端实际渲染后批量尽力记录曝光，从推荐页导航详情时尽力记录点击；统计失败不影响展示或导航。事件 API 只接受 request ID、事件类型和赛事 ID，从服务端快照读取位置、模式、规则版本、理由代码和登录状态类别。曝光和点击分别按 request item 幂等，点击要求已有曝光。原始行不保存用户、账号、画像、IP、User-Agent 或跨 request 标识，也不用于自动个性化。
 
-周期任务在删除超过 90 天的原始行前写入两类幂等聚合：item-level 总量按 `Asia/Shanghai` 日期、规则版本、模式、位置、登录状态类别和赛事计数，每个 request item 最多一次；reason-level 归因在相同维度增加去重后的理由代码，一个多理由 item 可进入多个归因行。管理端总体曝光、点击及其 best-effort 比值只读取 item-level 总量，理由行明确标注为不可加总的归因而非因果。若后续数据量增长，可预计算推荐结果，但版本和理由仍必须可追溯。
+周期任务在删除超过 90 天的原始行前写入两类幂等聚合：曝光使用 `impressed_at` 的 `Asia/Shanghai` 日期，点击使用 `clicked_at` 的日期，因此同一 request item 可在不同日期贡献两类事件。item-level 总量按事件日期、规则版本、模式、位置、登录状态类别和赛事计数，每个 request item 对每类事件最多一次；reason-level 归因在相同维度增加去重后的理由代码，一个多理由 item 可进入多个归因行。管理端 7/30 日总体曝光、点击及比值只读取 item-level 总量；该比值是窗口内点击事件除以窗口内曝光事件的 event-period interaction ratio，不是按曝光日期分 cohort 的转化率。理由行明确标注为不可加总的归因而非因果。若后续数据量增长，可预计算推荐结果，但版本和理由仍必须可追溯。
 
 ### 8.4 外链点击统计
 
@@ -443,7 +445,7 @@ Redis 不用于：
 - 登录失败按规范化类型化标识键和请求来源渐进限速，所有账号状态使用一致失败响应；不得因远程失败永久锁定账号。
 - Cookie session 只保存 `user_id`、`session_version`、`issued_at` 和 `last_activity_at`；登录前清理旧 session，所有受保护请求统一经过认证守卫并从数据库重读账号状态和版本。
 - 学生 session 的空闲/绝对超时为 24 小时/7 天，管理员为 30 分钟/8 小时；活动只能延后空闲截止，不能延后绝对截止。服务端在路由执行前校验，失效后清除 Cookie 并返回统一 `401`。
-- 禁用账号、确认凭据泄露或终止全部会话时原子递增 `users.session_version`；既有设备下一请求即失效。普通退出只清理当前浏览器，P1 允许多设备并发且不建设设备会话列表或“记住我”选项。
+- 修改账号角色或 capability、禁用账号、确认凭据泄露或终止全部会话时原子递增 `users.session_version`；既有设备下一请求即失效。普通退出只清理当前浏览器，P1 允许多设备并发且不建设设备会话列表或“记住我”选项。
 - Cookie 应设置 `HttpOnly`、`SameSite=Lax`，生产环境设置 `Secure`。
 - 所有修改接口必须使用 POST、PATCH 或 DELETE，不能用 GET 修改状态。
 - 后台写操作应检查 `Origin` 或 `Referer`；若后续写操作范围扩大，可引入 CSRF token。
@@ -452,6 +454,7 @@ Redis 不用于：
 - `profile_status` 与 `missing_fields` 在读取时根据学院、专业、年级和至少一个兴趣标签动态计算，不在数据库保存完成布尔值。画像不完整不得阻断搜索、详情、收藏、订阅或提醒，只令推荐降级为带明确原因的通用可行动结果。
 - 未登录访客只能访问公开赛事列表和详情。
 - 管理员才能访问赛事录入、审核、配置、用户管理，以及审核、审计和统计治理证据；学生访问这些接口统一返回 `403`。
+- 用户列表及角色、状态、capability 变更要求 `user_administrator`；禁止自我变更，并以事务约束保留至少一个 active 用户治理管理员。成功变更目标账号时递增其 `session_version`，记录原因和受控新旧值。
 - 赛事录入、赛事审核和发布后状态维护分别使用 `competition_editor`、`competition_reviewer` 和 `competition_maintainer` 管理员权限，不新增正式用户角色；当前修订的提交者不得审核该修订，维护权限不允许编辑、审核或直接恢复公开修订。
 - 推荐规则使用 `recommendation_editor` 和 `recommendation_reviewer` 管理员权限，不新增正式角色；候选规则集提交者不得审核该版本，激活必须原子退役旧版本。
 - 后端必须对每个后台接口做权限检查。
@@ -462,7 +465,7 @@ Redis 不用于：
 
 - 赛事创建、修改、提交审核、审核、下架、归档、取消。
 - 基础配置修改。
-- 用户角色或账号状态修改。
+- 用户角色、账号状态或 capability 修改。
 - 内容审核和认证审核。
 
 审核决定和审计事件写入后不可通过产品接口更新或删除。审计详情按动作使用字段白名单，不得包含密码、验证码、session、完整账号标识、用户画像内容或原始分析标识。治理统计只读并带口径、数据截至时间和时区，不提供用户级钻取。

@@ -104,9 +104,9 @@ Administrator sessions have a 30-minute idle timeout and an eight-hour absolute
 timeout. Authenticated activity refreshes only the idle timestamp and never the
 absolute deadline. P1 allows concurrent sessions and has no user-selectable
 remember-me mode. Logout clears only the current browser; disabling an account,
-confirming credential compromise, or explicitly terminating all sessions
-increments the account version and invalidates every device on its next
-request.
+changing its role or capabilities, confirming credential compromise, or
+explicitly terminating all sessions increments the account version and
+invalidates every device on its next request.
 
 P1 assumes one configured部署高校 per deployment. `student_no` and `college`
 are interpreted in that boundary; the API does not accept a user-selected tenant
@@ -119,9 +119,9 @@ Initial roles:
 
 Administrator capabilities include `competition_editor`,
 `competition_reviewer`, `competition_maintainer`, `recommendation_editor`, and
-`recommendation_reviewer`. They do not create new formal product roles. One
-account may hold multiple capabilities, but it cannot review a competition
-revision or recommendation rule-set version it submitted.
+`recommendation_reviewer`, and `user_administrator`. They do not create new
+formal product roles. One account may hold multiple capabilities, but it cannot
+review a competition revision or recommendation rule-set version it submitted.
 
 `competition_maintainer` authorizes cancellation, expiry, archival, and
 emergency offline with a required reason and impact context. It does not
@@ -365,7 +365,9 @@ Response item:
   "registration_status": "open",
   "registration_status_basis": {
     "stage_id": 7,
-    "node_id": 11
+    "node_snapshot_id": 11,
+    "logical_node_key": "registration-main-deadline",
+    "node_revision": 1
   },
   "source_name": "示例高校竞赛通知",
   "source_url": "https://example.edu/notices/innovation",
@@ -378,7 +380,9 @@ Response item:
   "grade_scope": "selected",
   "value_notes": "校级推荐，适合有项目实践基础的学生",
   "next_node": {
-    "id": 11,
+    "snapshot_id": 11,
+    "logical_node_key": "registration-main-deadline",
+    "node_revision": 1,
     "node_type": "registration_deadline",
     "occurs_at": "2026-12-15T16:00:00Z",
     "description": "报名截止"
@@ -428,6 +432,15 @@ default deadline filters and reminders. Unknown node-type strings are rejected.
 Time-node responses include their赛事阶段 identity, stage label and order, and
 `primary` or `secondary` prominence. Detail clients group nodes by stage and
 must not infer pairing or importance from free-text descriptions.
+
+`snapshot_id` identifies one immutable time-node row in the selected
+competition revision. `logical_node_key` is the stable opaque identity for the
+same milestone across revisions of one赛事届次, and `node_revision` increases as
+approved behavior-bearing node facts for that key change. A node copied
+unchanged into a new competition revision has a new snapshot id but keeps its
+node revision. Clients use the snapshot id for exact response references and
+the logical key for cross-revision reconciliation; they must not treat either
+value as globally meaningful outside the edition.
 
 Tags and fit/value fields belong to the selected public revision. Candidate
 revision tag changes do not appear in list, detail, outbound-link context, or
@@ -482,13 +495,17 @@ Response data extends the list item with detail fields:
   "tags": ["校级推荐", "适合低年级"],
   "value_notes": "校级推荐，适合有项目实践基础的学生",
   "next_node": {
-    "id": 11,
+    "snapshot_id": 11,
+    "logical_node_key": "registration-main-deadline",
+    "node_revision": 1,
     "node_type": "registration_deadline",
     "occurs_at": "2026-12-15T16:00:00Z"
   },
   "time_nodes": [
     {
-      "id": 11,
+      "snapshot_id": 11,
+      "logical_node_key": "registration-main-deadline",
+      "node_revision": 1,
       "stage_id": 7,
       "stage_label": "报名阶段",
       "stage_order": 1,
@@ -631,14 +648,20 @@ Query parameters:
 `from` and `to` are `Asia/Shanghai` product-calendar dates. All views resolve
 the same underlying nodes; `view` selects range/grouping metadata rather than a
 different source of truth. Items include edition and stage identifiers, stage
-label/order, node id/type/description, `occurs_at`, `prominence`, pair metadata,
-current-stage state, current lifecycle visibility, and a target-availability
-flag.
+label/order, node snapshot id/logical key/revision/type/description,
+`occurs_at`, `prominence`, pair metadata, current-stage state, current lifecycle
+visibility, and a target-availability flag.
+
+Archived or expired editions retain past selected nodes when they fall inside
+the requested range, with their historical lifecycle status. Their transition
+is permitted only after every node has elapsed, so they cannot contribute a
+future calendar item. Existing subscriptions remain historical relations;
+creating a new subscription requires a currently published edition.
 
 The API returns every node type selected by the subscription, not only nodes
 with pending reminders. Cancellation or emergency offline excludes future
 nodes. A target that became unavailable has no detail URL. Same-day items use
-stable stage order, node occurrence, prominence, and node id ordering.
+stable stage order, node occurrence, prominence, and node snapshot id ordering.
 
 Requires `student`.
 
@@ -715,6 +738,8 @@ Response item:
 
 ```json
 {
+  "position": 1,
+  "reason_codes": ["major_match", "deadline_soon"],
   "competition": {
     "id": 1,
     "title": "大学生创新创业竞赛"
@@ -763,6 +788,13 @@ contribute to several attribution rows. Overall impressions, clicks, and ratio
 come only from item-level totals. Reason rows are never summed as totals and are
 labeled attribution rather than cause. Neither aggregate represents people,
 quality, or registration conversion.
+
+Daily dates follow event time. An impression contributes to the
+`Asia/Shanghai` date of `impressed_at`, while a click contributes to the date of
+`clicked_at`; one request item may therefore affect different daily rows. The
+7-day and 30-day displayed ratio divides click events in the selected period by
+impression events in that period. It is labeled an event-period interaction
+ratio, not an impression-cohort conversion.
 
 ## Admin APIs
 
@@ -865,6 +897,14 @@ competition to move to `offline`, `archived`, `cancelled`, or `expired`. Other
 transitions use the submit/review workflow or return `409 conflict`. A non-empty
 reason is required, and successful changes write status-specific audit evidence.
 
+`archived` and `expired` require the current public revision to contain no
+future time node. If any `occurs_at` is later than the decision instant, the API
+returns `409 conflict` with the blocking node facts. A successful transition
+retains favorites and subscriptions as historical relations and past calendar
+nodes, cancels any stale pending reminders with a status-specific reason, and
+creates no message. Cancellation or emergency offline remains the path when a
+future schedule must stop and subscribers need a durable event message.
+
 Emergency `offline` is immediate for an administrator with
 `competition_maintainer`. Returning an offline edition to `published` is not
 accepted through this endpoint; it requires approval of a corrected revision.
@@ -880,11 +920,38 @@ Request:
 
 ### `GET /admin/users`
 
-List users.
+List users for account governance. Requires `user_administrator`.
 
 ### `PATCH /admin/users/{id}`
 
-Update user role or account status.
+Update another user's role, account status, or complete controlled capability
+set. Requires `user_administrator`; a user administrator cannot target their own
+account through this endpoint.
+
+Request:
+
+```json
+{
+  "role": "admin",
+  "status": "active",
+  "capabilities": ["competition_editor"],
+  "reason": "Assign competition content maintenance"
+}
+```
+
+At least one of `role`, `status`, or `capabilities` is required, together with a
+non-empty reason. Student accounts must have an empty capability set; admin
+capabilities come only from the controlled list. Every successful role, status,
+or capability change atomically increments the target's `session_version`, so
+existing sessions re-authorize on their next request.
+
+The service rejects with `409 conflict` any change that would leave no active
+admin holding `user_administrator`, including disabling or demoting that last
+account or removing its capability. Successful changes write an audit event
+with target id, reason, and allowlisted old/new role, status, and capability
+codes; passwords, sessions, and full account identifiers are excluded.
+Self-targeting returns `403 forbidden`; unknown roles, statuses, or capabilities
+return the standard validation error without changing the target.
 
 ### `GET /admin/configs`
 
@@ -990,11 +1057,19 @@ All review, audit, and statistics endpoints require `admin`; a student receives
 Internal Celery task names:
 
 - `competehub.reminders.dispatch_due`
+- `competehub.reminders.requeue_failed`
 
 Task behavior:
 
 - Query due `pending` reminders.
 - Create messages idempotently.
-- Mark reminders as `sent`, `cancelled`, or `failed`.
+- Mark successful reminders as `sent` and ineligible reminders as `cancelled`.
+- On every attempted delivery, increment `attempt_count`. A transient failure
+  sets `failed`, a sanitized controlled `last_error_code`, `failed_at`, and
+  `next_attempt_at` from bounded retry configuration; permanent or exhausted
+  failures set `next_attempt_at` to `null`.
+- `requeue_failed` selects due retryable `failed` rows and moves them back to
+  `pending` while clearing `next_attempt_at`; `dispatch_due` never sends
+  directly from `failed`.
 
 These are not public HTTP APIs.

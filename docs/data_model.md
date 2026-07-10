@@ -70,13 +70,20 @@ Constraints:
 - Student capabilities are empty. Administrator capabilities are a controlled
   set containing zero or more of `competition_editor`,
   `competition_reviewer`, `competition_maintainer`, `recommendation_editor`,
-  and `recommendation_reviewer`; they are permissions within the `admin` role,
-  not additional formal roles.
+  `recommendation_reviewer`, and `user_administrator`; they are permissions
+  within the `admin` role, not additional formal roles.
 - `competition_maintainer` authorizes post-publication cancellation, expiry,
   archival, and emergency offline but not revision editing or review.
+- `user_administrator` authorizes listing governed accounts and changing
+  another account's role, status, or controlled capabilities. Self-targeting is
+  rejected, and a transaction cannot remove, disable, or demote the last active
+  holder of this capability.
 - `status` is `pending_activation`, `active`, or `disabled`.
 - Pending accounts cannot authenticate or create personal product state.
 - Disabled users cannot log in.
+- A role, status, or capability change increments `session_version` in the same
+  transaction and writes allowlisted old/new codes plus a non-empty reason to
+  the audit log.
 - `password_hash` contains an adaptive hash with its algorithm and explicit work
   parameters, never plaintext or reversible ciphertext. P1 prefers Argon2id;
   an OWASP-baseline scrypt configuration is the permitted fallback.
@@ -301,11 +308,12 @@ Stores milestone dates for competitions.
 
 Key fields:
 
+- `id`: immutable snapshot-row identifier
 - `competition_revision_id`
 - `logical_node_key`
 - `stage_id`
 - `node_type`
-- `revision`
+- `node_revision`
 - `prominence`: `primary` or `secondary`
 - `occurs_at`
 - `description`
@@ -330,9 +338,21 @@ Rules:
 - Registration start/deadline and competition start/end pairs in one stage must
   be chronologically ordered. One-sided source facts are allowed with an
   explicit completeness warning.
-- A node keeps the same identity across official schedule corrections; each
-  accepted correction increments its revision and retains old/new facts in
-  audit evidence.
+- `id` identifies exactly one immutable node snapshot in one
+  `competition_revision`; it is never reused as the cross-revision node
+  identity. `competition_revision_id` is a foreign key to
+  `competition_revisions`, and `stage_id` must reference a stage in that same
+  revision.
+- `(competition_revision_id, logical_node_key)` is unique. The opaque
+  `logical_node_key` is stable within one赛事届次 across official schedule
+  corrections, is never reused for a different milestone, and is interpreted
+  only together with the edition reached through `competition_revision_id`.
+- `node_revision` is a positive integer that increases only when an approved
+  successor changes behavior-bearing facts for the same edition and
+  `logical_node_key` (type, stage, occurrence, prominence, or description).
+  An unchanged node copied into another competition revision receives a new
+  snapshot `id` but keeps its node revision. Old snapshots remain immutable,
+  and audit evidence retains old/new facts and the reason.
 - Each node has exactly one timezone-aware `occurs_at` instant. A source period
   is represented by separate start and end milestone nodes.
 - Current P1 publication requires at least one recognized time node with a valid
@@ -481,11 +501,17 @@ Key fields:
 
 Rules:
 
+- `stat_date` is event-time based: an impression increments the Shanghai date
+  of `impressed_at`, and a click increments the Shanghai date of `clicked_at`.
+  One request item may therefore increment impression and click rows on
+  different dates.
 - Aggregation is idempotent for the dimension tuple and counts one request item
-  once; it never expands an item by `reason_codes`.
-- Click-through ratio is derived as recorded clicks divided by recorded
-  impressions. It is not an independent-user, recommendation-quality, or
-  registration-conversion measure.
+  at most once per event type; it never expands an item by `reason_codes`.
+- A windowed interaction ratio is derived as clicks whose click event falls in
+  the window divided by impressions whose impression event falls in the same
+  window. It is an event-period ratio, not an impression-cohort conversion,
+  independent-user, recommendation-quality, or registration-conversion
+  measure.
 - Overall impression, click, and ratio metrics in `/admin/stats` come only from
   this item-level table.
 
@@ -510,6 +536,8 @@ Key fields:
 
 Rules:
 
+- Impression attribution uses the Shanghai date of `impressed_at`; click
+  attribution uses the Shanghai date of `clicked_at`, matching item totals.
 - The dimension tuple is unique and aggregation is idempotent after reason-code
   deduplication within each request item.
 - A multi-reason item may increment multiple reason rows. Summing reason rows
@@ -552,6 +580,10 @@ Key fields:
 Rules:
 
 - Active subscription can generate reminders.
+- Only a currently `published` edition accepts a new subscription. Existing
+  subscriptions remain active as historical follow relations after the edition
+  becomes `archived` or `expired`, but those lifecycle states are not eligible
+  for new reminder plans.
 - Cancelling subscription should cancel future pending reminders.
 - Subscription can exist independently from favorite.
 - Favorite creation never creates a subscription or reminder plan.
@@ -601,7 +633,8 @@ Key fields:
 
 - `user_id`
 - `competition_id`
-- `time_node_id`
+- `time_node_snapshot_id`
+- `logical_node_key`
 - `time_node_revision`
 - `node_type`
 - `due_at`
@@ -609,11 +642,23 @@ Key fields:
 - `body`
 - `status`
 - `cancel_reason`
+- `attempt_count`
+- `next_attempt_at`
+- `last_error_code`
+- `failed_at`
 - `sent_at`
 
 Rules:
 
 - PostgreSQL reminder rows are the source of truth for reminder delivery.
+- `time_node_snapshot_id` is a foreign key to the exact immutable
+  `competition_time_nodes.id` snapshot used to schedule the reminder.
+  `logical_node_key` and `time_node_revision` are copied into the plan for
+  reconciliation and idempotency; they do not change the FK target into a
+  cross-revision identity.
+- `(user_id, competition_id, logical_node_key, time_node_revision)` is unique
+  for the P1 ordinary reminder plan. This permits the same logical key in
+  another edition without duplicate delivery inside one node revision.
 - Worker tasks must be idempotent.
 - Competition cancellation, offline status, or time node deletion should cancel pending reminders.
 - A time-node revision cancels pending reminders for the prior revision with a
@@ -715,7 +760,7 @@ Required audit actions:
 - Competition create, update, submit review, approve, reject, return, offline, archive, cancel.
 - Config changes.
 - Recommendation rule-set submit, review, activation, and retirement.
-- User role or account status changes.
+- User role, account status, or capability changes.
 - Content and certification review actions.
 
 Rules:
@@ -831,6 +876,22 @@ Status meanings:
 - `cancelled`: competition cancelled, visible only with clear status warning.
 - `expired`: past relevant deadline or event, not shown as active.
 
+Transition rules:
+
+- `published -> archived` and `published -> expired` are accepted only when the
+  current public revision has no future time node. If any node has
+  `occurs_at > now`, the transition returns a conflict; the schedule must be
+  corrected or the maintainer must use cancellation or emergency offline when
+  those facts apply.
+- Archival and expiry retain favorites and subscriptions as historical
+  relations. Past subscribed nodes remain available to calendar ranges, while
+  no future calendar node or new reminder can exist under the transition
+  precondition.
+- The status transaction cancels any stale `pending` reminder with
+  `competition_archived` or `competition_expired`. It creates no subscriber
+  message; those routine historical states are distinct from cancellation and
+  emergency offline.
+
 Public visibility policy:
 
 - `published` records are available in default public discovery and detail.
@@ -859,14 +920,18 @@ Rules:
 pending -> sent
 pending -> cancelled
 pending -> failed
-failed -> sent
+failed -> pending
 ```
 
 Rules:
 
 - `pending` reminders are eligible for worker dispatch.
 - `cancelled` reminders must not create messages.
-- `failed` reminders may be retried if failure is transient.
+- Every dispatch attempt increments `attempt_count`. A transient failure sets
+  `status = failed`, a sanitized controlled `last_error_code`, `failed_at`, and
+  a future `next_attempt_at`; a retry scheduler moves a due retryable row back
+  to `pending` before dispatch. Permanent or exhausted failures remain
+  `failed` with `next_attempt_at = null`.
 - `sent` is terminal and points to the immutable delivered message; read state
   does not belong to the reminder.
 

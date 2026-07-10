@@ -134,10 +134,13 @@ platform features.
   participation cycle creates a new届次; a schedule correction within the same
   cycle updates the existing届次. Similarity can suggest a series association or
   duplicate, but an administrator confirms it from source facts.
-- FR-013: A same-edition schedule correction preserves赛事时间节点 identity,
-  records old and new values plus a reason, and exposes enough revision context
-  for reminder reconciliation. It must not replace the node with an unrelated
-  record after reminder-dependent state exists.
+- FR-013: A same-edition schedule correction preserves an edition-scoped
+  `logical_node_key`, creates a new immutable time-node snapshot with an
+  incremented `node_revision` when behavior-bearing node facts change, records
+  old and new values plus a reason, and exposes both identifiers for reminder
+  reconciliation. An unchanged node copied to another content revision keeps
+  its node revision; a snapshot id refers only to its exact competition
+  revision and must not be reused as the cross-revision identity.
 - FR-014: P1 accepts only the controlled赛事时间节点 types in the API contract.
   `other` requires a user-facing description and remains display-only; it does
   not satisfy the core-node publication gate or participate in default
@@ -178,6 +181,11 @@ platform features.
   completeness, submission, independent diff review, status maintenance, and
   emergency offline. API, CLI, and seed paths are intermediate or test support
   and do not satisfy product acceptance by themselves.
+- FR-023: `archived` and `expired` are routine historical lifecycle states and
+  are allowed only when the current public revision has no future time node.
+  Otherwise status maintenance returns a conflict with the blocking nodes.
+  Successful transition retains favorite/subscription history and past calendar
+  nodes, cancels any stale pending reminder, and creates no subscriber message.
 
 ## Non-Functional Requirements
 
@@ -227,6 +235,13 @@ platform features.
       when a student opens its saved detail URL, then the detail remains
       available with an explicit status warning but is absent from default
       discovery and recommendation results.
+- [ ] Given an administrator tries to archive or expire an edition with a
+      future node, when status maintenance runs, then it returns a conflict and
+      changes no lifecycle, subscription, reminder, calendar, or message fact.
+- [ ] Given every node has elapsed, when an administrator archives or expires
+      the edition, then historical follow relations and past calendar nodes
+      remain, stale pending reminders are cancelled, and no event message is
+      created.
 - [ ] Given a previously published 赛事 becomes offline, when a visitor opens its
       former detail URL, then the public API returns `404 not_found`.
 - [ ] Given public 赛事 exist, when a student searches or filters the list, then

@@ -14,11 +14,13 @@ calendar can leave the student unaware of the correction.
 
 ## Decision
 
-A schedule correction preserves the赛事时间节点 identity and creates a new
-auditable revision containing the current time facts. The service records old
-and new values plus the reason, cancels pending reminders based on the prior
-revision as superseded, and creates new pending reminders only for trigger times
-that remain in the future. Sent reminders are immutable.
+A schedule correction preserves an edition-scoped `logical_node_key` but
+creates a new immutable snapshot row and increments `node_revision` only when
+behavior-bearing node facts change. A snapshot ID identifies only the facts
+inside one赛事届次修订; reminders keep an FK to that exact snapshot, while
+reconciliation matches snapshots by logical key and node revision. The service
+records old/new values and reason, cancels superseded pending plans, and creates
+plans only for future triggers. Sent reminders are immutable.
 
 For a published赛事届次, each effective node revision creates at most one
 赛事时间变更通知 per active subscriber. If the recalculated ordinary reminder time
@@ -29,8 +31,8 @@ values.
 
 ## Consequences
 
-Time-node updates must be identity-aware rather than implemented as blind list
-replacement once a届次 has reminder-dependent state. Reminder idempotency needs
-the node revision in its uniqueness boundary, and cancelled plans need a reason
-that identifies supersession. Published schedule correction also needs an
-explicit admin API and review policy; that workflow is resolved separately.
+Time-node updates cannot be blind list replacement once a届次 has
+reminder-dependent state. Public APIs must distinguish snapshot ID, logical
+key, and node revision; reminder idempotency includes user, edition, logical
+key, and node revision, while exact historical evidence retains the snapshot
+FK.
