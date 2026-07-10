@@ -87,7 +87,7 @@ a {
   border-radius: 8px;
   display: grid;
   gap: 16px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   padding: 18px;
 }
 
@@ -99,7 +99,8 @@ a {
   gap: 6px;
 }
 
-.filter-bar .ant-select {
+.filter-bar .ant-select,
+.filter-bar .ant-picker {
   width: 100%;
 }
 

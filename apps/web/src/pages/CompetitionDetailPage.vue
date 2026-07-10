@@ -12,8 +12,9 @@ import {
   Skeleton as ASkeleton,
   Tag as ATag,
 } from 'ant-design-vue'
+import { isAxiosError } from 'axios'
 import { onMounted, ref } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 
 import { fetchCompetitionDetail } from '@/api/client'
 import type { CompetitionDetail } from '@/types/competition'
@@ -24,30 +25,42 @@ import {
 } from '@/utils/competition'
 
 const route = useRoute()
+const router = useRouter()
 const competition = ref<CompetitionDetail | null>(null)
 const loading = ref(false)
 const errorMessage = ref('')
+const notFound = ref(false)
 
 async function loadCompetition() {
   const routeId = Array.isArray(route.params.id) ? route.params.id[0] : route.params.id
   const competitionId = Number(routeId)
   if (!Number.isInteger(competitionId) || competitionId < 1) {
     competition.value = null
-    errorMessage.value = '赛事编号无效。'
+    errorMessage.value = ''
+    notFound.value = true
     return
   }
 
   loading.value = true
   errorMessage.value = ''
+  notFound.value = false
 
   try {
     competition.value = await fetchCompetitionDetail(competitionId)
-  } catch {
+  } catch (error) {
     competition.value = null
-    errorMessage.value = '该赛事暂时无法加载，或尚未公开。'
+    if (isAxiosError(error) && error.response?.status === 404) {
+      notFound.value = true
+    } else {
+      errorMessage.value = '赛事详情暂时无法加载，请稍后再试。'
+    }
   } finally {
     loading.value = false
   }
+}
+
+function returnToList() {
+  void router.push('/competitions')
 }
 
 onMounted(() => {
@@ -66,6 +79,20 @@ onMounted(() => {
       <span class="sr-only">正在加载赛事详情</span>
       <ASkeleton active :paragraph="{ rows: 8 }" />
     </div>
+    <AResult
+      v-else-if="notFound"
+      class="state-panel"
+      status="404"
+      title="未找到公开赛事"
+      sub-title="赛事不存在、尚未发布或已停止公开。"
+    >
+      <template #extra>
+        <AButton type="primary" @click="returnToList">
+          <template #icon><LeftOutlined /></template>
+          返回赛事列表
+        </AButton>
+      </template>
+    </AResult>
     <AResult
       v-else-if="errorMessage"
       class="state-panel"

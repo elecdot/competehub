@@ -265,6 +265,11 @@ Supported Day 1 filters:
 - `tag`
 - `status`
 - `participant_form`
+- `deadline_from`
+- `deadline_to`
+
+Deadline bounds are inclusive UTC calendar dates and match any competition time
+node with a `due_at` inside the requested interval.
 
 The list response uses the common list envelope with `items` and `pagination`.
 

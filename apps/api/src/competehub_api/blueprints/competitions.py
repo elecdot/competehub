@@ -7,15 +7,15 @@ from marshmallow import ValidationError
 
 from competehub_api.blueprints.responses import success_response, validation_error_response
 from competehub_api.errors import error_response
-from competehub_api.repositories.competitions import get_public_competition
+from competehub_api.repositories.competitions import (
+    PublicCompetitionQuery,
+    get_public_competition,
+    search_public_competitions,
+)
 from competehub_api.schemas.competition_public import (
     competition_list_query_schema,
     public_competition_detail_schema,
     public_competition_page_schema,
-)
-from competehub_api.services.competition_discovery import (
-    CompetitionSearchCriteria,
-    search_public_competitions,
 )
 
 competitions_bp = Blueprint("competitions", __name__)
@@ -28,7 +28,7 @@ def list_competitions():
     except ValidationError as error:
         return validation_error_response(error, "request query is invalid")
 
-    page = search_public_competitions(CompetitionSearchCriteria(**query))
+    page = search_public_competitions(PublicCompetitionQuery(**query))
     return success_response(public_competition_page_schema.dump(page))
 
 

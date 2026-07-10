@@ -18,6 +18,8 @@ export interface CompetitionListParams {
   grade?: string
   tag?: string
   participant_form?: string
+  deadline_from?: string
+  deadline_to?: string
   page?: number
   page_size?: number
 }

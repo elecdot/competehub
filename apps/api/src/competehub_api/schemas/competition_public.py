@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from marshmallow import Schema, fields, validate
+from marshmallow import Schema, ValidationError, fields, validate, validates_schema
 
 from competehub_api.schemas.common import NonBlankString
 from competehub_api.services.competition_discovery import (
@@ -27,6 +27,18 @@ class CompetitionListQuerySchema(Schema):
     tag = OptionalQueryText(load_default=None, allow_none=True)
     status = OptionalQueryText(load_default=None, allow_none=True)
     participant_form = OptionalQueryText(load_default=None, allow_none=True)
+    deadline_from = fields.Date(load_default=None, allow_none=True)
+    deadline_to = fields.Date(load_default=None, allow_none=True)
+
+    @validates_schema
+    def validate_deadline_range(self, data, **kwargs):
+        deadline_from = data.get("deadline_from")
+        deadline_to = data.get("deadline_to")
+        if deadline_from is not None and deadline_to is not None and deadline_from > deadline_to:
+            raise ValidationError(
+                "Deadline end must not be before deadline start.",
+                field_name="deadline_to",
+            )
 
 
 class PublicCompetitionTimeNodeSchema(Schema):

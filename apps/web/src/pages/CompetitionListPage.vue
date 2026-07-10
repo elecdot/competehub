@@ -7,6 +7,7 @@ import {
 } from '@ant-design/icons-vue'
 import {
   Button as AButton,
+  DatePicker as ADatePicker,
   Empty as AEmpty,
   Input as AInput,
   Pagination as APagination,
@@ -30,6 +31,8 @@ const filters = reactive({
   grade: '',
   tag: '',
   participant_form: '',
+  deadline_from: '',
+  deadline_to: '',
 })
 const participantFormOptions = [
   { label: '不限参赛形式', value: '' },
@@ -53,6 +56,8 @@ async function loadCompetitions(page = 1) {
       grade: filters.grade || undefined,
       tag: filters.tag || undefined,
       participant_form: filters.participant_form || undefined,
+      deadline_from: filters.deadline_from || undefined,
+      deadline_to: filters.deadline_to || undefined,
       page,
       page_size: pagination.value.page_size,
     })
@@ -78,6 +83,8 @@ function clearFilters() {
   filters.grade = ''
   filters.tag = ''
   filters.participant_form = ''
+  filters.deadline_from = ''
+  filters.deadline_to = ''
   void loadCompetitions(1)
 }
 
@@ -149,6 +156,24 @@ onMounted(() => {
           id="competition-participant-form"
           v-model:value="filters.participant_form"
           :options="participantFormOptions"
+        />
+      </label>
+      <label for="competition-deadline-from">
+        截止日期从
+        <ADatePicker
+          id="competition-deadline-from"
+          v-model:value="filters.deadline_from"
+          value-format="YYYY-MM-DD"
+          placeholder="开始日期"
+        />
+      </label>
+      <label for="competition-deadline-to">
+        截止日期至
+        <ADatePicker
+          id="competition-deadline-to"
+          v-model:value="filters.deadline_to"
+          value-format="YYYY-MM-DD"
+          placeholder="结束日期"
         />
       </label>
       <div class="filter-actions">

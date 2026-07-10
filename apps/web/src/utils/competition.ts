@@ -2,6 +2,7 @@ import type { CompetitionTimeNode } from '@/types/competition'
 
 const NODE_LABELS: Record<string, string> = {
   registration_start: '报名开始',
+  registration_period: '报名期',
   registration_deadline: '报名截止',
   submission_deadline: '作品提交截止',
   competition_start: '比赛开始',
@@ -26,15 +27,17 @@ export function formatParticipantForm(participantForm?: string | null) {
 }
 
 export function formatNodeDate(node: CompetitionTimeNode, includeTime = false) {
-  const timestamp = node.due_at ?? node.starts_at
-  if (!timestamp) {
+  const timestamps = [node.starts_at, node.due_at]
+    .filter((value): value is string => Boolean(value))
+    .map((value) => new Date(value))
+    .filter((value) => !Number.isNaN(value.getTime()))
+    .sort((left, right) => left.getTime() - right.getTime())
+  if (!timestamps.length) {
     return '时间待确认'
   }
 
-  const date = new Date(timestamp)
-  if (Number.isNaN(date.getTime())) {
-    return '时间待确认'
-  }
+  const now = Date.now()
+  const date = timestamps.find((value) => value.getTime() >= now) ?? timestamps[0]
 
   return new Intl.DateTimeFormat('zh-CN', {
     dateStyle: 'medium',

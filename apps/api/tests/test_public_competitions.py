@@ -206,6 +206,11 @@ def test_public_competition_filters_preserve_visibility_contract(client) -> None
     )
     assert [item["id"] for item in field_response.get_json()["data"]["items"]] == [101]
 
+    deadline_response = client.get(
+        "/api/v1/competitions?deadline_from=2026-08-20&deadline_to=2026-09-01"
+    )
+    assert [item["id"] for item in deadline_response.get_json()["data"]["items"]] == [106]
+
 
 def test_public_competition_pagination_is_applied_after_filters(client) -> None:
     response = client.get("/api/v1/competitions?category=创新创业&page=2&page_size=1")
@@ -216,8 +221,18 @@ def test_public_competition_pagination_is_applied_after_filters(client) -> None:
     assert [item["id"] for item in body["data"]["items"]] == [106]
 
 
-@pytest.mark.parametrize("query", ["page=0", "page=invalid", "page_size=0", "page_size=101"])
-def test_public_competition_rejects_invalid_pagination(client, query) -> None:
+@pytest.mark.parametrize(
+    "query",
+    [
+        "page=0",
+        "page=invalid",
+        "page_size=0",
+        "page_size=101",
+        "deadline_from=invalid",
+        "deadline_from=2026-09-01&deadline_to=2026-08-01",
+    ],
+)
+def test_public_competition_rejects_invalid_query_parameters(client, query) -> None:
     response = client.get(f"/api/v1/competitions?{query}")
 
     assert response.status_code == 400
@@ -288,6 +303,36 @@ def test_public_competition_next_node_skips_elapsed_nodes(client) -> None:
 
     assert response.status_code == 200
     assert response.get_json()["data"]["next_node"]["id"] == 221
+
+
+def test_public_competition_next_node_uses_earliest_current_or_future_timestamp(client) -> None:
+    now = datetime.now(UTC)
+    ranged_node = CompetitionTimeNode(
+        id=222,
+        node_type="registration_period",
+        starts_at=now + timedelta(days=1),
+        due_at=now + timedelta(days=5),
+    )
+    deadline_node = CompetitionTimeNode(
+        id=223,
+        node_type="submission_deadline",
+        due_at=now + timedelta(days=2),
+    )
+    competition = Competition(
+        id=121,
+        title="多时间字段赛事",
+        source_name="示例高校竞赛通知",
+        source_url="https://example.edu/notices/multiple-times",
+        status=CompetitionStatus.PUBLISHED,
+        time_nodes=[ranged_node, deadline_node],
+    )
+    db.session.add(competition)
+    db.session.commit()
+
+    response = client.get("/api/v1/competitions/121")
+
+    assert response.status_code == 200
+    assert response.get_json()["data"]["next_node"]["id"] == 222
 
 
 @pytest.mark.parametrize("competition_id", [102, 103, 104, 105, 108, 109, 110])
