@@ -4,6 +4,8 @@
 
 本文档定义 CompeteHub 的长期技术结构、核心数据模型、服务边界和工程规范。它承接 `docs/PRD.zh.md` 中稳定的产品语义，但不把 PRD 当作逐项严格验收合同；后续开发任务和测试用例负责阶段性验收，本文档负责保持工程方向一致。
 
+当前 P1 每个部署只属于一个配置确定的高校，不实现多租户隔离。学号、学院、管理员、字典和校级治理均在该部署边界内解释；外部赛事来源不改变用户所属边界。
+
 阶段性架构选择、取舍原因和可被未来决策替换的内容记录在 `docs/adr/`。当前初始化技术决策见 `docs/adr/0001-initial-application-architecture.md`。
 
 ## 二、架构总览
@@ -28,6 +30,7 @@ scripts/               # Shared developer and agent helper scripts
 - Database：PostgreSQL 作为核心业务数据源。
 - Redis：用于缓存、限流、Celery broker 和短期运行状态，不作为核心业务事实来源。
 - Worker：Celery worker 执行提醒生成、赛事过期标记、后续半自动采集候选等异步任务。
+- Identity Delivery Adapter：通过供应商无关接口发送账号验证消息。P1 可配置 SMTP 邮件发送方；它不是赛事提醒渠道，也不要求绑定特定邮件 SaaS。
 
 ## 三、仓库初始化规范
 
@@ -88,6 +91,7 @@ scripts/agent-env.sh
 - State：Pinia
 - HTTP Client：Axios，通过 `src/api/` 中的共享 client 和领域 API wrapper 统一 base URL、超时、凭据和错误处理。
 - UI：Ant Design Vue，见 `docs/adr/0008-ant-design-vue-ui-library.md`；使用规范写入 `apps/web/README.md`，不得混用第二套通用 UI 组件库。
+- Calendar：个人赛事日历使用 FullCalendar 的 Vue 3 开源标准能力实现月、周和列表视图；按锁定版本采用对应的标准 view 模块，不引入 premium resource/scheduler 功能，也不手写日期网格算法。
 
 ### 4.2 Backend
 
@@ -193,19 +197,22 @@ apps/web/
 - 赛事详情。
 - 推荐赛事。
 - 我的收藏与订阅。
-- 个人赛事日历。
-- 消息中心。
+- 个人赛事日历：桌面默认月视图、移动端默认列表视图，可切换月/周/列表并在当前设备保留选择；突出 `primary`、当前阶段和最近节点，保留成对标签和同日多节点的紧凑展开。
+- 消息中心：全局消息图标与未读徽标，页面提供全部/未读标签、四类消息筛选、分页、单条已读和全部已读。使用紧凑列表而非卡片嵌套，目标不可访问时保留历史快照并禁用跳转。
 - 个人画像。
 
 管理端页面：
 
-- 赛事管理。
-- 赛事录入与编辑。
-- 待审核赛事。
+- 赛事管理：按系列、届次、生命周期和修订状态筛选，进入编辑、审核或状态维护。
+- 赛事录入与编辑：结构化来源与发布字段、阶段、成对节点、重点级别、完整度反馈、草稿和提交操作。
+- 待审核赛事：提交者和来源事实、公开/候选修订差异、提醒影响摘要，以及通过、驳回和退回意见。
+- 状态维护：取消、归档、过期和紧急下架，操作前展示公开/订阅/提醒影响并收集必填原因。
 - 基础配置。
 - 用户与权限。
-- 审核和操作日志。
-- 简单统计。
+- 治理首页：只展示待办数量、推荐配置异常和少量关键摘要，详细证据进入对应标签页。
+- 审核记录：按目标类型、状态、提交者和时间筛选赛事修订与推荐规则集的不可变决定，查看差异、影响、意见和决定时间。
+- 操作审计：按操作者、受控动作、目标、结果和日期筛选不可变事件，只展示动作级允许字段。
+- 基础统计：只读展示当前发布/待审、有效收藏/订阅、消息投递状态，以及 7/30 日外链和推荐曝光/点击计数；每项显示口径、`as_of`、时区和 best-effort 限制。
 
 ### 6.3 状态管理
 
@@ -226,19 +233,29 @@ Pinia stores：
 首批核心表：
 
 - `users`：账号、角色、状态和登录标识。
+- `user_identities`：类型化学号、邮箱和手机号标识及其规范化、验证状态。
+- `identity_verification_challenges`：账号标识的短期验证挑战，只保存验证码哈希、过期和消费状态。
 - `student_profiles`：专业、年级、兴趣方向、竞赛经历和目标偏好。
-- `competitions`：赛事主体信息、来源、展示状态和适配说明。
+- `competition_series`：赛事跨届稳定身份，由管理员根据来源事实确认。
+- `competitions`：一次具体赛事届次的身份、生命周期状态和当前公开修订指针。
+- `competition_revisions`：赛事届次的编号内容版本；已提交和已审核快照不可变。
+- `competition_stages`：赛事届次中的有序阶段或轮次，用于分组和校验成对时间节点。
 - `competition_time_nodes`：报名截止、作品提交、比赛开始等关键节点。
 - `competition_tags`：参考标签和适配标签。
 - `competition_tag_links`：赛事与标签关系。
+- `outbound_click_events`：隐私最小化的外链原始点击事件，保留 90 天。
+- `outbound_click_daily_stats`：按上海产品日历日期和受控维度聚合的外链点击次数。
 - `favorites`：收藏记录。
 - `subscriptions`：订阅记录和订阅状态。
 - `reminder_settings`：用户提醒偏好。
 - `reminders`：待发送和已发送提醒。
 - `messages`：站内消息。
-- `review_records`：赛事、资料和认证审核记录。
-- `audit_logs`：后台操作日志。
-- `recommendation_rules`：规则推荐配置。
+- `review_records`：赛事修订、推荐规则集、资料和认证的不可变审核决定、差异与影响快照。
+- `audit_logs`：使用动作级字段白名单的不可变后台和系统操作事件。
+- `recommendation_rule_sets`：版本化推荐规则集及草稿、审核、激活和退役事实。
+- `recommendation_rules`：从属于一个规则集版本的受控规则、结构化条件、内部权重和理由模板。
+- `recommendation_request_items`：推荐响应中每个返回项及其可选曝光/点击时间的隐私最小化 90 天快照。
+- `recommendation_daily_stats`：按上海产品日历日期、规则版本、模式、位置、理由和赛事聚合的曝光/点击计数。
 - `system_configs`：消息模板、权重等通用配置。
 
 ### 7.2 状态枚举
@@ -295,11 +312,30 @@ Redis 不用于：
 2. Celery beat 周期扫描 `status = pending` 且 `due_at <= now` 的提醒。
 3. Worker 幂等创建 `messages`。
 4. 成功后将提醒状态更新为 `sent`。
-5. 赛事取消、下架或节点修改时，service 取消或重算未发送提醒。
+5. 赛事取消、下架或节点删除时，service 取消未发送提醒。
+6. 同届节点改期时保留节点 ID 并产生新修订，取消旧修订的未发送提醒、重建仍在未来的提醒；已发送提醒不可变。
+7. 已发布届次改期后，service 按“订阅者 + 节点修订”幂等生成一次赛事时间变更通知；已过去的普通触发时间不补发伪准时提醒。
+8. 首次订阅请求必须显式携带 `reminder_enabled`；开启时同时携带 `0–30` 的单一提前天数和非空受控节点类型。全局默认只用于前端确认面板预填，后端不得在字段缺失时推断同意。
+9. 关闭单项提醒只取消该订阅的未发送计划，关闭全局提醒取消用户全部未发送计划；两者均保留订阅和日历节点。重新开启时只重建未来有效计划。
+10. `reminder_settings` 是全局开关、默认提前天数和默认节点类型的唯一事实来源；`student_profiles` 不重复存储提醒字段。
+11. `reminder_due`、`competition_time_changed`、`competition_cancelled` 和 `competition_offline` 使用“用户 + 领域事件”幂等键创建不可变消息快照。用户主动取消或关闭提醒不创建消息。
+12. 周期清理任务删除创建满 365 天的消息，不区分已读状态；账号删除使用统一账号数据清理流程。提醒的 `sent` 状态与消息的已读状态分别维护。
 
 ### 8.3 推荐任务
 
-规则推荐可同步计算并缓存短时间结果。若后续数据量增长，可将用户推荐结果异步预计算到数据库或缓存，但推荐理由仍必须可追溯到规则。
+规则推荐可同步计算并缓存短时间结果。个性化计算只读取单一 `active` 推荐规则集，缓存键必须包含规则集版本；响应返回版本和可追溯理由，不返回内部得分。无激活版本时降级为通用可行动结果并暴露管理配置异常，不使用 service 常量。候选预览仅使用合成画像和选定公开赛事，不读取任意真实学生画像，也不持久化结果。
+
+每次推荐响应为返回项创建随机 request ID 下的 90 天服务端快照。前端实际渲染后批量尽力记录曝光，从推荐页导航详情时尽力记录点击；统计失败不影响展示或导航。事件 API 只接受 request ID、事件类型和赛事 ID，从服务端快照读取位置、模式、规则版本、理由代码和登录状态类别。曝光和点击分别按 request item 幂等，点击要求已有曝光。原始行不保存用户、账号、画像、IP、User-Agent 或跨 request 标识，也不用于自动个性化。
+
+周期任务按 `Asia/Shanghai` 日期、规则版本、模式、位置、理由代码、登录状态类别和赛事幂等聚合曝光/点击，并删除超过 90 天的原始行。管理端仅展示 best-effort 记录曝光、点击及其比值。若后续数据量增长，可预计算推荐结果，但版本和理由仍必须可追溯。
+
+### 8.4 外链点击统计
+
+- 外链使用真实 HTTP(S) `href` 直接打开，设置 `noopener/noreferrer`；前端通过 `sendBeacon` 或 keepalive 请求尽力记录，失败不得阻断跳转。
+- API 只接受受控目标类型和来源页面，从当前可查看公开修订解析实际链接，不接受任意客户端 URL，也不做代理或重定向。
+- 原始事件只保存赛事届次、公开修订、目标类型、来源页面、登录状态类别和服务端时间；用户 ID、账号标识、IP、User-Agent 和跨日访客标识不得进入分析表。
+- Redis 可使用短期请求来源键做接口限速，但不得作为点击事实来源或持久访客标识。
+- 周期任务按 `Asia/Shanghai` 日期幂等生成日聚合，并删除超过 90 天的原始事件。管理端指标明确标为记录点击次数，不展示独立人数或报名转化。
 
 ## 九、API 设计原则
 
@@ -355,10 +391,19 @@ Redis 不用于：
 - `GET /api/v1/me/messages`
 - `POST /api/v1/me/messages/{id}/read`
 - `GET /api/v1/recommendations`
+- `POST /api/v1/recommendation_events`
+- `GET /api/v1/admin/recommendation_rule_sets`
+- `POST /api/v1/admin/recommendation_rule_sets`
+- `POST /api/v1/admin/recommendation_rule_sets/{id}/preview`
+- `POST /api/v1/admin/recommendation_rule_sets/{id}/submit_review`
+- `POST /api/v1/admin/recommendation_rule_sets/{id}/review`
 - `POST /api/v1/admin/competitions`
 - `POST /api/v1/admin/competitions/{id}/submit_review`
 - `POST /api/v1/admin/competitions/{id}/review`
 - `PATCH /api/v1/admin/competitions/{id}/status`
+- `GET /api/v1/admin/reviews`
+- `GET /api/v1/admin/audit_logs`
+- `GET /api/v1/admin/stats`
 
 ## 十、认证、权限与审计
 
@@ -377,12 +422,28 @@ Redis 不用于：
 ### 10.2 权限原则
 
 - 认证使用 Flask Cookie Session；session 只保存最小身份事实，不保存敏感业务数据。
+- 账号状态使用 `pending_activation`、`active` 和 `disabled`；只有 `active` 账号可以建立 session 和写入个人业务数据。
+- P1 公开注册只在 SMTP 或等价真实邮件发送方已配置时开放邮箱入口；手机号短信注册延后，学号通过高校名册或管理员受控路径配置。
+- 生产环境启用邮箱注册但缺少发送方配置时必须启动失败；关闭公开注册时前端隐藏入口、后端返回明确的能力不可用错误。
+- 测试可以注入内存发送器断言验证码流程；生产发送器不得在日志或响应中暴露验证码。注册、重发和登录失败响应不得用于枚举账号。
+- 注册与验证不自动创建 session；身份验证完成后用户通过常规登录建立 session。
+- 单因素密码在 NFC 规范化后必须为 15 至 128 个 Unicode 字符，允许空格、粘贴、自动填充和密码管理器，不设置字符种类组合规则，不静默截断，也不做周期性强制更换。
+- 新密码必须通过仓库管理的本地常见、已泄露及上下文弱密码阻止列表；阻止列表校验不得依赖运行时在线服务。
+- 密码哈希优先使用 Argon2id；若使用 scrypt，必须显式配置达到当前 OWASP 基线并在目标部署资源上完成性能测试。禁止依赖 Werkzeug 或其他库可能变化的默认算法参数。
+- 登录失败按规范化类型化标识键和请求来源渐进限速，所有账号状态使用一致失败响应；不得因远程失败永久锁定账号。
+- Cookie session 只保存 `user_id`、`session_version`、`issued_at` 和 `last_activity_at`；登录前清理旧 session，所有受保护请求统一经过认证守卫并从数据库重读账号状态和版本。
+- 学生 session 的空闲/绝对超时为 24 小时/7 天，管理员为 30 分钟/8 小时；活动只能延后空闲截止，不能延后绝对截止。服务端在路由执行前校验，失效后清除 Cookie 并返回统一 `401`。
+- 禁用账号、确认凭据泄露或终止全部会话时原子递增 `users.session_version`；既有设备下一请求即失效。普通退出只清理当前浏览器，P1 允许多设备并发且不建设设备会话列表或“记住我”选项。
 - Cookie 应设置 `HttpOnly`、`SameSite=Lax`，生产环境设置 `Secure`。
 - 所有修改接口必须使用 POST、PATCH 或 DELETE，不能用 GET 修改状态。
 - 后台写操作应检查 `Origin` 或 `Referer`；若后续写操作范围扩大，可引入 CSRF token。
 - 学生只能维护自己的画像、收藏、订阅和提醒设置。
+- 画像服务统一校验部署高校的学院、专业、年级和兴趣标签字典，以及专业所属学院关系；兴趣标签去重后最多 10 个。
+- `profile_status` 与 `missing_fields` 在读取时根据学院、专业、年级和至少一个兴趣标签动态计算，不在数据库保存完成布尔值。画像不完整不得阻断搜索、详情、收藏、订阅或提醒，只令推荐降级为带明确原因的通用可行动结果。
 - 未登录访客只能访问公开赛事列表和详情。
-- 管理员才能访问赛事录入、审核、配置、用户管理和审计日志。
+- 管理员才能访问赛事录入、审核、配置、用户管理，以及审核、审计和统计治理证据；学生访问这些接口统一返回 `403`。
+- 赛事录入与赛事审核使用 `competition_editor` 和 `competition_reviewer` 管理员权限，不新增正式用户角色；当前修订的提交者不得审核该修订。
+- 推荐规则使用 `recommendation_editor` 和 `recommendation_reviewer` 管理员权限，不新增正式角色；候选规则集提交者不得审核该版本，激活必须原子退役旧版本。
 - 后端必须对每个后台接口做权限检查。
 
 ### 10.3 审计
@@ -393,6 +454,8 @@ Redis 不用于：
 - 基础配置修改。
 - 用户角色或账号状态修改。
 - 内容审核和认证审核。
+
+审核决定和审计事件写入后不可通过产品接口更新或删除。审计详情按动作使用字段白名单，不得包含密码、验证码、session、完整账号标识、用户画像内容或原始分析标识。治理统计只读并带口径、数据截至时间和时区，不提供用户级钻取。
 
 ## 十一、测试与质量门禁
 
@@ -409,14 +472,14 @@ Redis 不用于：
 | Integration tests | 管理员发布赛事、学生搜索订阅、提醒生成消息和日历节点。 | P1 主闭环稳定后补服务/API 集成测试；自动化前使用手工验收脚本。 |
 | Frontend static checks | Vue routes、TypeScript 类型、构建产物。 | `just web-lint` 执行 `vue-tsc --noEmit`，`just web-build` 执行生产构建。 |
 | Frontend component tests | 筛选、详情状态、订阅状态、消息状态。 | P1 UI 稳定后再引入 Vitest 或等价框架，并同步 `apps/web/package.json`、`justfile` 和本文档。 |
-| E2E / manual acceptance | 中期和答辩演示主流程。 | 先使用脚本化手工验收；路由和 API 契约稳定后再考虑 Playwright。 |
+| E2E / manual acceptance | 中期和答辩演示主流程。 | P1 引入 Playwright，覆盖独立编辑者提交、独立审核者发布、学生端可见，以及日历桌面/月周列表切换、移动端列表、同日多节点和改期刷新；P2 增量覆盖推荐路径、审核/审计/统计三个治理标签页、代表性筛选与学生权限拒绝；手工验收补充探索性与视觉检查。 |
 
 ### 11.2 Frontend quality gates
 
 - Current static checks：`vue-tsc --noEmit`，通过 `just web-lint` 执行；`just web-build` 同时执行类型检查和 Vite build。
 - Stage 1 lint / format：P1 页面和 stores 稳定后，引入 ESLint、`eslint-plugin-vue` 和 Prettier。
 - Stage 2 unit / component tests：核心组件和 stores 稳定后，引入 Vitest 和 Vue Test Utils，覆盖工具函数、stores、赛事筛选、详情状态和消息状态。
-- Stage 3 E2E tests：主闭环稳定后，引入 Playwright，覆盖后台发布赛事到学生订阅、提醒、消息和日历的端到端路径。
+- Stage 3 E2E tests：P1 赛事治理工作台完成时即引入 Playwright，先覆盖独立管理员编辑提交、审核发布和学生端可见；日历交付时增量覆盖月/周/列表切换、移动端列表、同日多节点、提醒关闭但节点保留和改期刷新；P2 再覆盖推荐结果以及审核、审计、统计三个治理标签页的导航、筛选、详情和权限边界。
 - 每个前端质量门禁阶段必须在同一变更中同步 `apps/web/package.json`、lockfile、`justfile` 和本文档；分阶段决策见 `docs/adr/0010-staged-frontend-quality-gates.md`。
 
 ### 11.3 TDD 与非功能验证

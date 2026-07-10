@@ -46,7 +46,7 @@ project conventions.
 | Integration tests | Admin creates and publishes a 赛事 record, student searches it, subscribes, reminders create messages and calendar nodes. | Start with focused service/API integration tests when the database fixtures exist. Use manual acceptance until the automated surface is ready. | Test command output or an acceptance-script run record. |
 | Frontend static checks | Vue routes, TypeScript types, build output, import correctness. | Keep `vue-tsc --noEmit` through `just web-lint`; keep production build through `just web-build`. | `just web-lint` and `just web-build`. |
 | Frontend component tests | Search filters, detail status display, subscription state, message read state. | Add Vitest or equivalent after the P1 UI stabilizes. Do not add the dependency in a docs-only slice. | Future component-test command and changed component names. |
-| E2E or manual acceptance | Course demo main workflow and cross-role handoff. | Use a scripted manual acceptance path first; add Playwright after the route/API contract stabilizes. | Acceptance script with date, actor, environment, result, and linked defects. |
+| E2E or manual acceptance | Course demo main workflow and cross-role handoff. | Add Playwright with the P1 publication workbench and calendar, covering distinct editor/reviewer publication to student visibility plus desktop/mobile calendar view switching, same-day nodes, and revision refresh. Extend it in P2 for recommendation and the Review, Audit, and Statistics governance tabs, including representative filters and student permission denial; use manual acceptance for exploratory checks. | Project Playwright command plus acceptance record with date, actor, environment, result, and linked defects. |
 | Documentation and workflow checks | MkDocs navigation, source-of-truth alignment, PR checklist completeness. | Use `just docs-build`; require issue/PR validation evidence before marking done. | `just docs-build` and PR checklist review. |
 
 ## TDD Usage
@@ -58,8 +58,9 @@ test surface exists:
   review publication, API validation, auth, and permissions should usually start
   with a failing test.
 - Bug fixes should reproduce the bug with a failing test when practical.
-- Frontend behavior should use static checks now, and component tests after the
-  component-test harness is intentionally introduced.
+- Frontend behavior uses static checks, targeted Playwright for the accepted P1
+  cross-role publication/calendar paths and P2 recommendation/governance paths,
+  and component tests after that harness is intentionally introduced.
 - Pure documentation, process, template, or exploratory changes use manual
   validation and `just docs-build` instead of test-first implementation.
 
@@ -95,8 +96,8 @@ maintainable, and aligned with its current P1-P3 scope.
 Use this as the default manual acceptance path for the midterm release sprint:
 
 1. Student registers or logs in and maintains a basic profile.
-2. Admin logs in, creates a 赛事 record from a trusted source, and submits it for review.
-3. Admin reviewer approves and publishes the 赛事.
+2. Editor admin logs in, creates a 赛事 record from a trusted source, and submits it for review.
+3. A distinct reviewer admin inspects the revision diff and impact, then approves and publishes the 赛事; self-review remains blocked.
 4. Student searches and filters public 赛事, opens the detail page, and verifies
    source information and key time nodes.
 5. Student favorites and subscribes to the 赛事.
@@ -104,8 +105,9 @@ Use this as the default manual acceptance path for the midterm release sprint:
    reminder surface.
 7. Recommendation list shows published 赛事 with a traceable recommendation
    reason, not a public value score.
-8. Admin checks audit or review records for the publication and key state
-   changes.
+8. Admin uses the Review, Audit, and Statistics tabs to inspect immutable
+   decisions, key state-change events, and defined current/7-day/30-day metrics;
+   a student cannot access those surfaces.
 
 Record manual acceptance evidence with:
 

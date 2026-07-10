@@ -55,18 +55,18 @@ why it differs.
 
 | ID | Step | Minimum evidence | Seed data needed | Source |
 |---|---|---|---|---|
-| D1-01 | Student registers or logs in and current-user returns identity and role. | API response or UI screenshot showing the standard response envelope and student role. | `student.day1@example.edu`. | Student Following And Reminders |
-| D1-02 | Student profile can be fetched and updated with college, major, grade, interests, and reminder settings. | API response or UI screenshot showing saved profile fields. | `profile.student-day1`. | Student Following And Reminders |
-| D1-03 | Admin creates a draft 赛事 from a 可信来源. | API response, database row, or admin surface showing draft status, source name, and source URL. | `admin.day1@example.edu`; `competition.ai-challenge-draft`. | Competition Publication And Discovery |
-| D1-04 | Admin cannot submit an incomplete draft for review. | Failed request with validation error and unchanged non-public state. | `competition.incomplete-draft`. | Competition Publication And Discovery |
-| D1-05 | Admin submits a complete draft, reviewer approves it, and the 赛事 becomes `published`. | State transition evidence plus review or audit record. | `competition.ai-challenge-published`; `review.ai-challenge-approved`. | Competition Publication And Discovery |
-| D1-06 | Rejected, returned, draft, pending, offline, or cancelled 赛事 are hidden from default public list and detail. | Public API or UI check showing non-public records are absent or inaccessible. | `competition.incomplete-draft`, `competition.ai-challenge-pending`, `competition.robotics-rejected`, and `competition.math-offline`. | Competition Publication And Discovery |
-| D1-07 | Student searches or filters public 赛事 and opens detail. | List response or UI shows pagination/envelope; detail shows source facts, time nodes, tags, value notes, and official link. | `competition.ai-challenge-published`. | Competition Publication And Discovery |
+| D1-01 | Student logs in with a verified active provisioned account and current-user returns identity and role; registration never creates a session before verification when that capability is configured. | API response or UI screenshot showing the standard response envelope and student role, plus API tests for registration capability, password boundaries, weak-password blocking, login throttling, disabled-account revocation, and role-specific session deadlines. | `student.day1@example.edu`. | Student Following And Reminders |
+| D1-02 | Student profile can be fetched and updated with dictionary-backed college, major, grade, interests, and reminder settings; readiness and missing fields are derived without blocking follow-up actions. | API response or UI screenshot showing saved fields and `recommendation_ready`, plus an incomplete-profile fallback check. | `profile.student-day1`. | Student Following And Reminders |
+| D1-03 | Editor admin uses the governance workbench to create a draft 赛事 from a 可信来源 and edit structured stages and paired nodes. | UI and API evidence shows draft status, source facts, completeness feedback, stage/node controls, and saved revision data. | `admin.day1@example.edu`; `competition.ai-challenge-draft`. | Competition Publication And Discovery |
+| D1-04 | Admin cannot submit a draft with missing publication fields or no valid recognized time node for review. | Failed request with validation error and unchanged non-public state. | `competition.incomplete-draft`. | Competition Publication And Discovery |
+| D1-05 | Editor submits a complete revision, a distinct reviewer inspects its diff/impact and approves it, and the赛事届次 atomically selects it as the public revision. | Playwright cross-role evidence plus revision state, published-revision pointer, self-review denial, and review/audit evidence. | `competition.ai-challenge-published`; `review.ai-challenge-approved`. | Competition Publication And Discovery |
+| D1-06 | Draft, pending, rejected, and offline 赛事 are inaccessible publicly; cancelled, expired, and archived 赛事 are absent from default discovery but retain detail with a status warning. | Public API or UI checks distinguish inaccessible records from historical-viewable detail. | `competition.incomplete-draft`, `competition.ai-challenge-pending`, `competition.robotics-rejected`, `competition.math-offline`, and `competition.cancelled-history`. | Competition Publication And Discovery |
+| D1-07 | Student searches, filters, and sorts public 赛事 by actionability or explicit order, opens detail, then follows a direct external channel without tracking becoming a navigation dependency. | List/detail evidence shows stable pagination, registration status, deterministic sorting, stage-grouped nodes and source facts; external target opens when tracking succeeds or fails, while accepted events contain only controlled privacy-minimized dimensions. | `competition.ai-challenge-published`; `outbound-click.ai-official`. | Competition Publication And Discovery |
 | D1-08 | Logged-in student 收藏s a published 赛事 without creating reminder obligations. | List/detail shows `is_favorited`; no subscription or reminder record is created by 收藏 alone. | `favorite.student-ai-challenge`. | Student Following And Reminders |
-| D1-09 | Logged-in student 订阅s a published 赛事 and future reminders/calendar nodes exist. | Subscription state plus pending reminders or calendar list entries. | `subscription.student-ai-challenge`; `reminder.ai-registration`. | Student Following And Reminders |
-| D1-10 | Cancelling 订阅 cancels or removes future pending reminders, and due reminder dispatch is idempotent where implemented. | Calendar/reminder state before and after cancellation; repeated dispatch creates no duplicate message. | `subscription.student-ai-challenge`; `message.ai-registration-due` if dispatch exists. | Student Following And Reminders |
-| D1-11 | Recommendation returns published 赛事 with traceable 推荐理由 and no public score. | Recommendation API or UI shows reasons tied to profile, tags, grade, major, deadline, or fallback rule; no raw score is visible. | `recommendation.student-ai-challenge`; `recommendation.fallback-innovation`. | Rule Recommendation And Governance Thin Slice |
-| D1-12 | Admin governance evidence shows publication decisions and useful counts where implemented. | Review/audit records or thin stats response for published, pending, favorite, subscription, or recommendation data. | `review.ai-challenge-approved`; `audit.publish-ai-challenge`; engagement counts. | Competition Publication And Discovery; Rule Recommendation And Governance Thin Slice |
+| D1-09 | Logged-in student explicitly confirms one subscription reminder configuration; the edition remains followed in month/week/list calendar views whether reminders are enabled or disabled. | Confirmation evidence shows enabled state, one 0–30 day offset and controlled nodes; Playwright covers desktop/month, mobile/list, view switching, paired/same-day nodes, and favorite-versus-subscription calendar behavior. | `subscription.student-ai-challenge`; `reminder.ai-registration`. | Student Following And Reminders |
+| D1-10 | Reminder dispatch and competition-side changes create idempotent durable messages; calendar views refresh the current revision while the global badge and message center preserve unread/history state. | Calendar/reminder state before and after cancellation, offline, or a node revision; Playwright proves current-node refresh and unavailable targets; repeated handlers, read actions, and retention have API boundary evidence. | `subscription.student-ai-challenge`; `reminder.ai-registration`; `message.ai-registration-due`; `message.ai-time-changed`. | Student Following And Reminders |
+| D1-11 | Recommendation returns published 赛事 with traceable 推荐理由, immutable active rule-set version, and no public score; rendered items and detail navigation produce privacy-minimized idempotent exposure/click evidence. | API/UI shows rule version and reasons or explicit fallback; tracking failure does not block rendering/navigation, and forged or repeated events cannot alter server dimensions or duplicate counts. | `rule-set.p2-v1`; `recommendation.student-ai-challenge`; `recommendation.fallback-innovation`; `recommendation-request.day1`. | Rule Recommendation And Governance Thin Slice |
+| D1-12 | Admin uses the required Review, Audit, and Statistics tabs to inspect independent publication and recommendation-rule decisions, key operation events, and bounded operational counts. | Playwright and API evidence covers stable filters/pagination, immutable review diff/impact/comment, allowlisted audit detail, current and 7/30-day metrics with definitions/`as_of`/best-effort caveats, no user drill-down, and student `403`. | `review.ai-challenge-approved`; `audit.publish-ai-challenge`; `rule-set.p2-v1`; `review.rule-set-p2-v1`; `outbound-click-daily.ai-official`; `recommendation-daily.day1`; engagement counts. | Competition Publication And Discovery; Rule Recommendation And Governance Thin Slice |
 
 ## Example Day 1 Seed
 
@@ -77,9 +77,9 @@ numeric primary keys.
 
 | Symbolic ID | Role | Required fields | Purpose |
 |---|---|---|---|
-| `student.day1@example.edu` | `student` | Display name `Day 1 Student`; password or test login path. | Login, profile, public engagement, recommendation, calendar, and message checks. |
-| `admin.day1@example.edu` | `admin` | Display name `Day 1 Admin`; password or test login path. | Creates and submits 赛事 records from 可信来源. |
-| `reviewer.day1@example.edu` | `admin` | Display name `Day 1 Reviewer`; password or test login path. | Approves, rejects, returns, or inspects review/governance evidence. One admin may cover both admin roles if role separation is not implemented. |
+| `student.day1@example.edu` | `student` | Provisioned `active` account with a verified typed email identity; display name `Day 1 Student`; policy-compliant test passphrase or test login path. Seed provisioning must not imply that public registration bypasses verification. | Login, profile, public engagement, recommendation, calendar, and message checks. |
+| `admin.day1@example.edu` | `admin` | Display name `Day 1 Admin`; `competition_editor`; policy-compliant test passphrase or test login path. | Creates and submits 赛事 records from 可信来源. |
+| `reviewer.day1@example.edu` | `admin` | Display name `Day 1 Reviewer`; `competition_reviewer`; policy-compliant test passphrase or test login path; distinct from the revision submitter. | Approves, rejects, returns, or inspects review/governance evidence. |
 
 ### Student Profile
 
@@ -106,16 +106,17 @@ demo runs after these dates, shift them forward while preserving relative order.
 
 | Symbolic ID | Status | Required facts | Purpose |
 |---|---|---|---|
-| `competition.ai-challenge-published` | `published` | Title `全国大学生人工智能创新挑战赛`; category `创新创业`; organizer `示例高校创新中心`; source name `示例高校竞赛通知`; source URL `https://example.edu/notices/ai-challenge-2026`; official URL `https://example.org/ai-challenge`; suitable majors `["软件工程", "计算机科学与技术"]`; suitable grades `["大二", "大三"]`; tags `["人工智能", "创新创业", "校级推荐"]`; value notes `校级推荐，适合有项目实践基础的学生`. | Main publication, list, detail, follow-up, and recommendation path. |
-| `competition.incomplete-draft` | `draft` | Title `材料不完整的赛事草稿`; source name and source URL present; missing summary/detail; may also omit time nodes if the implementation supports time-node validation | Submission validation failure. |
+| `competition.ai-challenge-published` | `published` | Series and edition label; title `全国大学生人工智能创新挑战赛`; category `创新创业`; organizer `示例高校创新中心`; source name `示例高校竞赛通知`; source URL `https://example.edu/notices/ai-challenge-2026`; official URL `https://example.org/ai-challenge`; eligibility; team participant form and team-size facts; selected major/grade scopes; suitable majors `["软件工程", "计算机科学与技术"]`; suitable grades `["大二", "大三"]`; tags `["人工智能", "创新创业", "校级推荐"]`; value notes `校级推荐，适合有项目实践基础的学生`. | Main publication, list, detail, follow-up, and recommendation path. |
+| `competition.incomplete-draft` | `draft` | Title `材料不完整的赛事草稿`; source name and source URL present; missing summary/detail and valid recognized time nodes. | Submission validation failure. |
 | `competition.ai-challenge-pending` | `pending_review` | Same domain as the published AI challenge but not approved. | Review workflow and public visibility exclusion. |
 | `competition.robotics-rejected` | `rejected` | Title `机器人挑战赛退回样例`; source facts present; review comment explains missing official confirmation. | Public visibility exclusion and governance evidence. |
-| `competition.math-offline` | `offline` or `cancelled` | Title `数学建模下架样例`; source facts present; no default public visibility. | Public list/detail exclusion and reminder cancellation checks when implemented. |
+| `competition.math-offline` | `offline` | Title `数学建模下架样例`; source facts present; no public list or detail visibility. | Public withdrawal and reminder cancellation checks when implemented. |
+| `competition.cancelled-history` | `cancelled` | Title `已取消赛事样例`; source facts present; previously published. | Default discovery exclusion and status-warning detail behavior. |
 | `competition.innovation-fallback` | `published` | Title `大学生创新创业训练计划`; category `创新创业`; source facts and future deadline. | Anonymous or profile-incomplete recommendation fallback. |
 
 ### Time Nodes
 
-| Competition | Node type | Due date | Purpose |
+| Competition | Node type | Occurs at | Purpose |
 |---|---|---|---|
 | `competition.ai-challenge-published` | `registration_deadline` | `2026-08-15T16:00:00Z` | Public next node, calendar, and reminder creation. |
 | `competition.ai-challenge-published` | `submission_deadline` | `2026-09-10T16:00:00Z` | Subscription reminder generation. |
@@ -138,9 +139,17 @@ demo runs after these dates, shift them forward while preserving relative order.
 | Symbolic ID | Required state | Purpose |
 |---|---|---|
 | `favorite.student-ai-challenge` | User `student.day1@example.edu`; competition `competition.ai-challenge-published`; active true. | D1-08 收藏 evidence. |
-| `subscription.student-ai-challenge` | User `student.day1@example.edu`; competition `competition.ai-challenge-published`; active; reminder enabled; remind days 3; node types registration/submission/start. | D1-09 and D1-10 subscription evidence. |
+| `subscription.student-ai-challenge` | User `student.day1@example.edu`; competition `competition.ai-challenge-published`; active; reminder explicitly confirmed enabled; remind days 3; controlled node types registration/submission/start. | D1-09 and D1-10 subscription evidence. |
 | `reminder.ai-registration` | Pending reminder for registration deadline. | Calendar/reminder generation. |
-| `message.ai-registration-due` | Sent or unread message linked to due reminder, only if dispatch exists. | Idempotent dispatch and message evidence. |
+| `message.ai-registration-due` | Unread `reminder_due` message linked to the sent reminder, with immutable competition/node snapshots and a 365-day retention deadline. | Idempotent dispatch, unread badge, and message-center evidence. |
+| `message.ai-time-changed` | Read `competition_time_changed` message keyed by student and node revision; immutable old/new time summary. | Historical read state, type filtering, and repeated-event idempotency. |
+
+### Analytics Records
+
+| Symbolic ID | Required state | Purpose |
+|---|---|---|
+| `outbound-click.ai-official` | Raw best-effort click for the AI challenge current public revision; target `official_url`; source `competition_detail`; actor kind only; no user, account, IP, User-Agent, or visitor identifier. | D1-07 direct-navigation, privacy-field, and 90-day raw-retention evidence. |
+| `outbound-click-daily.ai-official` | Idempotent `Asia/Shanghai` daily aggregate for the same edition, target type, source surface, and actor kind. | D1-12 recorded-click count and no-user-drill-down evidence. |
 
 ### Governance Records
 
@@ -148,7 +157,7 @@ demo runs after these dates, shift them forward while preserving relative order.
 |---|---|---|
 | `review.ai-challenge-approved` | Target `competition.ai-challenge-published`; status `approved`; reviewer `reviewer.day1@example.edu`; comment `信息完整，来源可信`. | D1-05 and D1-12 review evidence. |
 | `review.robotics-rejected` | Target `competition.robotics-rejected`; status `rejected`; comment names missing official confirmation. | D1-06 and governance evidence. |
-| `audit.publish-ai-challenge` | Actor admin or reviewer; action create/submit/approve/publish; result success. | D1-12 audit evidence when audit logs exist. |
+| `audit.publish-ai-challenge` | Actor admin or reviewer; action create/submit/approve/publish; result success; only action-allowlisted detail. | Required D1-12 audit evidence and sensitive-field exclusion. |
 
 ### Expected Recommendation Reasons
 
@@ -162,6 +171,15 @@ eligible for reasons such as:
 
 Recommendation output must expose reasons and ordering, not a public numeric
 score or 赛事 value rating.
+
+### Recommendation Rule Set
+
+| Symbolic ID | Required state | Purpose |
+|---|---|---|
+| `rule-set.p2-v1` | Immutable version 1; active; controlled major/grade/interest/deadline/fallback rules; seeded reproducibly; activated by a reviewer distinct from its submitter. | D1-11 personalized version/reason traceability and D1-12 governance evidence. |
+| `review.rule-set-p2-v1` | Approved recommendation rule-set review with submitter, distinct reviewer, synthetic-preview summary, differences, reason, and activation time. | Self-review denial, atomic activation, and audit evidence. |
+| `recommendation-request.day1` | Opaque request with returned AI challenge item, server-owned position/mode/rule version/reason codes, one impressed timestamp and one clicked timestamp; no user/profile/device identifiers. | D1-11 render/click idempotency, anti-forgery, privacy, and non-blocking behavior. |
+| `recommendation-daily.day1` | Idempotent Shanghai-date aggregate for recorded impressions and clicks by rule version/mode/position/reason/actor kind/赛事. | D1-12 best-effort recommendation ratio and no-user-drill-down evidence. |
 
 ## Required Acceptance Addendum For Day 1 Work
 
@@ -182,7 +200,7 @@ members to re-run unrelated downstream work.
 |---|---|---|---|
 | #24 public list/detail | D1-06 and D1-07. | Published and non-public competition records from #23. | Start implementation from the public visibility contract, then record list/detail evidence and skipped personal-state checks if #22 or #26 is not ready. |
 | #26 subscription/reminder/calendar | D1-08, D1-09, and D1-10. | Student/profile seed from #22 plus published competition seed from #23/#24. | Start from the logged-in student and published 赛事, then record favorite/subscription/reminder/calendar evidence and skipped dispatch evidence if the worker is not implemented. |
-| #27 recommendation/governance | D1-11 and D1-12. | Student profile seed from #22, published/non-public competition seed from #23/#24, and governance evidence from #23. | Start from traceable recommendation reasons and no-score output, then record governance/stat evidence only for surfaces implemented in the slice. |
+| #27 recommendation/governance | D1-11 and D1-12. | Student profile seed from #22, published/non-public competition seed from #23/#24, and governance evidence from #23. | Deliver traceable recommendation reasons and no-score output, then record Review, Audit, and Statistics evidence; all three governance surfaces are required for P2 thin. |
 
 ### Post-Push Comment Rule
 

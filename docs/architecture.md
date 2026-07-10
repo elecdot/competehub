@@ -10,6 +10,11 @@ Detailed implementation conventions remain in `docs/tech_spec.zh.md`. Time-bound
 
 CompeteHub helps undergraduate students discover trustworthy competitions, judge fit, subscribe to key milestones, and receive in-app reminders. Administrators maintain competition data, review content, configure rules, and inspect operational records.
 
+Each P1 deployment belongs to one configured university. Users, administrators,
+colleges, dictionaries, and school-level governance are institution-local, while
+the competition catalog may retain trustworthy external source facts. A shared
+multi-university platform is not part of the current architecture boundary.
+
 External dependencies:
 
 - Official competition websites and school or college announcements as source links.
@@ -82,11 +87,12 @@ Initial backend domains:
 - `auth`: registration, login, logout, current user.
 - `users`: student profile and preferences.
 - `competitions`: public competition list, filters, details, outbound link tracking.
-- `admin`: competition creation, review, status management, configuration.
+- `admin`: competition creation, review, status management, configuration, and
+  read-only governance statistics.
 - `subscriptions`: favorites, subscriptions, personal calendar.
 - `notifications`: in-app messages, reminder settings, read state.
 - `recommendations`: rule-based recommendation and reasons.
-- `audit`: operation log queries.
+- `audit`: immutable review-decision and operation-event queries.
 
 ## Frontend Architecture
 
@@ -125,10 +131,11 @@ Frontend permission checks are only for user experience. Backend APIs must enfor
 ### Competition Publication
 
 ```text
-Admin creates draft
+Admin selects or creates competition series
+  -> creates edition draft
   -> submit review
   -> reviewer approves
-  -> competition becomes published
+  -> competition edition becomes published
   -> public list/search/recommendation can include it
 ```
 
