@@ -1,40 +1,23 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from competehub_api import create_app
 from competehub_api.extensions import db
 from competehub_api.models import (
     Competition,
     CompetitionTag,
     CompetitionTagLink,
     CompetitionTimeNode,
+    User,
 )
-from competehub_api.models.enums import CompetitionStatus
+from competehub_api.models.enums import CompetitionStatus, UserRole
 
 
-@pytest.fixture
-def app():
-    app = create_app(
-        {
-            "TESTING": True,
-            "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:",
-        }
-    )
-
-    with app.app_context():
-        db.create_all()
-        seed_day1_competitions()
-        yield app
-        db.session.remove()
-        db.drop_all()
-
-
-@pytest.fixture
-def client(app):
-    return app.test_client()
+@pytest.fixture(autouse=True)
+def seeded_day1_competitions(app) -> None:
+    seed_day1_competitions()
 
 
 def seed_day1_competitions() -> None:
@@ -157,6 +140,27 @@ def seed_day1_competitions() -> None:
             source_url="https://example.edu/notices/offline",
             status=CompetitionStatus.OFFLINE,
         ),
+        Competition(
+            id=108,
+            title="已归档赛事样例",
+            source_name="示例高校竞赛通知",
+            source_url="https://example.edu/notices/archived",
+            status=CompetitionStatus.ARCHIVED,
+        ),
+        Competition(
+            id=109,
+            title="已取消赛事样例",
+            source_name="示例高校竞赛通知",
+            source_url="https://example.edu/notices/cancelled",
+            status=CompetitionStatus.CANCELLED,
+        ),
+        Competition(
+            id=110,
+            title="已过期赛事样例",
+            source_name="示例高校竞赛通知",
+            source_url="https://example.edu/notices/expired",
+            status=CompetitionStatus.EXPIRED,
+        ),
     ]
 
     db.session.add_all([ai_tag, innovation_tag, ai_challenge, fallback, no_time, *non_public])
@@ -197,6 +201,28 @@ def test_public_competition_filters_preserve_visibility_contract(client) -> None
     hidden_category_response = client.get("/api/v1/competitions?category=数学建模")
     assert hidden_category_response.get_json()["data"]["items"] == []
 
+    field_response = client.get(
+        "/api/v1/competitions?category=创新创业&grade=大二&participant_form=team"
+    )
+    assert [item["id"] for item in field_response.get_json()["data"]["items"]] == [101]
+
+
+def test_public_competition_pagination_is_applied_after_filters(client) -> None:
+    response = client.get("/api/v1/competitions?category=创新创业&page=2&page_size=1")
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["data"]["pagination"] == {"page": 2, "page_size": 1, "total": 3}
+    assert [item["id"] for item in body["data"]["items"]] == [106]
+
+
+@pytest.mark.parametrize("query", ["page=0", "page=invalid", "page_size=0", "page_size=101"])
+def test_public_competition_rejects_invalid_pagination(client, query) -> None:
+    response = client.get(f"/api/v1/competitions?{query}")
+
+    assert response.status_code == 400
+    assert response.get_json()["error"]["code"] == "validation_error"
+
 
 def test_public_competition_detail_returns_stable_summary_and_detail_contract(client) -> None:
     response = client.get("/api/v1/competitions/101")
@@ -233,8 +259,105 @@ def test_public_competition_detail_keeps_missing_time_nodes_stable(client) -> No
     assert data["time_nodes"] == []
 
 
-def test_public_competition_detail_returns_404_for_non_public_competition(client) -> None:
-    response = client.get("/api/v1/competitions/102")
+def test_public_competition_next_node_skips_elapsed_nodes(client) -> None:
+    now = datetime.now(UTC)
+    elapsed_node = CompetitionTimeNode(
+        id=220,
+        node_type="registration_start",
+        starts_at=now - timedelta(days=1),
+        description="报名已开始",
+    )
+    upcoming_node = CompetitionTimeNode(
+        id=221,
+        node_type="registration_deadline",
+        due_at=now + timedelta(days=1),
+        description="报名截止",
+    )
+    competition = Competition(
+        id=120,
+        title="动态时间节点赛事",
+        source_name="示例高校竞赛通知",
+        source_url="https://example.edu/notices/dynamic-time",
+        status=CompetitionStatus.PUBLISHED,
+        time_nodes=[elapsed_node, upcoming_node],
+    )
+    db.session.add(competition)
+    db.session.commit()
+
+    response = client.get("/api/v1/competitions/120")
+
+    assert response.status_code == 200
+    assert response.get_json()["data"]["next_node"]["id"] == 221
+
+
+@pytest.mark.parametrize("competition_id", [102, 103, 104, 105, 108, 109, 110])
+def test_public_competition_detail_returns_404_for_non_public_competition(
+    client,
+    competition_id,
+) -> None:
+    response = client.get(f"/api/v1/competitions/{competition_id}")
 
     assert response.status_code == 404
     assert response.get_json()["error"]["code"] == "not_found"
+
+
+def test_admin_publication_is_immediately_visible_and_maintenance_hides_it(client) -> None:
+    admin = User(
+        id=1,
+        email="admin-public-flow@example.edu",
+        password_hash="not-used",
+        display_name="Publication Admin",
+        role=UserRole.ADMIN,
+    )
+    db.session.add(admin)
+    db.session.commit()
+    with client.session_transaction() as session:
+        session["user_id"] = admin.id
+
+    create_response = client.post(
+        "/api/v1/admin/competitions",
+        json={
+            "title": "跨切片发布验收赛事",
+            "category": "创新创业",
+            "source_name": "示例高校竞赛通知",
+            "source_url": "https://example.edu/notices/cross-slice",
+            "official_url": "https://example.org/cross-slice",
+            "summary": "用于验证后台发布后公开发现立即生效。",
+            "time_nodes": [
+                {
+                    "node_type": "registration_deadline",
+                    "due_at": "2026-12-15T16:00:00Z",
+                    "description": "报名截止",
+                }
+            ],
+            "tags": [{"code": "cross-slice", "name": "跨切片", "tag_type": "topic"}],
+        },
+    )
+    assert create_response.status_code == 201
+    competition_id = create_response.get_json()["data"]["id"]
+    assert client.get(f"/api/v1/competitions/{competition_id}").status_code == 404
+
+    submit_response = client.post(f"/api/v1/admin/competitions/{competition_id}/submit_review")
+    review_response = client.post(
+        f"/api/v1/admin/competitions/{competition_id}/review",
+        json={"action": "approve", "comment": "来源可信，信息完整"},
+    )
+
+    assert submit_response.status_code == 200
+    assert review_response.status_code == 200
+    list_response = client.get("/api/v1/competitions?keyword=跨切片发布验收赛事")
+    assert [item["id"] for item in list_response.get_json()["data"]["items"]] == [competition_id]
+    detail_response = client.get(f"/api/v1/competitions/{competition_id}")
+    assert detail_response.status_code == 200
+    detail = detail_response.get_json()["data"]
+    assert detail["tags"] == ["跨切片"]
+    assert detail["suitable_majors"] == []
+    assert detail["suitable_grades"] == []
+
+    maintenance_response = client.patch(
+        f"/api/v1/admin/competitions/{competition_id}/status",
+        json={"status": "offline", "reason": "验收下架"},
+    )
+
+    assert maintenance_response.status_code == 200
+    assert client.get(f"/api/v1/competitions/{competition_id}").status_code == 404

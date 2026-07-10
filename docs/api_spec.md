@@ -95,7 +95,7 @@ Common list query parameters:
 | Parameter | Type | Meaning |
 |---|---|---|
 | `page` | integer | Page number, starting from 1. |
-| `page_size` | integer | Items per page. |
+| `page_size` | integer | Items per page, from 1 to 100. |
 | `sort` | string | Sort key, such as `deadline`, `published_at`, `recommendation`, `popularity`. |
 
 Competition filters:
@@ -213,7 +213,7 @@ Request:
 
 ### `GET /competitions`
 
-Search, filter, sort, and paginate public competitions.
+Search, filter, and paginate public competitions.
 
 Visibility rules:
 
@@ -244,7 +244,7 @@ Response item:
     "id": 11,
     "node_type": "registration_deadline",
     "starts_at": null,
-    "due_at": "2026-06-01T16:00:00Z",
+    "due_at": "2026-12-15T16:00:00Z",
     "description": "报名截止"
   },
   "is_favorited": false,
@@ -252,7 +252,9 @@ Response item:
 }
 ```
 
-If a public competition has no time nodes yet, `next_node` is `null`.
+`next_node` is the nearest current or future time node. Elapsed nodes remain in
+the detail timeline but are not returned as `next_node`. If a public competition
+has no upcoming time node, `next_node` is `null`.
 
 Supported Day 1 filters:
 
@@ -295,14 +297,14 @@ Response data extends the list item with detail fields:
     "id": 11,
     "node_type": "registration_deadline",
     "starts_at": null,
-    "due_at": "2026-06-01T16:00:00Z"
+    "due_at": "2026-12-15T16:00:00Z"
   },
   "time_nodes": [
     {
       "id": 11,
       "node_type": "registration_deadline",
       "starts_at": null,
-      "due_at": "2026-06-01T16:00:00Z",
+      "due_at": "2026-12-15T16:00:00Z",
       "description": "报名截止"
     }
   ],
