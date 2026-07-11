@@ -127,6 +127,7 @@ why it was not run.
 - Full local gate: `just check`.
 - Backend code: `just api-test`, `just api-lint` and `just api-format`.
 - Frontend code: `just web-lint` and `just web-build`.
+- Browser acceptance: `just web-e2e`.
 - Documentation: `just docs-build`.
 - Infrastructure: `just infra-config`.
 - CI workflow changes: keep local commands, `justfile`, package scripts, and

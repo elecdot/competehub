@@ -494,14 +494,14 @@ Redis 不用于：
 | Integration tests | 管理员发布赛事、学生搜索订阅、提醒生成消息和日历节点。 | P1 主闭环稳定后补服务/API 集成测试；自动化前使用手工验收脚本。 |
 | Frontend static checks | Vue routes、TypeScript 类型、构建产物。 | `just web-lint` 执行 `vue-tsc --noEmit`，`just web-build` 执行生产构建。 |
 | Frontend component tests | 筛选、详情状态、订阅状态、消息状态。 | P1 UI 稳定后再引入 Vitest 或等价框架，并同步 `apps/web/package.json`、`justfile` 和本文档。 |
-| E2E / manual acceptance | 中期和答辩演示主流程。 | P1 引入 Playwright，覆盖独立编辑者提交、独立审核者发布、学生端可见，以及日历桌面/月周列表切换、移动端列表、同日多节点和改期刷新；P2 增量覆盖推荐路径、审核/审计/统计三个治理标签页、代表性筛选与学生权限拒绝；手工验收补充探索性与视觉检查。 |
+| E2E / manual acceptance | 中期和答辩演示主流程。 | `just web-e2e` 运行共享 Playwright Chromium 门禁；基础层提供确定性学生/编辑者/审核者 Cookie 会话和非空页面 smoke。后续 P1/P2 issue 增量覆盖发布、日历、推荐及治理路径；手工验收补充探索性与视觉检查。 |
 
 ### 11.2 Frontend quality gates
 
 - Current static checks：`vue-tsc --noEmit`，通过 `just web-lint` 执行；`just web-build` 同时执行类型检查和 Vite build。
 - Stage 1 lint / format：P1 页面和 stores 稳定后，引入 ESLint、`eslint-plugin-vue` 和 Prettier。
 - Stage 2 unit / component tests：核心组件和 stores 稳定后，引入 Vitest 和 Vue Test Utils，覆盖工具函数、stores、赛事筛选、详情状态和消息状态。
-- Stage 3 E2E tests：P1 赛事治理工作台完成时即引入 Playwright，先覆盖独立管理员编辑提交、审核发布和学生端可见；日历交付时增量覆盖月/周/列表切换、移动端列表、同日多节点、提醒关闭但节点保留和改期刷新；P2 再覆盖推荐结果以及审核、审计、统计三个治理标签页的导航、筛选、详情和权限边界。
+- Stage 3 E2E tests：共享 Playwright Chromium 门禁已通过 `just web-e2e` 建立，使用隔离可重建数据库、真实登录 Cookie、确定性学生/编辑者/审核者 actor，并将未捕获页面或 console 错误视为失败。P1 赛事治理工作台增量覆盖独立管理员编辑提交、审核发布和学生端可见；日历交付时覆盖月/周/列表切换、移动端列表、同日多节点、提醒关闭但节点保留和改期刷新；P2 再覆盖推荐结果以及审核、审计、统计三个治理标签页的导航、筛选、详情和权限边界。
 - 每个前端质量门禁阶段必须在同一变更中同步 `apps/web/package.json`、lockfile、`justfile` 和本文档；分阶段决策见 `docs/adr/0010-staged-frontend-quality-gates.md`。
 
 ### 11.3 TDD 与非功能验证
@@ -542,6 +542,8 @@ api-lint
 api-format
 web-install
 web-dev
+web-e2e-install
+web-e2e
 web-lint
 web-build
 docs-build

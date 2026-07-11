@@ -57,7 +57,8 @@ Run the narrowest useful checks while developing, then run all checks relevant
 to the changed surfaces before handoff.
 
 - Backend: `just api-test`, `just api-lint`, `just api-format`.
-- Frontend: `just web-lint`, `just web-build`.
+- Frontend: `just web-lint`, `just web-build`, and `just web-e2e` when browser
+  behavior or the shared browser harness is affected.
 - Documentation: `just docs-build`.
 - Infrastructure: `just infra-config`.
 - Broad or release-like changes: `just check`.
