@@ -39,7 +39,7 @@ Current project recipes include:
 - `agent-uv`: run a raw `uv` command with the agent-safe environment.
 - `fmt`: run configured formatters.
 - `lint`: run backend and frontend checks.
-- `test`: run configured tests.
+- `test`: run backend and Playwright browser tests.
 - `build`: run build checks.
 - `api-sync`: sync backend dependencies.
 - `api-dev`: start the Flask backend.
@@ -50,6 +50,8 @@ Current project recipes include:
 - `docs-build`: build the MkDocs Material documentation site.
 - `docs-serve`: start the local MkDocs documentation server.
 - `web-dev`: start the Vue dev server.
+- `web-e2e-install`: install the Chromium binary used by Playwright.
+- `web-e2e`: reset the isolated browser seed and run the Playwright suite.
 - `web-lint`: run frontend type checks.
 - `web-build`: build the Vue app.
 - `infra-up`: start local PostgreSQL and Redis.

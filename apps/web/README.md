@@ -30,6 +30,8 @@ just web-install
 just web-dev
 just web-build
 just web-lint
+just web-e2e-install
+just web-e2e
 ```
 
 Or run npm directly:
@@ -37,7 +39,18 @@ Or run npm directly:
 ```bash
 npm --prefix apps/web install
 npm --prefix apps/web run dev
+npm --prefix apps/web run test:e2e
 ```
+
+`just web-e2e-install` downloads the Chromium binary used by the browser suite.
+`just setup` includes that installation for a clean checkout. The canonical
+project command is `npm --prefix apps/web run test:e2e`; `just web-e2e` is its
+workspace-safe root wrapper and CI runs the same npm command.
+
+The browser command rebuilds an isolated SQLite database under `.cache`, then
+provisions distinct Day 1 student, editor, and reviewer accounts. Actor fixtures
+log in through the backend and use the resulting Cookie session. The seed is a
+controlled test provisioning path, not public registration or verification.
 
 ## Local Conventions
 
@@ -58,5 +71,9 @@ npm --prefix apps/web run dev
 
 - Current lint gate: `just web-lint`, which runs `vue-tsc --noEmit`.
 - Current build gate: `just web-build`, which runs type checking and Vite build.
-- Later stages add ESLint with `eslint-plugin-vue`, Prettier, Vitest with Vue Test Utils, and Playwright according to `docs/adr/0010-staged-frontend-quality-gates.md`.
+- Current browser gate: `just web-e2e`, which runs the Chromium Playwright
+  suite, fails on uncaught page or console errors, and retains failure artifacts.
+- Later stages add ESLint with `eslint-plugin-vue`, Prettier, and Vitest with Vue
+  Test Utils; feature slices expand the shared Playwright paths according to
+  `docs/adr/0010-staged-frontend-quality-gates.md`.
 - Any PR that introduces a new frontend quality tool must update `apps/web/package.json`, `package-lock.json`, the root `justfile`, and the relevant docs together.

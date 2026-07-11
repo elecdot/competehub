@@ -6,8 +6,11 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
+    "e2e:install": "playwright install chromium",
     "preview": "vite preview",
     "lint": "vue-tsc --noEmit",
+    "seed:e2e": "../../scripts/agent-env.sh uv run --project ../api flask --app competehub_api.app:create_e2e_app seed-e2e --reset",
+    "test:e2e": "npm run seed:e2e && playwright test",
     "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {
@@ -19,6 +22,7 @@
     "vue-router": "^4.6.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@tsconfig/node22": "^22.0.0",
     "@types/node": "^24.0.0",
     "@vitejs/plugin-vue": "^6.0.0",

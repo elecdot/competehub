@@ -45,6 +45,10 @@ Raw Python commands should go through the workspace-safe helper:
 
 Local PostgreSQL and Redis can be started with `just infra-up`.
 
+The Playwright harness uses `create_e2e_app` and the guarded `seed-e2e --reset`
+command to rebuild only `.cache/tmp/competehub-e2e.db`. That factory is test
+support for `just web-e2e`; it is not a development or production seed path.
+
 ## Local Conventions
 
 - Keep route handlers thin; business logic belongs in `services/`.

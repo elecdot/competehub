@@ -41,7 +41,8 @@ just pre-commit
 
 ## Install Dependencies
 
-Install backend and frontend dependencies through the root setup recipe:
+Install backend and frontend dependencies plus the Chromium browser used by
+Playwright through the root setup recipe:
 
 ```bash
 just setup
@@ -52,6 +53,7 @@ The equivalent component commands are:
 ```bash
 just api-sync
 just web-install
+just web-e2e-install
 ```
 
 ## Configure Environment
@@ -104,4 +106,5 @@ just check
 ```
 
 Use component recipes such as `just api-test`, `just web-build`,
-`just docs-build`, or `just infra-config` when you only need one area.
+`just web-e2e`, `just docs-build`, or `just infra-config` when you only need one
+area.

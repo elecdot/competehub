@@ -257,6 +257,7 @@ Validation matrix:
 
 - Backend: `just api-test`, `just api-lint`, `just api-format`.
 - Frontend: `just web-lint`, `just web-build`.
+- Browser acceptance: `just web-e2e`.
 - Documentation and navigation: `just docs-build`.
 - Infrastructure: `just infra-config`.
 - Full local gate: `just check`.

@@ -4,8 +4,8 @@ set shell := ["bash", "-cu"]
 default:
     @just --list
 
-# Prepare backend and frontend dependencies.
-setup: api-sync web-install
+# Prepare backend, frontend, and browser-test dependencies.
+setup: api-sync web-install web-e2e-install
 
 # Show workspace status and required tool availability.
 doctor:
@@ -47,7 +47,7 @@ fmt: api-format
 lint: api-lint web-lint
 
 # Run all tests.
-test: api-test
+test: api-test web-e2e
 
 # Run all build checks.
 build: web-build docs-build
@@ -87,6 +87,14 @@ docs-serve:
 # Start the Vue development server.
 web-dev:
     ./scripts/agent-env.sh npm --prefix apps/web run dev
+
+# Install the Chromium browser used by Playwright.
+web-e2e-install:
+    ./scripts/agent-env.sh npm --prefix apps/web run e2e:install
+
+# Run the deterministic Playwright browser suite.
+web-e2e:
+    ./scripts/agent-env.sh npm --prefix apps/web run test:e2e
 
 # Build the Vue application.
 web-build:

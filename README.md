@@ -110,6 +110,7 @@ just api-lint
 just api-format
 just web-lint
 just web-build
+just web-e2e
 just docs-build
 just infra-config
 ```
