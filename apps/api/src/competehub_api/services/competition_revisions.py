@@ -13,6 +13,8 @@ from competehub_api.models import (
     CompetitionRevision,
     CompetitionSeries,
     CompetitionStage,
+    CompetitionTag,
+    CompetitionTagLink,
     CompetitionTimeNode,
     ReviewRecord,
     User,
@@ -25,6 +27,7 @@ from competehub_api.models.enums import (
 from competehub_api.repositories.competitions import (
     get_competition_series,
     get_competition_series_by_name,
+    get_competition_tag_by_code,
 )
 from competehub_api.services.errors import ServiceError
 
@@ -41,8 +44,11 @@ REVISION_FIELDS = (
     "summary",
     "detail",
     "eligibility",
+    "registration_applicability",
     "team_size",
     "participant_forms",
+    "major_scope",
+    "grade_scope",
     "suitable_majors",
     "suitable_grades",
     "value_notes",
@@ -55,9 +61,10 @@ REQUIRED_PUBLICATION_FIELDS = (
     "source_url",
     "summary",
     "eligibility",
+    "registration_applicability",
     "participant_forms",
-    "suitable_majors",
-    "suitable_grades",
+    "major_scope",
+    "grade_scope",
 )
 CORE_NODE_TYPES = {
     "registration_start",
@@ -67,6 +74,11 @@ CORE_NODE_TYPES = {
     "competition_end",
     "defense_or_review",
     "result_announcement",
+}
+PRIMARY_NODE_TYPES = {
+    "registration_deadline",
+    "submission_deadline",
+    "competition_start",
 }
 
 
@@ -92,6 +104,7 @@ def create_edition_with_revision(payload: dict[str, Any], actor: User) -> Compet
     series_id = payload.pop("series_id")
     edition_label = payload.pop("edition_label")
     stages = payload.pop("stages", []) or []
+    tags = payload.pop("tags", []) or []
     series = get_competition_series(series_id)
     if series is None:
         raise ServiceError(HTTPStatus.NOT_FOUND, "not_found", "competition series not found")
@@ -125,13 +138,18 @@ def create_edition_with_revision(payload: dict[str, Any], actor: User) -> Compet
     )
     db.session.add(edition)
     _replace_stages(revision, edition, stages)
+    _replace_tags(revision, tags)
     db.session.flush()
     _write_audit(
         actor,
         "competition_revision.create",
         "competition_revision",
         revision.id,
-        {"competition_id": edition.id, "revision_number": 1},
+        {
+            "competition_id": edition.id,
+            "revision_number": 1,
+            "prominence_overrides": _prominence_overrides(revision),
+        },
     )
     db.session.commit()
     return edition
@@ -151,17 +169,29 @@ def update_revision(
         )
     payload = payload.copy()
     stages = payload.pop("stages", None)
+    tags = payload.pop("tags", None)
     for field, value in payload.items():
         setattr(revision, field, value)
     if stages is not None:
         _replace_stages(revision, revision.competition, stages or [])
-    changed_fields = sorted([*payload, *(["stages"] if stages is not None else [])])
+    if tags is not None:
+        _replace_tags(revision, tags or [])
+    changed_fields = sorted(
+        [
+            *payload,
+            *(["stages"] if stages is not None else []),
+            *(["tags"] if tags is not None else []),
+        ]
+    )
     _write_audit(
         actor,
         "competition_revision.update",
         "competition_revision",
         revision.id,
-        {"fields": changed_fields},
+        {
+            "fields": changed_fields,
+            "prominence_overrides": _prominence_overrides(revision),
+        },
     )
     db.session.commit()
     return revision
@@ -174,45 +204,19 @@ def submit_revision(revision: CompetitionRevision, actor: User) -> CompetitionRe
             "conflict",
             "only draft revisions can be submitted",
         )
-    missing_fields = [
-        field for field in REQUIRED_PUBLICATION_FIELDS if not getattr(revision, field)
-    ]
-    if not revision.stages:
-        missing_fields.append("stages")
-    primary_core_nodes = [
-        node
-        for stage in revision.stages
-        for node in stage.time_nodes
-        if node.prominence == "primary" and node.node_type in CORE_NODE_TYPES
-    ]
-    if not primary_core_nodes:
-        missing_fields.append("primary_core_time_node")
-    if "team" in revision.participant_forms and not revision.team_size:
-        missing_fields.append("team_size")
-    if missing_fields:
+    completeness = revision_completeness(revision)
+    if not completeness["is_complete"]:
         raise ServiceError(
             HTTPStatus.BAD_REQUEST,
             "validation_error",
             "competition revision is incomplete",
-            {"missing_fields": sorted(set(missing_fields))},
+            completeness,
         )
 
     now = datetime.now(UTC)
     revision.revision_status = CompetitionRevisionStatus.PENDING_REVIEW
     revision.submitted_by_id = actor.id
     revision.submitted_at = now
-    differences = revision_differences(revision)
-    impact = revision_impact(revision)
-    db.session.add(
-        ReviewRecord(
-            target_type="competition_revision",
-            target_id=revision.id,
-            submitted_by_id=actor.id,
-            status=ReviewStatus.PENDING,
-            differences=differences,
-            impact=impact,
-        )
-    )
     _write_audit(
         actor,
         "competition_revision.submit_review",
@@ -250,18 +254,6 @@ def review_revision(
             "forbidden",
             "the submitter cannot review the same revision",
         )
-    review = db.session.scalar(
-        select(ReviewRecord)
-        .where(
-            ReviewRecord.target_type == "competition_revision",
-            ReviewRecord.target_id == revision.id,
-            ReviewRecord.status == ReviewStatus.PENDING,
-        )
-        .with_for_update()
-    )
-    if review is None:
-        raise ServiceError(HTTPStatus.CONFLICT, "conflict", "pending review evidence is missing")
-
     now = datetime.now(UTC)
     status_by_action = {
         "approve": (CompetitionRevisionStatus.APPROVED, ReviewStatus.APPROVED),
@@ -289,10 +281,20 @@ def review_revision(
 
     revision.revision_status = revision_status
     revision.decided_at = now
-    review.status = review_status
-    review.reviewed_by_id = actor.id
-    review.comment = comment
-    review.decided_at = now
+    db.session.add(
+        ReviewRecord(
+            target_type="competition_revision",
+            target_id=revision.id,
+            submitted_by_id=revision.submitted_by_id,
+            submitted_at=revision.submitted_at,
+            reviewed_by_id=actor.id,
+            status=review_status,
+            comment=comment,
+            differences=revision_differences(revision),
+            impact=revision_impact(revision),
+            decided_at=now,
+        )
+    )
     _write_audit(
         actor,
         f"competition_revision.{action}",
@@ -305,22 +307,57 @@ def review_revision(
 
 
 def revision_differences(revision: CompetitionRevision) -> list[dict[str, Any]]:
+    comparison = revision_comparison(revision)
+    return [
+        *comparison["field_changes"],
+        *comparison["stage_changes"],
+        *comparison["time_node_changes"],
+    ]
+
+
+def revision_comparison(revision: CompetitionRevision) -> dict[str, list[dict[str, Any]]]:
     base = revision.competition.published_revision if revision.base_revision_id else None
-    differences = []
+    field_changes = []
     for field in REVISION_FIELDS:
         before = getattr(base, field) if base is not None else None
         after = getattr(revision, field)
         if before != after:
-            differences.append({"field": field, "before": before, "after": after})
-    if revision.stages:
-        differences.append(
-            {
-                "field": "stages",
-                "before": 0 if base is None else len(base.stages),
-                "after": len(revision.stages),
-            }
+            field_changes.append(
+                {"kind": "field", "field": field, "before": before, "after": after}
+            )
+    before_tags = _tag_codes(base) if base is not None else []
+    after_tags = _tag_codes(revision)
+    if before_tags != after_tags:
+        field_changes.append(
+            {"kind": "field", "field": "tags", "before": before_tags, "after": after_tags}
         )
-    return differences
+
+    stage_changes = _keyed_changes(
+        "stage",
+        {_stage.stage_key: _stage_facts(_stage) for _stage in base.stages} if base else {},
+        {_stage.stage_key: _stage_facts(_stage) for _stage in revision.stages},
+        "stage_key",
+    )
+    before_nodes = (
+        {
+            node.logical_node_key: _node_facts(stage, node)
+            for stage in base.stages
+            for node in stage.time_nodes
+        }
+        if base
+        else {}
+    )
+    after_nodes = {
+        node.logical_node_key: _node_facts(stage, node)
+        for stage in revision.stages
+        for node in stage.time_nodes
+    }
+    time_node_changes = _keyed_changes("time_node", before_nodes, after_nodes, "logical_node_key")
+    return {
+        "field_changes": field_changes,
+        "stage_changes": stage_changes,
+        "time_node_changes": time_node_changes,
+    }
 
 
 def revision_impact(revision: CompetitionRevision) -> dict[str, Any]:
@@ -358,22 +395,106 @@ def revision_completeness(revision: CompetitionRevision) -> dict[str, Any]:
         missing_fields.append("primary_core_time_node")
     if "team" in (revision.participant_forms or []) and not revision.team_size:
         missing_fields.append("team_size")
+    if revision.major_scope == "selected" and not revision.suitable_majors:
+        missing_fields.append("suitable_majors")
+    if revision.grade_scope == "selected" and not revision.suitable_grades:
+        missing_fields.append("suitable_grades")
+    warnings = _pair_warnings(revision)
     missing_fields = sorted(set(missing_fields))
-    return {"is_complete": not missing_fields, "missing_fields": missing_fields, "warnings": []}
+    return {
+        "is_complete": not missing_fields,
+        "missing_fields": missing_fields,
+        "warnings": warnings,
+    }
 
 
-def review_evidence(revision: CompetitionRevision) -> tuple[list, dict]:
-    review = db.session.scalar(
-        select(ReviewRecord)
-        .where(
-            ReviewRecord.target_type == "competition_revision",
-            ReviewRecord.target_id == revision.id,
+def _keyed_changes(
+    kind: str,
+    before: dict[str, dict[str, Any]],
+    after: dict[str, dict[str, Any]],
+    key_name: str,
+) -> list[dict[str, Any]]:
+    changes = []
+    for key in sorted(set(before) | set(after)):
+        old = before.get(key)
+        new = after.get(key)
+        if old == new:
+            continue
+        change = "added" if old is None else "removed" if new is None else "changed"
+        changes.append(
+            {
+                "kind": kind,
+                "change": change,
+                key_name: key,
+                "before": old,
+                "after": new,
+            }
         )
-        .order_by(ReviewRecord.id.desc())
-    )
-    if review is None:
-        return revision_differences(revision), revision_impact(revision)
-    return review.differences or [], review.impact or {}
+    return changes
+
+
+def _stage_facts(stage: CompetitionStage) -> dict[str, Any]:
+    return {
+        "stage_type": stage.stage_type,
+        "label": stage.label,
+        "order": stage.stage_order,
+    }
+
+
+def _node_facts(stage: CompetitionStage, node: CompetitionTimeNode) -> dict[str, Any]:
+    return {
+        "stage_key": stage.stage_key,
+        "node_type": node.node_type,
+        "occurs_at": node.occurs_at.isoformat() if node.occurs_at else None,
+        "description": node.description,
+        "prominence": node.prominence,
+        "prominence_override_reason": node.prominence_override_reason,
+        "node_revision": node.node_revision,
+    }
+
+
+def _tag_codes(revision: CompetitionRevision | None) -> list[str]:
+    if revision is None:
+        return []
+    return sorted(link.tag.code for link in revision.tag_links if link.tag is not None)
+
+
+def _pair_warnings(revision: CompetitionRevision) -> list[dict[str, str]]:
+    warnings = []
+    for stage in revision.stages:
+        node_types = {node.node_type for node in stage.time_nodes}
+        for first, second in (
+            ("registration_start", "registration_deadline"),
+            ("competition_start", "competition_end"),
+        ):
+            if (first in node_types) == (second in node_types):
+                continue
+            warnings.append(
+                {
+                    "code": "missing_pair",
+                    "stage_key": stage.stage_key,
+                    "missing_node_type": second if first in node_types else first,
+                }
+            )
+    return warnings
+
+
+def _prominence_overrides(revision: CompetitionRevision) -> list[dict[str, str]]:
+    overrides = []
+    for stage in revision.stages:
+        for node in stage.time_nodes:
+            default = "primary" if node.node_type in PRIMARY_NODE_TYPES else "secondary"
+            if node.prominence == default:
+                continue
+            overrides.append(
+                {
+                    "logical_node_key": node.logical_node_key,
+                    "default": default,
+                    "selected": node.prominence,
+                    "reason": node.prominence_override_reason,
+                }
+            )
+    return overrides
 
 
 def _replace_stages(
@@ -382,10 +503,12 @@ def _replace_stages(
     payloads: list[dict[str, Any]],
 ) -> None:
     revision.stages.clear()
+    if revision.id is not None:
+        db.session.flush()
     for payload in payloads:
         payload = payload.copy()
         nodes = payload.pop("time_nodes", [])
-        stage = CompetitionStage(revision=revision, **payload)
+        stage = CompetitionStage(**payload)
         for node_payload in nodes:
             stage.time_nodes.append(
                 CompetitionTimeNode(
@@ -397,10 +520,26 @@ def _replace_stages(
         revision.stages.append(stage)
 
 
+def _replace_tags(revision: CompetitionRevision, payloads: list[dict[str, Any]]) -> None:
+    revision.tag_links.clear()
+    if revision.id is not None:
+        db.session.flush()
+    for payload in payloads:
+        tag = get_competition_tag_by_code(payload["code"])
+        if tag is not None and (tag.name != payload["name"] or tag.tag_type != payload["tag_type"]):
+            raise ServiceError(
+                HTTPStatus.CONFLICT,
+                "conflict",
+                "tag code already exists with different facts",
+                {"code": payload["code"]},
+            )
+        if tag is None:
+            tag = CompetitionTag(**payload)
+        revision.tag_links.append(CompetitionTagLink(tag=tag))
+
+
 def _projection_fields(payload: dict[str, Any]) -> dict[str, Any]:
-    fields = {
-        field: payload.get(field) for field in REVISION_FIELDS if field != "participant_forms"
-    }
+    fields = {field: payload.get(field) for field in REVISION_FIELDS}
     forms = payload.get("participant_forms") or []
     fields["participant_form"] = "team" if "team" in forms else next(iter(forms), None)
     return fields
@@ -408,11 +547,9 @@ def _projection_fields(payload: dict[str, Any]) -> dict[str, Any]:
 
 def _sync_projection(edition: Competition, revision: CompetitionRevision) -> None:
     for field in REVISION_FIELDS:
-        if field == "participant_forms":
-            forms = revision.participant_forms or []
-            edition.participant_form = "team" if "team" in forms else next(iter(forms), None)
-        else:
-            setattr(edition, field, getattr(revision, field))
+        setattr(edition, field, getattr(revision, field))
+    forms = revision.participant_forms or []
+    edition.participant_form = "team" if "team" in forms else next(iter(forms), None)
 
 
 def _write_audit(

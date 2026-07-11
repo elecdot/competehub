@@ -20,25 +20,27 @@ from competehub_api.repositories.competitions import (
 from competehub_api.schemas.common import load_payload
 from competehub_api.schemas.competition_admin import (
     competition_review_schema,
-    competition_revision_schema,
     competition_revision_update_schema,
     competition_schema,
     competition_series_create_schema,
     competition_series_schema,
     competition_status_schema,
     edition_create_schema,
-    edition_workspace_schema,
 )
 from competehub_api.services.auth import current_user
 from competehub_api.services.competition_publication import (
     maintain_competition_status,
 )
+from competehub_api.services.competition_revision_views import (
+    edition_workspace_read_model,
+    edition_workspace_read_models,
+    revision_read_model,
+    revision_read_models,
+)
 from competehub_api.services.competition_revisions import (
     create_edition_with_revision,
     create_series,
-    review_evidence,
     review_revision,
-    revision_completeness,
     submit_revision,
     update_revision,
 )
@@ -66,7 +68,7 @@ def create_competition():
     except ServiceError as error:
         return _service_error_response(error)
 
-    return success_response(edition_workspace_schema.dump(competition), HTTPStatus.CREATED)
+    return success_response(edition_workspace_read_model(competition), HTTPStatus.CREATED)
 
 
 @admin_bp.get("/admin/competition_series")
@@ -102,7 +104,7 @@ def get_competition_workspace(competition_id: int):
     edition = get_edition_workspace(competition_id)
     if edition is None or edition.series_id is None:
         return error_response(HTTPStatus.NOT_FOUND, "not_found", "competition edition not found")
-    return success_response(edition_workspace_schema.dump(edition))
+    return success_response(edition_workspace_read_model(edition))
 
 
 @admin_bp.get("/admin/competitions")
@@ -110,9 +112,7 @@ def get_competition_workspaces():
     _, response = _require_competition_workbench()
     if response is not None:
         return response
-    return success_response(
-        {"items": edition_workspace_schema.dump(list_edition_workspaces(), many=True)}
-    )
+    return success_response({"items": edition_workspace_read_models(list_edition_workspaces())})
 
 
 @admin_bp.get("/admin/competition_revisions")
@@ -122,7 +122,7 @@ def get_revision_queue():
         return response
     status = request.args.get("status")
     revisions = list_competition_revisions(status)
-    return success_response({"items": [_revision_payload(revision) for revision in revisions]})
+    return success_response({"items": revision_read_models(revisions)})
 
 
 @admin_bp.get("/admin/competition_revisions/<int:revision_id>")
@@ -133,7 +133,7 @@ def get_revision_detail(revision_id: int):
     revision = get_competition_revision(revision_id)
     if revision is None:
         return error_response(HTTPStatus.NOT_FOUND, "not_found", "competition revision not found")
-    return success_response(_revision_payload(revision))
+    return success_response(revision_read_model(revision))
 
 
 @admin_bp.patch("/admin/competition_revisions/<int:revision_id>")
@@ -154,7 +154,7 @@ def update_competition_revision(revision_id: int):
         return validation_error_response(error)
     except ServiceError as error:
         return _service_error_response(error)
-    return success_response(_revision_payload(revision))
+    return success_response(revision_read_model(revision))
 
 
 @admin_bp.post("/admin/competition_revisions/<int:revision_id>/submit_review")
@@ -169,7 +169,7 @@ def submit_competition_revision(revision_id: int):
         revision = submit_revision(revision, actor)
     except ServiceError as error:
         return _service_error_response(error)
-    return success_response(_revision_payload(revision))
+    return success_response(revision_read_model(revision))
 
 
 @admin_bp.post("/admin/competition_revisions/<int:revision_id>/review")
@@ -187,7 +187,7 @@ def review_competition_revision(revision_id: int):
         return validation_error_response(error)
     except ServiceError as error:
         return _service_error_response(error)
-    return success_response(_revision_payload(revision))
+    return success_response(revision_read_model(revision))
 
 
 @admin_bp.patch("/admin/competitions/<int:competition_id>/status")
@@ -265,23 +265,3 @@ def _service_error_response(error: ServiceError):
         error.message,
         error.details,
     )
-
-
-def _revision_payload(revision):
-    payload = competition_revision_schema.dump(revision)
-    differences, impact = review_evidence(revision)
-    payload["differences"] = differences
-    payload["comparison"] = {
-        "field_changes": [item for item in differences if item.get("field") != "stages"],
-        "stage_changes": [item for item in differences if item.get("field") == "stages"],
-        "time_node_changes": [],
-    }
-    payload["impact"] = impact
-    payload["completeness"] = revision_completeness(revision)
-    payload["published_revision_id"] = revision.competition.published_revision_id
-    payload["current_published_revision_id"] = revision.competition.published_revision_id
-    payload["is_stale"] = (
-        revision.base_revision_id != revision.competition.published_revision_id
-        and revision.revision_status.value == "pending_review"
-    )
-    return payload

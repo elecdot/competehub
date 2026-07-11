@@ -31,6 +31,7 @@ class ReviewRecord(db.Model, TimestampMixin):
     comment: Mapped[str | None] = mapped_column(Text)
     differences: Mapped[list | None] = mapped_column(JSON)
     impact: Mapped[dict | None] = mapped_column(JSON)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 

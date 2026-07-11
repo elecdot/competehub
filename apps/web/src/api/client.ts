@@ -11,6 +11,7 @@ import type {
   CompetitionSeries,
   EditionDraftInput,
   EditionWorkspace,
+  RevisionDraftUpdate,
 } from '@/types/admin'
 
 export const apiClient = axios.create({
@@ -61,6 +62,17 @@ export async function createCompetitionSeries(canonicalName: string) {
 export async function createCompetitionEdition(payload: EditionDraftInput) {
   const response = await apiClient.post<ApiEnvelope<EditionWorkspace>>(
     '/admin/competitions',
+    payload,
+  )
+  return response.data.data
+}
+
+export async function updateCompetitionRevision(
+  revisionId: number,
+  payload: RevisionDraftUpdate,
+) {
+  const response = await apiClient.patch<ApiEnvelope<CompetitionRevision>>(
+    `/admin/competition_revisions/${revisionId}`,
     payload,
   )
   return response.data.data

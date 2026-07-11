@@ -1,1 +1,19 @@
-Single-database configuration for Flask.
+Single-database Alembic configuration for Flask.
+
+This directory starts the repository's migration history. The initial revision
+is a baseline for an empty database; it is not an inferred upgrade from every
+schema previously produced by `db.create_all()`.
+
+Migration policy:
+
+- Empty local, CI, or deployment database: run `flask db upgrade` normally.
+- Disposable local database created by an older checkout with `db.create_all()`:
+  delete/reset that database, then run `flask db upgrade`. Do not stamp the old
+  schema because it lacks the immutable revision tables and columns.
+- Database created from the exact current SQLAlchemy metadata: inspect that the
+  schema matches this baseline, then run `flask db stamp 4a17c3d9e507` once.
+- Shared or non-disposable database with pre-baseline data: do not reset or
+  stamp it. Create and review a dedicated data-preserving bridge migration
+  before adopting this baseline.
+
+The E2E database is disposable and is rebuilt by `seed-e2e --reset`.

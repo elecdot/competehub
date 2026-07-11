@@ -63,8 +63,12 @@ class Competition(db.Model, TimestampMixin):
     summary: Mapped[str | None] = mapped_column(Text)
     detail: Mapped[str | None] = mapped_column(Text)
     eligibility: Mapped[str | None] = mapped_column(Text)
+    registration_applicability: Mapped[str | None] = mapped_column(String(32))
     team_size: Mapped[str | None] = mapped_column(String(120))
     participant_form: Mapped[str | None] = mapped_column(String(120))
+    participant_forms: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    major_scope: Mapped[str | None] = mapped_column(String(32))
+    grade_scope: Mapped[str | None] = mapped_column(String(32))
     suitable_majors: Mapped[list | None] = mapped_column(JSON)
     suitable_grades: Mapped[list | None] = mapped_column(JSON)
     value_notes: Mapped[str | None] = mapped_column(Text)
@@ -131,8 +135,11 @@ class CompetitionRevision(db.Model, TimestampMixin):
     summary: Mapped[str | None] = mapped_column(Text)
     detail: Mapped[str | None] = mapped_column(Text)
     eligibility: Mapped[str | None] = mapped_column(Text)
+    registration_applicability: Mapped[str | None] = mapped_column(String(32))
     team_size: Mapped[str | None] = mapped_column(String(120))
     participant_forms: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    major_scope: Mapped[str | None] = mapped_column(String(32))
+    grade_scope: Mapped[str | None] = mapped_column(String(32))
     suitable_majors: Mapped[list | None] = mapped_column(JSON)
     suitable_grades: Mapped[list | None] = mapped_column(JSON)
     value_notes: Mapped[str | None] = mapped_column(Text)
@@ -223,6 +230,7 @@ class CompetitionTimeNode(db.Model, TimestampMixin):
     node_type: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
     occurs_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     prominence: Mapped[str] = mapped_column(String(20), default="secondary", nullable=False)
+    prominence_override_reason: Mapped[str | None] = mapped_column(Text)
     starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     description: Mapped[str | None] = mapped_column(Text)
@@ -270,3 +278,11 @@ class CompetitionTagLink(db.Model, TimestampMixin):
         foreign_keys=[competition_revision_id],
     )
     tag: Mapped[CompetitionTag] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint(
+            "competition_revision_id",
+            "tag_id",
+            name="uq_competition_revision_tag",
+        ),
+    )

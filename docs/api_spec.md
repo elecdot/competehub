@@ -982,12 +982,31 @@ Structured draft fields may include time nodes and controlled tags:
   "title": "全国大学生人工智能创新挑战赛",
   "source_name": "示例高校竞赛通知",
   "source_url": "https://example.edu/notices/ai-challenge-2026",
+  "category": "创新创业",
+  "organizer": "示例高校创新中心",
   "summary": "面向大学生的人工智能创新项目竞赛。",
-  "time_nodes": [
+  "eligibility": "在校本科生可报名。",
+  "registration_applicability": "applicable",
+  "participant_forms": ["individual", "team"],
+  "team_size": "1-5",
+  "major_scope": "selected",
+  "grade_scope": "selected",
+  "suitable_majors": ["软件工程"],
+  "suitable_grades": ["大二"],
+  "stages": [
     {
-      "node_type": "registration_deadline",
-      "occurs_at": "2026-08-15T16:00:00Z",
-      "description": "报名截止"
+      "stage_key": "registration",
+      "stage_type": "registration",
+      "label": "报名阶段",
+      "order": 1,
+      "time_nodes": [
+        {
+          "logical_node_key": "registration-deadline",
+          "node_type": "registration_deadline",
+          "occurs_at": "2026-08-15T16:00:00Z",
+          "description": "报名截止"
+        }
+      ]
     }
   ],
   "tags": [
@@ -999,6 +1018,12 @@ Structured draft fields may include time nodes and controlled tags:
   ]
 }
 ```
+
+`stages`, their `time_nodes`, and `tags` are revision-scoped. They are accepted
+on initial edition creation and draft revision updates; top-level legacy
+`time_nodes` are rejected as unknown fields. Node prominence defaults by
+controlled type. A value different from that default requires
+`prominence_override_reason`.
 
 ### `POST /admin/competitions/{id}/revisions`
 

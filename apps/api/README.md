@@ -52,6 +52,11 @@ Apply committed migrations with:
   --app competehub_api.app:create_app db upgrade --directory apps/api/migrations
 ```
 
+`migrations/README` defines the first-baseline adoption policy. In particular,
+an older disposable development database created with `db.create_all()` must be
+reset before upgrade; stamping is valid only after confirming that a database
+already matches the exact current metadata.
+
 The Playwright harness uses `create_e2e_app` and the guarded `seed-e2e --reset`
 command to rebuild only `.cache/tmp/competehub-e2e.db`. That factory is test
 support for `just web-e2e`; it is not a development or production seed path.

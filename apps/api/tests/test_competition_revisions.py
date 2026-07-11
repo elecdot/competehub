@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from competehub_api.extensions import db
-from competehub_api.models import AuditLog, ReviewRecord, User
+from competehub_api.models import AuditLog, Competition, ReviewRecord, User
 from competehub_api.models.enums import UserRole
 
 
@@ -43,10 +43,20 @@ def complete_edition_payload(series_id: int) -> dict:
         "official_url": "https://example.org/ai-2026",
         "summary": "A source-backed national innovation competition.",
         "eligibility": "Enrolled undergraduate students.",
+        "registration_applicability": "applicable",
         "participant_forms": ["individual", "team"],
         "team_size": "1-5",
+        "major_scope": "selected",
+        "grade_scope": "selected",
         "suitable_majors": ["Computer Science"],
         "suitable_grades": ["Year 2", "Year 3"],
+        "tags": [
+            {
+                "code": "ai",
+                "name": "Artificial Intelligence",
+                "tag_type": "topic",
+            }
+        ],
         "stages": [
             {
                 "stage_key": "registration",
@@ -66,7 +76,6 @@ def complete_edition_payload(series_id: int) -> dict:
                         "node_type": "registration_deadline",
                         "occurs_at": "2026-08-15T16:00:00Z",
                         "description": "Registration closes",
-                        "prominence": "primary",
                     },
                 ],
             }
@@ -109,6 +118,39 @@ def test_editor_creates_series_and_immutable_candidate_revision(client, app) -> 
     assert created["revision"]["base_revision_id"] is None
     assert created["revision"]["stages"][0]["order"] == 1
     assert created["revision"]["stages"][0]["time_nodes"][1]["node_revision"] == 1
+    assert created["revision"]["stages"][0]["time_nodes"][1]["prominence"] == "primary"
+    assert created["revision"]["major_scope"] == "selected"
+    assert created["revision"]["grade_scope"] == "selected"
+    assert created["revision"]["tags"][0]["code"] == "ai"
+
+    update_payload = complete_edition_payload(series_id)
+    update_payload.pop("series_id")
+    update_payload.pop("edition_label")
+    update_payload["stages"].append(
+        {
+            "stage_key": "submission",
+            "stage_type": "submission",
+            "label": "Submission",
+            "order": 2,
+            "time_nodes": [
+                {
+                    "logical_node_key": "submission-note",
+                    "node_type": "other",
+                    "occurs_at": "2026-08-20T16:00:00Z",
+                    "description": "Submission instructions published",
+                }
+            ],
+        }
+    )
+    updated = client.patch(
+        f"/api/v1/admin/competition_revisions/{created['revision']['id']}",
+        json=update_payload,
+    )
+    assert updated.status_code == 200
+    assert [stage["stage_key"] for stage in updated.get_json()["data"]["stages"]] == [
+        "registration",
+        "submission",
+    ]
 
     workspace = client.get(f"/api/v1/admin/competitions/{created['id']}")
     assert workspace.status_code == 200
@@ -143,6 +185,68 @@ def test_submit_requires_complete_http_source_and_valid_chronology(client, app) 
     assert response.status_code == 400
     assert response.get_json()["error"]["code"] == "validation_error"
     assert "summary" in response.get_json()["error"]["details"]["missing_fields"]
+
+
+def test_completeness_requires_explicit_scopes_and_reports_pair_warnings(client, app) -> None:
+    with app.app_context():
+        editor_id = create_user(
+            19, UserRole.ADMIN, "editor-scope@example.edu", ["competition_editor"]
+        )
+    login(client, editor_id)
+    series_id = create_series(client)
+    payload = complete_edition_payload(series_id)
+    payload.pop("major_scope")
+    payload["stages"][0]["time_nodes"] = payload["stages"][0]["time_nodes"][:1]
+
+    created_response = client.post("/api/v1/admin/competitions", json=payload)
+    assert created_response.status_code == 201
+    revision_id = created_response.get_json()["data"]["revision"]["id"]
+    detail = client.get(f"/api/v1/admin/competition_revisions/{revision_id}").get_json()["data"]
+
+    assert "major_scope" in detail["completeness"]["missing_fields"]
+    assert {
+        "code": "missing_pair",
+        "stage_key": "registration",
+        "missing_node_type": "registration_deadline",
+    } in detail["completeness"]["warnings"]
+    submit = client.post(f"/api/v1/admin/competition_revisions/{revision_id}/submit_review")
+    assert submit.status_code == 400
+
+
+def test_selected_scope_requires_values_and_prominence_override_requires_reason(
+    client, app
+) -> None:
+    with app.app_context():
+        editor_id = create_user(
+            20, UserRole.ADMIN, "editor-values@example.edu", ["competition_editor"]
+        )
+    login(client, editor_id)
+    series_id = create_series(client)
+    payload = complete_edition_payload(series_id)
+    payload["suitable_majors"] = []
+    payload["stages"][0]["time_nodes"][1]["prominence"] = "secondary"
+
+    response = client.post("/api/v1/admin/competitions", json=payload)
+
+    assert response.status_code == 400
+    assert response.get_json()["error"]["code"] == "validation_error"
+
+    payload["suitable_majors"] = ["Computer Science"]
+    payload["stages"][0]["time_nodes"][1]["prominence_override_reason"] = (
+        "Official source marks this deadline as secondary."
+    )
+    accepted = client.post("/api/v1/admin/competitions", json=payload)
+    assert accepted.status_code == 201
+    with app.app_context():
+        audit = AuditLog.query.filter_by(action="competition_revision.create").one()
+        assert audit.detail["prominence_overrides"] == [
+            {
+                "logical_node_key": "registration-deadline",
+                "default": "primary",
+                "selected": "secondary",
+                "reason": "Official source marks this deadline as secondary.",
+            }
+        ]
 
 
 def test_create_rejects_duplicate_revision_structure_keys(client, app) -> None:
@@ -195,6 +299,8 @@ def test_distinct_reviewer_atomically_publishes_without_mutating_snapshot(client
     submitted = client.post(f"/api/v1/admin/competition_revisions/{revision_id}/submit_review")
     assert submitted.status_code == 200
     assert submitted.get_json()["data"]["revision_status"] == "pending_review"
+    with app.app_context():
+        assert ReviewRecord.query.count() == 0
 
     self_review = client.post(
         f"/api/v1/admin/competition_revisions/{revision_id}/review",
@@ -209,6 +315,12 @@ def test_distinct_reviewer_atomically_publishes_without_mutating_snapshot(client
     assert [item["id"] for item in pending.get_json()["data"]["items"]] == [revision_id]
     assert pending.get_json()["data"]["items"][0]["differences"]
     assert "public_visibility" in pending.get_json()["data"]["items"][0]["impact"]
+    comparison = pending.get_json()["data"]["items"][0]["comparison"]
+    assert comparison["stage_changes"][0]["change"] == "added"
+    assert {item["logical_node_key"] for item in comparison["time_node_changes"]} == {
+        "registration-open",
+        "registration-deadline",
+    }
 
     approved = client.post(
         f"/api/v1/admin/competition_revisions/{revision_id}/review",
@@ -225,10 +337,25 @@ def test_distinct_reviewer_atomically_publishes_without_mutating_snapshot(client
     )
     assert immutable.status_code == 409
 
+    with app.app_context():
+        edition = db.session.get(Competition, edition_id)
+        edition.title = "Tampered mutable projection"
+        edition.participant_forms = ["team"]
+        db.session.commit()
+
     public_detail = client.get(f"/api/v1/competitions/{edition_id}")
     assert public_detail.status_code == 200
     assert public_detail.get_json()["data"]["title"] == "National AI Innovation Challenge"
     assert public_detail.get_json()["data"]["revision_id"] == revision_id
+    assert public_detail.get_json()["data"]["participant_forms"] == ["individual", "team"]
+    assert public_detail.get_json()["data"]["major_scope"] == "selected"
+    assert public_detail.get_json()["data"]["grade_scope"] == "selected"
+    assert public_detail.get_json()["data"]["tags"] == ["Artificial Intelligence"]
+    assert public_detail.get_json()["data"]["content_updated_at"] is not None
+    public_node = public_detail.get_json()["data"]["time_nodes"][0]
+    assert public_node["snapshot_id"] == public_node["id"]
+    assert public_node["stage_label"] == "Registration"
+    assert public_node["stage_order"] == 1
 
     with app.app_context():
         review = ReviewRecord.query.one()
@@ -237,6 +364,7 @@ def test_distinct_reviewer_atomically_publishes_without_mutating_snapshot(client
         assert review.submitted_by_id == editor_id
         assert review.reviewed_by_id == reviewer_id
         assert review.comment == "Source and chronology verified."
+        assert review.submitted_at is not None
         assert review.differences
         assert review.impact["public_visibility"] == "publish"
         assert review.decided_at is not None

@@ -4,9 +4,36 @@ export interface CompetitionSeries {
 }
 
 export interface RevisionDifference {
-  field: string
+  kind: 'field' | 'stage' | 'time_node'
+  change?: 'added' | 'removed' | 'changed'
+  field?: string
+  stage_key?: string
+  logical_node_key?: string
   before: unknown
   after: unknown
+}
+
+export interface RevisionTimeNodeInput {
+  logical_node_key: string
+  node_type: string
+  occurs_at: string
+  description: string
+  prominence: 'primary' | 'secondary'
+  prominence_override_reason?: string
+}
+
+export interface RevisionStageInput {
+  stage_key: string
+  stage_type: string
+  label: string
+  order: number
+  time_nodes: RevisionTimeNodeInput[]
+}
+
+export interface RevisionTagInput {
+  code: string
+  name: string
+  tag_type: string
 }
 
 export interface CompetitionRevision {
@@ -19,8 +46,26 @@ export interface CompetitionRevision {
   source_url: string
   submitted_by_id: number | null
   differences: RevisionDifference[]
+  comparison: {
+    field_changes: RevisionDifference[]
+    stage_changes: RevisionDifference[]
+    time_node_changes: RevisionDifference[]
+  }
+  completeness: {
+    is_complete: boolean
+    missing_fields: string[]
+    warnings: Array<Record<string, string>>
+  }
   impact: Record<string, unknown>
   published_revision_id: number | null
+  registration_applicability: 'applicable' | 'not_applicable' | 'unknown' | null
+  participant_forms: string[]
+  major_scope: 'all' | 'selected' | 'unknown' | null
+  grade_scope: 'all' | 'selected' | 'unknown' | null
+  suitable_majors: string[] | null
+  suitable_grades: string[] | null
+  stages: RevisionStageInput[]
+  tags: RevisionTagInput[]
 }
 
 export interface EditionWorkspace {
@@ -44,21 +89,15 @@ export interface EditionDraftInput {
   official_url?: string
   summary: string
   eligibility: string
+  registration_applicability?: 'applicable' | 'not_applicable' | 'unknown'
   participant_forms: string[]
   team_size?: string
+  major_scope?: 'all' | 'selected' | 'unknown'
+  grade_scope?: 'all' | 'selected' | 'unknown'
   suitable_majors: string[]
   suitable_grades: string[]
-  stages: Array<{
-    stage_key: string
-    stage_type: string
-    label: string
-    order: number
-    time_nodes: Array<{
-      logical_node_key: string
-      node_type: string
-      occurs_at: string
-      description: string
-      prominence: 'primary' | 'secondary'
-    }>
-  }>
+  stages: RevisionStageInput[]
+  tags: RevisionTagInput[]
 }
+
+export type RevisionDraftUpdate = Omit<EditionDraftInput, 'series_id' | 'edition_label'>

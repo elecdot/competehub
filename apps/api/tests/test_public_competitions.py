@@ -197,20 +197,28 @@ def attach_approved_revision(competition: Competition, publisher_id: int) -> Com
         summary=competition.summary,
         detail=competition.detail,
         eligibility=competition.eligibility,
+        registration_applicability="applicable",
         team_size=competition.team_size,
         participant_forms=[competition.participant_form] if competition.participant_form else [],
+        major_scope="selected" if competition.suitable_majors else "unknown",
+        grade_scope="selected" if competition.suitable_grades else "unknown",
         suitable_majors=competition.suitable_majors,
         suitable_grades=competition.suitable_grades,
         value_notes=competition.value_notes,
         created_by_id=publisher_id,
+        published_at=datetime(2026, 7, 10, 1, 0, tzinfo=UTC),
     )
     db.session.add(revision)
     db.session.flush()
     for node in competition.time_nodes:
         node.revision = revision
+        node.occurs_at = node.occurs_at or node.due_at or node.starts_at
     for link in competition.tag_links:
         link.revision = revision
     competition.published_revision_id = revision.id
+    competition.participant_forms = revision.participant_forms
+    competition.major_scope = revision.major_scope
+    competition.grade_scope = revision.grade_scope
     return revision
 
 

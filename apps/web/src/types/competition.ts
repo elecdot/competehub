@@ -11,9 +11,13 @@ export interface CompetitionSummary {
   source_name: string
   source_url: string
   official_url?: string | null
+  content_updated_at?: string | null
   tags: string[]
+  participant_forms: ParticipantForm[]
   suitable_majors: string[]
   suitable_grades: string[]
+  major_scope?: 'all' | 'selected' | 'unknown' | null
+  grade_scope?: 'all' | 'selected' | 'unknown' | null
   value_notes?: string | null
   next_node?: CompetitionTimeNode | null
   is_favorited: boolean
@@ -28,6 +32,10 @@ export interface CompetitionTimeNode {
   occurs_at?: string | null
   prominence?: 'primary' | 'secondary'
   stage_id?: number | null
+  snapshot_id?: number
+  stage_label?: string | null
+  stage_order?: number | null
+  stage_type?: string | null
   starts_at?: string | null
   due_at?: string | null
   description?: string | null
@@ -40,7 +48,7 @@ export interface CompetitionDetail extends CompetitionSummary {
   detail?: string | null
   eligibility?: string | null
   team_size?: string | null
-  participant_form?: ParticipantForm | null
+  registration_applicability?: 'applicable' | 'not_applicable' | 'unknown' | null
   time_nodes: CompetitionTimeNode[]
 }
 

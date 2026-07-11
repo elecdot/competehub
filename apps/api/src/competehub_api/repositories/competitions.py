@@ -58,6 +58,9 @@ def get_edition_workspace(competition_id: int) -> Competition | None:
             selectinload(Competition.revisions)
             .selectinload(CompetitionRevision.stages)
             .selectinload(CompetitionStage.time_nodes),
+            selectinload(Competition.revisions)
+            .selectinload(CompetitionRevision.tag_links)
+            .selectinload(CompetitionTagLink.tag),
             selectinload(Competition.published_revision),
         )
     )
@@ -73,6 +76,9 @@ def list_edition_workspaces() -> list[Competition]:
             selectinload(Competition.revisions)
             .selectinload(CompetitionRevision.stages)
             .selectinload(CompetitionStage.time_nodes),
+            selectinload(Competition.revisions)
+            .selectinload(CompetitionRevision.tag_links)
+            .selectinload(CompetitionTagLink.tag),
             selectinload(Competition.published_revision),
         )
         .order_by(Competition.edition_label.desc(), Competition.id.desc())
@@ -102,6 +108,7 @@ def get_competition_revision(revision_id: int) -> CompetitionRevision | None:
         .where(CompetitionRevision.id == revision_id)
         .options(
             selectinload(CompetitionRevision.stages).selectinload(CompetitionStage.time_nodes),
+            selectinload(CompetitionRevision.tag_links).selectinload(CompetitionTagLink.tag),
             selectinload(CompetitionRevision.competition),
         )
     )
@@ -111,6 +118,7 @@ def get_competition_revision(revision_id: int) -> CompetitionRevision | None:
 def list_competition_revisions(status: str | None = None) -> list[CompetitionRevision]:
     statement = select(CompetitionRevision).options(
         selectinload(CompetitionRevision.stages).selectinload(CompetitionStage.time_nodes),
+        selectinload(CompetitionRevision.tag_links).selectinload(CompetitionTagLink.tag),
         selectinload(CompetitionRevision.competition),
     )
     if status is not None:
@@ -164,7 +172,9 @@ def get_public_competition(competition_id: int) -> Competition | None:
 
 def _public_relation_options():
     return (
-        selectinload(Competition.published_revision).selectinload(CompetitionRevision.time_nodes),
+        selectinload(Competition.published_revision)
+        .selectinload(CompetitionRevision.time_nodes)
+        .selectinload(CompetitionTimeNode.stage),
         selectinload(Competition.published_revision)
         .selectinload(CompetitionRevision.tag_links)
         .selectinload(CompetitionTagLink.tag),
@@ -192,18 +202,44 @@ def _public_competition_conditions(query: PublicCompetitionQuery) -> list:
     if query.category is not None:
         conditions.append(Competition.category == query.category)
     if query.participant_form is not None:
-        conditions.append(Competition.participant_form == query.participant_form)
+        conditions.append(
+            _json_array_contains(Competition.participant_forms, query.participant_form)
+        )
     if query.major is not None:
-        conditions.append(_json_array_contains(Competition.suitable_majors, query.major))
+        conditions.append(
+            or_(
+                Competition.major_scope == "all",
+                and_(
+                    Competition.major_scope == "selected",
+                    _json_array_contains(Competition.suitable_majors, query.major),
+                ),
+            )
+        )
     if query.grade is not None:
-        conditions.append(_json_array_contains(Competition.suitable_grades, query.grade))
+        conditions.append(
+            or_(
+                Competition.grade_scope == "all",
+                and_(
+                    Competition.grade_scope == "selected",
+                    _json_array_contains(Competition.suitable_grades, query.grade),
+                ),
+            )
+        )
     if query.tag is not None:
         conditions.append(
-            Competition.tag_links.any(CompetitionTagLink.tag.has(CompetitionTag.name == query.tag))
+            Competition.published_revision.has(
+                CompetitionRevision.tag_links.any(
+                    CompetitionTagLink.tag.has(CompetitionTag.name == query.tag)
+                )
+            )
         )
     deadline_condition = _deadline_condition(query)
     if deadline_condition is not None:
-        conditions.append(Competition.time_nodes.any(deadline_condition))
+        conditions.append(
+            Competition.published_revision.has(
+                CompetitionRevision.time_nodes.any(deadline_condition)
+            )
+        )
     return conditions
 
 
@@ -221,37 +257,24 @@ def _deadline_condition(query: PublicCompetitionQuery):
 
     conditions = [CompetitionTimeNode.node_type == "registration_deadline"]
     if query.deadline_from is not None:
-        conditions.append(CompetitionTimeNode.due_at >= product_date_start_utc(query.deadline_from))
+        conditions.append(
+            CompetitionTimeNode.occurs_at >= product_date_start_utc(query.deadline_from)
+        )
     if query.deadline_to is not None:
         exclusive_end = query.deadline_to + timedelta(days=1)
-        conditions.append(CompetitionTimeNode.due_at < product_date_start_utc(exclusive_end))
+        conditions.append(CompetitionTimeNode.occurs_at < product_date_start_utc(exclusive_end))
     return and_(*conditions)
 
 
 def _public_competition_order(now: datetime) -> tuple:
-    next_start = (
-        select(func.min(CompetitionTimeNode.starts_at))
+    next_at = (
+        select(func.min(CompetitionTimeNode.occurs_at))
         .where(
-            CompetitionTimeNode.competition_id == Competition.id,
-            CompetitionTimeNode.starts_at >= now,
+            CompetitionTimeNode.competition_revision_id == Competition.published_revision_id,
+            CompetitionTimeNode.occurs_at >= now,
         )
         .correlate(Competition)
         .scalar_subquery()
-    )
-    next_due = (
-        select(func.min(CompetitionTimeNode.due_at))
-        .where(
-            CompetitionTimeNode.competition_id == Competition.id,
-            CompetitionTimeNode.due_at >= now,
-        )
-        .correlate(Competition)
-        .scalar_subquery()
-    )
-    next_at = case(
-        (next_start.is_(None), next_due),
-        (next_due.is_(None), next_start),
-        (next_start <= next_due, next_start),
-        else_=next_due,
     )
     return (
         case((next_at.is_(None), 1), else_=0),

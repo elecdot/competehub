@@ -499,34 +499,57 @@ a:focus-visible {
   min-width: 0;
 }
 
-.editor-form label {
-  color: #374151;
-  display: grid;
-  font-size: 13px;
-  font-weight: 700;
-  gap: 6px;
+.editor-form .ant-form-item,
+.stage-fields .ant-form-item,
+.node-editor .ant-form-item {
+  margin-bottom: 0;
   min-width: 0;
-}
-
-.editor-form input,
-.editor-form textarea {
-  background: #ffffff;
-  border: 1px solid #d9d9d9;
-  border-radius: 6px;
-  box-sizing: border-box;
-  color: #1f2937;
-  font: inherit;
-  min-height: 32px;
-  padding: 5px 11px;
-  width: 100%;
-}
-
-.editor-form textarea {
-  resize: vertical;
 }
 
 .editor-form .span-two {
   grid-column: 1 / -1;
+}
+
+.nested-editor,
+.stage-editor {
+  display: grid;
+  gap: 14px;
+}
+
+.nested-editor {
+  border-top: 1px solid #d8dee5;
+  padding-top: 18px;
+}
+
+.nested-editor h3 {
+  font-size: 16px;
+  margin: 0;
+}
+
+.tag-editor-row {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+}
+
+.stage-editor {
+  border: 1px solid #d8dee5;
+  border-radius: 6px;
+  padding: 14px;
+}
+
+.stage-fields,
+.node-editor {
+  align-items: end;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+}
+
+.node-editor {
+  border-top: 1px solid #e5e7eb;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  padding-top: 12px;
 }
 
 .section-actions {
@@ -553,7 +576,7 @@ a:focus-visible {
   padding-right: 16px;
 }
 
-.revision-list button {
+.revision-list .revision-list-item {
   background: #ffffff;
   border: 1px solid #d8dee5;
   border-radius: 6px;
@@ -564,9 +587,10 @@ a:focus-visible {
   min-height: 68px;
   padding: 10px 12px;
   text-align: left;
+  white-space: normal;
 }
 
-.revision-list button.selected {
+.revision-list .revision-list-item.selected {
   border-color: #176b4d;
   box-shadow: inset 3px 0 #176b4d;
 }
@@ -574,6 +598,14 @@ a:focus-visible {
 .revision-list span {
   color: #64748b;
   font-size: 12px;
+}
+
+.revision-list-item > span {
+  align-items: stretch;
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+  width: 100%;
 }
 
 .diff-table {
@@ -627,6 +659,11 @@ a:focus-visible {
     grid-template-columns: 1fr;
   }
 
+  .stage-fields,
+  .node-editor {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .revision-list {
     border-bottom: 1px solid #d8dee5;
     border-right: 0;
@@ -666,7 +703,10 @@ a:focus-visible {
 
   .editor-form,
   .revision-list,
-  .diff-table > div {
+  .diff-table > div,
+  .stage-fields,
+  .node-editor,
+  .tag-editor-row {
     grid-template-columns: 1fr;
   }
 

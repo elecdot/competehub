@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from marshmallow import Schema, ValidationError, fields, validate, validates_schema
+from marshmallow import Schema, ValidationError, fields, post_load, validate, validates_schema
 
 from competehub_api.models.enums import (
     CompetitionRevisionStatus,
@@ -32,6 +32,13 @@ CORE_NODE_TYPES = {
     "result_announcement",
     "other",
 }
+APPLICABILITY_SCOPES = {"all", "selected", "unknown"}
+REGISTRATION_APPLICABILITY = {"applicable", "not_applicable", "unknown"}
+PRIMARY_NODE_TYPES = {
+    "registration_deadline",
+    "submission_deadline",
+    "competition_start",
+}
 
 
 class CompetitionTimeNodeSchema(Schema):
@@ -52,54 +59,6 @@ class CompetitionTagSchema(Schema):
     name = NonBlankString(required=True)
     tag_type = NonBlankString(required=True)
     description = _optional_text()
-
-
-class CompetitionFieldsSchema(Schema):
-    title = _optional_text()
-    short_title = _optional_text()
-    category = _optional_text()
-    organizer = _optional_text()
-    host = _optional_text()
-    source_name = _optional_text()
-    source_url = _optional_text()
-    official_url = _optional_text()
-    attachment_url = _optional_text()
-    summary = _optional_text()
-    detail = _optional_text()
-    eligibility = _optional_text()
-    team_size = _optional_text()
-    participant_form = NonBlankString(
-        allow_none=True,
-        validate=validate.OneOf([form.value for form in ParticipantForm]),
-    )
-    suitable_majors = _string_list()
-    suitable_grades = _string_list()
-    value_notes = _optional_text()
-    time_nodes = fields.List(fields.Nested(CompetitionTimeNodeSchema()))
-    tags = fields.List(fields.Nested(CompetitionTagSchema()))
-
-    @validates_schema
-    def validate_unique_tag_codes(self, data, **kwargs):
-        tags = data.get("tags")
-        if tags is not None and len({tag["code"] for tag in tags}) != len(tags):
-            raise ValidationError("Tag codes must be unique.", field_name="tags")
-
-
-class CompetitionCreateSchema(CompetitionFieldsSchema):
-    title = NonBlankString(required=True)
-    source_name = NonBlankString(required=True)
-    source_url = NonBlankString(required=True)
-
-
-class CompetitionUpdateSchema(CompetitionFieldsSchema):
-    title = NonBlankString()
-    source_name = NonBlankString()
-    source_url = NonBlankString()
-
-    @validates_schema
-    def validate_has_updates(self, data, **kwargs):
-        if not data:
-            raise ValidationError("At least one editable field is required.")
 
 
 class CompetitionReviewSchema(Schema):
@@ -163,10 +122,8 @@ class RevisionTimeNodeSchema(Schema):
     node_type = fields.String(required=True, validate=validate.OneOf(sorted(CORE_NODE_TYPES)))
     occurs_at = ProductDateTime(required=True)
     description = _optional_text()
-    prominence = fields.String(
-        load_default="secondary",
-        validate=validate.OneOf(["primary", "secondary"]),
-    )
+    prominence = fields.String(validate=validate.OneOf(["primary", "secondary"]))
+    prominence_override_reason = _optional_text()
 
     @validates_schema
     def validate_other_description(self, data, **kwargs):
@@ -174,6 +131,19 @@ class RevisionTimeNodeSchema(Schema):
             raise ValidationError(
                 "Other time nodes require a description.", field_name="description"
             )
+
+    @post_load
+    def apply_prominence_default(self, data, **kwargs):
+        default = "primary" if data["node_type"] in PRIMARY_NODE_TYPES else "secondary"
+        supplied = data.get("prominence")
+        if supplied is None:
+            data["prominence"] = default
+        elif supplied != default and not data.get("prominence_override_reason"):
+            raise ValidationError(
+                "A prominence override requires a reason.",
+                field_name="prominence_override_reason",
+            )
+        return data
 
 
 class CompetitionStageSchema(Schema):
@@ -212,6 +182,10 @@ class CompetitionRevisionFieldsSchema(Schema):
     summary = _optional_text()
     detail = _optional_text()
     eligibility = _optional_text()
+    registration_applicability = fields.String(
+        allow_none=True,
+        validate=validate.OneOf(sorted(REGISTRATION_APPLICABILITY)),
+    )
     team_size = _optional_text()
     participant_forms = fields.List(
         fields.String(validate=validate.OneOf([form.value for form in ParticipantForm])),
@@ -219,11 +193,43 @@ class CompetitionRevisionFieldsSchema(Schema):
     )
     suitable_majors = _string_list()
     suitable_grades = _string_list()
+    major_scope = fields.String(
+        allow_none=True,
+        validate=validate.OneOf(sorted(APPLICABILITY_SCOPES)),
+    )
+    grade_scope = fields.String(
+        allow_none=True,
+        validate=validate.OneOf(sorted(APPLICABILITY_SCOPES)),
+    )
     value_notes = _optional_text()
     stages = fields.List(fields.Nested(CompetitionStageSchema()), allow_none=True)
+    tags = fields.List(fields.Nested(CompetitionTagSchema()), allow_none=True)
 
     @validates_schema
     def validate_unique_stage_and_node_keys(self, data, **kwargs):
+        tags = data.get("tags")
+        if tags is not None and len({tag["code"] for tag in tags}) != len(tags):
+            raise ValidationError("Tag codes must be unique.", field_name="tags")
+        for scope_field, values_field in (
+            ("major_scope", "suitable_majors"),
+            ("grade_scope", "suitable_grades"),
+        ):
+            if data.get(scope_field) == "selected" and not data.get(values_field):
+                raise ValidationError(
+                    "Selected scope requires at least one controlled value.",
+                    field_name=values_field,
+                )
+            values = data.get(values_field)
+            if values is not None and len(values) != len(set(values)):
+                raise ValidationError(
+                    "Controlled scope values must be unique.",
+                    field_name=values_field,
+                )
+        participant_forms = data.get("participant_forms")
+        if participant_forms is not None and len(participant_forms) != len(set(participant_forms)):
+            raise ValidationError(
+                "Participant forms must be unique.", field_name="participant_forms"
+            )
         stages = data.get("stages")
         if stages is None:
             return
@@ -273,10 +279,13 @@ class CompetitionRevisionSchema(Schema):
     summary = fields.String(allow_none=True)
     detail = fields.String(allow_none=True)
     eligibility = fields.String(allow_none=True)
+    registration_applicability = fields.String(allow_none=True)
     team_size = fields.String(allow_none=True)
     participant_forms = fields.List(fields.String())
     suitable_majors = fields.List(fields.String(), allow_none=True)
     suitable_grades = fields.List(fields.String(), allow_none=True)
+    major_scope = fields.String(allow_none=True)
+    grade_scope = fields.String(allow_none=True)
     value_notes = fields.String(allow_none=True)
     created_by_id = fields.Integer(required=True)
     submitted_by_id = fields.Integer(allow_none=True)
@@ -284,6 +293,11 @@ class CompetitionRevisionSchema(Schema):
     decided_at = fields.DateTime(allow_none=True)
     published_at = fields.DateTime(allow_none=True)
     stages = fields.List(fields.Nested(CompetitionStageSchema()))
+    tags = fields.Method("serialize_tags")
+
+    def serialize_tags(self, revision):
+        tags = [link.tag for link in revision.tag_links if link.tag is not None]
+        return CompetitionTagSchema().dump(tags, many=True)
 
 
 class EditionWorkspaceSchema(Schema):
@@ -317,8 +331,6 @@ class EditionWorkspaceSchema(Schema):
         return competition_revision_schema.dump(active) if active is not None else None
 
 
-competition_create_schema = CompetitionCreateSchema()
-competition_update_schema = CompetitionUpdateSchema()
 competition_review_schema = CompetitionReviewSchema()
 competition_status_schema = CompetitionStatusSchema()
 competition_schema = CompetitionSchema()
