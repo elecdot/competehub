@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 import click
 from flask import Flask, current_app
-from werkzeug.security import generate_password_hash
 
 from competehub_api.extensions import db
-from competehub_api.models import User
-from competehub_api.models.enums import UserRole, UserStatus
+from competehub_api.models import User, UserIdentity
+from competehub_api.models.enums import IdentityVerificationStatus, UserRole, UserStatus
+from competehub_api.services.auth import hash_password, normalize_identity
 
 
 @dataclass(frozen=True)
@@ -68,10 +69,20 @@ def register_e2e_commands(app: Flask) -> None:
             User(
                 id=actor.id,
                 email=actor.email,
-                password_hash=generate_password_hash(actor.password),
+                password_hash=hash_password(actor.password, identity=actor.email),
                 display_name=actor.display_name,
                 role=actor.role,
                 status=UserStatus.ACTIVE,
+                identities=[
+                    UserIdentity(
+                        identity_type="email",
+                        normalized_value=normalize_identity("email", actor.email),
+                        display_value=actor.email,
+                        verification_status=IdentityVerificationStatus.VERIFIED,
+                        verification_method="e2e_seed",
+                        verified_at=datetime.now(UTC),
+                    )
+                ],
             )
             for actor in E2E_ACTORS
         )

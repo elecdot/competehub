@@ -57,10 +57,12 @@ async function authenticateActorPage(
   actor: ActorDefinition,
   actorName: ActorName,
 ) {
-  // Keep the current tracer payload shape isolated here. Issue #34 updates this
-  // helper to typed identities while preserving real login and cookie behavior.
   const loginResponse = await page.request.post('/api/v1/auth/login', {
-    data: { account: actor.email, password: actor.password },
+    data: {
+      identity_type: 'email',
+      identifier: actor.email,
+      password: actor.password,
+    },
   })
   expect(loginResponse, `${actorName} login should succeed`).toBeOK()
 
