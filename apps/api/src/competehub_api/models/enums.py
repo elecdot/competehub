@@ -46,6 +46,15 @@ class ReviewStatus(StrEnum):
     RETURNED = "returned"
 
 
+class RecommendationRuleSetStatus(StrEnum):
+    DRAFT = "draft"
+    PENDING_REVIEW = "pending_review"
+    ACTIVE = "active"
+    REJECTED = "rejected"
+    RETURNED = "returned"
+    RETIRED = "retired"
+
+
 class SubscriptionStatus(StrEnum):
     ACTIVE = "active"
     CANCELLED = "cancelled"

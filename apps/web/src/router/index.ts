@@ -34,5 +34,10 @@ export const router = createRouter({
       name: 'admin-home',
       component: AdminHomePage,
     },
+    {
+      path: '/admin/recommendation-rule-sets',
+      name: 'admin-recommendation-rule-sets',
+      component: () => import('@/pages/AdminRecommendationRuleSetsPage.vue'),
+    },
   ],
 })

@@ -783,7 +783,7 @@ Response item:
 ```json
 {
   "position": 1,
-  "reason_codes": ["major_match", "deadline_soon"],
+  "reason_codes": ["major_match", "deadline_urgency"],
   "competition": {
     "id": 1,
     "title": "大学生创新创业竞赛"
@@ -1134,35 +1134,103 @@ Update one config value.
 ### `GET /admin/recommendation_rule_sets`
 
 List recommendation rule-set versions, states, submitter/reviewer facts, and the
-single active version. Requires `recommendation_editor` or
-`recommendation_reviewer`.
+single active version. Items include `cloned_from_rule_set_id`,
+`cloned_from_version`, `base_rule_set_id`, `base_version`,
+`active_rule_set_id`, `active_version`, `is_stale`, rules, and frozen or
+deterministically generated `difference_snapshot` and `impact_summary` when
+applicable.
+
+Requires `recommendation_editor` or `recommendation_reviewer`.
 
 ### `POST /admin/recommendation_rule_sets`
 
-Create a draft by cloning an existing version or the reproducible initial seed.
-Rules use controlled codes, bounded integer weights, structured conditions,
-reason templates, and enabled state; executable expressions are rejected.
+Create a draft by cloning an existing persisted rule-set version.
+
+Request:
+
+```json
+{
+  "source_rule_set_id": 7
+}
+```
+
+The request accepts only `source_rule_set_id`. The client cannot provide
+`version`, `base_rule_set_id`, `cloned_from_rule_set_id`, owner, status,
+review/activation fields, or rule overrides. Clone sources are limited to the
+current `active` version and immutable `rejected` or `returned` versions; `draft`,
+`pending_review`, and `retired` sources return `409 conflict` in this thin
+slice. The response returns the new `draft` id, integer version, creator,
+clone provenance, governance base, current active version, stale state, and
+rules. The reproducible v1 seed is not a hidden runtime clone template.
 
 Requires `recommendation_editor`.
 
 ### `PATCH /admin/recommendation_rule_sets/{id}`
 
 Update a draft rule set. Submitted, decided, active, and retired versions are
-immutable.
+immutable. Only the draft owner with a current `recommendation_editor`
+capability can modify a draft; another editor receives `403 forbidden`, and the
+owner editing a non-draft snapshot receives `409 conflict`.
 
-Requires `recommendation_editor` and draft ownership or equivalent permission.
+Rules use the controlled codes `major_match`, `grade_match`, `interest_match`,
+`deadline_urgency`, and `general_fallback`. `weight` is an integer `1..100`.
+Conditions are strict tagged unions tied to the rule code:
+`{"operator": "overlap"}`, `{"operator": "within_days", "min_days": 0,
+"max_days": N}`, or `{"operator": "always"}`. Reason templates are single-line
+plain text, 1 to 200 Unicode code points after trimming, with only the
+allowlisted placeholders for the rule code.
+
+Requires `recommendation_editor` and draft ownership.
 
 ### `POST /admin/recommendation_rule_sets/{id}/preview`
 
 Preview ordering and reasons against a synthetic profile and selected public
-competition fixtures without persisting a recommendation. The endpoint does not
-accept another student's user id or read arbitrary personal profiles.
+competition fixtures without persisting a recommendation. The endpoint computes
+the rule-set version in the URL and never falls back to the current active
+version or service constants.
+
+Request:
+
+```json
+{
+  "scenario": "personalized",
+  "synthetic_profile": {
+    "college": "计算机学院",
+    "major": "软件工程",
+    "grade": "大二",
+    "interest_tags": ["人工智能"]
+  },
+  "competition_ids": [201, 305]
+}
+```
+
+`scenario` is `personalized` or `general`. Personalized preview requires the
+complete synthetic profile; general preview must omit it. The synthetic profile
+accepts only `college`, `major`, `grade`, and 1 to 10 unique controlled
+`interest_tags`; user ids, profile ids, arbitrary field paths, expressions, and
+scripts are rejected. `competition_ids` contains 1 to 20 unique public
+competition fixture ids. Any duplicate, missing, or non-recommendable fixture
+returns one `400 validation_error` with stable `duplicate`, `not_found`, and
+`not_recommendable` id lists.
+
+The response returns `rule_set_id`, integer `version`, `scenario`, fixture ids,
+and deterministic results with server-assigned `position`, `competition_id`,
+`matched_rule_codes`, `reason_codes`, and rendered plain-text reasons. It does
+not return internal score, probability, percentage, weight contribution, or
+competition value rating. Preview is read-only: it writes no review record,
+recommendation event, analytics row, production recommendation snapshot, or
+business audit event.
 
 Requires `recommendation_editor` or `recommendation_reviewer`.
 
 ### `POST /admin/recommendation_rule_sets/{id}/submit_review`
 
-Freeze and submit a complete draft for independent review.
+Freeze and submit a complete changed draft for independent review. The caller
+must be the draft owner with a current `recommendation_editor` capability.
+Submission requires enabled `general_fallback`, at least one enabled
+personalized rule, valid controlled rules, and a normalized structural change
+against the immutable `base_rule_set_id`; an unchanged candidate returns
+`400 validation_error` with detail code `no_changes`.
 
 Requires `recommendation_editor`.
 
@@ -1170,7 +1238,14 @@ Requires `recommendation_editor`.
 
 Approve and activate, reject, or return a submitted rule set with a required
 comment. The reviewer must differ from the submitter. Approval atomically
-activates the candidate and retires the prior active version.
+activates the candidate and retires the prior active version. Before approval,
+the service verifies that the candidate `base_rule_set_id` still equals the
+current active rule set; a stale base returns `409 stale_rule_set`, creates no
+terminal review decision, does not activate the candidate, and does not retire
+the active version. Successful `approve`, `reject`, or `return` creates one
+immutable terminal `review_record` for `target_type =
+"recommendation_rule_set"`, `target_id` as the candidate id, and
+`target_revision` as the integer version.
 
 Requires `recommendation_reviewer`.
 
