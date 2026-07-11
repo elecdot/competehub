@@ -29,7 +29,9 @@ Preferred commands from the repository root:
 ```bash
 just api-sync
 just api-dev
+just api-db-upgrade
 just api-test
+just api-migration-test-postgres
 just api-lint
 just api-format
 ```

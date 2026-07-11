@@ -144,6 +144,10 @@ Rules:
   production logs.
 - A challenge is single-use, expires after a configured short lifetime, and is
   rejected after the attempt limit.
+- Resend consumes every older unconsumed challenge for the identity. Successful
+  verification locks the pending identity, consumes all of its outstanding
+  challenges, and activates only a `pending_activation` account in one
+  transaction; a code can never reactivate a disabled account.
 - Successful verification and account activation occur atomically and do not
   create an authenticated session.
 - Registration and resend responses do not reveal whether an identity exists or

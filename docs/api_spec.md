@@ -239,6 +239,8 @@ Request:
 
 Request another verification message. The response is generic, rate-limited,
 and does not reveal whether the identity exists, is pending, or is already
+verified. Issuing a replacement consumes every older unconsumed challenge for
+the identity; only a pending identity on a `pending_activation` account can be
 verified.
 
 ### `POST /auth/login`

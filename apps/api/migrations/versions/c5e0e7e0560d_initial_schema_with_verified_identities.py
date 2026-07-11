@@ -6,8 +6,12 @@ Create Date: 2026-07-11 13:59:27.573509
 
 """
 
+from datetime import UTC, datetime
+
 import sqlalchemy as sa
 from alembic import op
+
+from competehub_api.identity_normalization import normalize_identity_value
 
 # revision identifiers, used by Alembic.
 revision = "c5e0e7e0560d"
@@ -530,60 +534,65 @@ def _create_identity_verification_challenges_table():
 
 
 def _backfill_user_identities():
-    _backfill_identity("email", "LOWER(TRIM(users.email))", "LOWER(TRIM(candidate.email))", "email")
-    _backfill_identity("phone", "TRIM(users.phone)", "TRIM(candidate.phone)", "phone")
-    _backfill_identity(
-        "student_no",
-        "TRIM(users.student_no)",
-        "TRIM(candidate.student_no)",
-        "student_no",
+    users = sa.table(
+        "users",
+        sa.column("id"),
+        sa.column("email"),
+        sa.column("phone"),
+        sa.column("student_no"),
     )
-
-
-def _backfill_identity(identity_type, normalized_expression, candidate_expression, display_column):
-    op.execute(
-        sa.text(
-            f"""
-            INSERT INTO user_identities (
-                user_id,
-                identity_type,
-                normalized_value,
-                display_value,
-                verification_status,
-                verification_method,
-                verified_at,
-                created_at,
-                updated_at
+    identities = sa.table(
+        "user_identities",
+        sa.column("user_id"),
+        sa.column("identity_type"),
+        sa.column("normalized_value"),
+        sa.column("display_value"),
+        sa.column("verification_status"),
+        sa.column("verification_method"),
+        sa.column("verified_at"),
+        sa.column("created_at"),
+        sa.column("updated_at"),
+    )
+    bind = op.get_bind()
+    existing = set(
+        bind.execute(sa.select(identities.c.identity_type, identities.c.normalized_value)).all()
+    )
+    now = datetime.now(UTC)
+    values = []
+    legacy_users = bind.execute(sa.select(users).order_by(users.c.id)).mappings()
+    for user in legacy_users:
+        for identity_type, column_name in (
+            ("email", "email"),
+            ("phone", "phone"),
+            ("student_no", "student_no"),
+        ):
+            display_value = user[column_name]
+            if display_value is None or not display_value.strip():
+                continue
+            try:
+                normalized_value = normalize_identity_value(identity_type, display_value)
+            except ValueError:
+                # Invalid legacy values remain on users for explicit operator cleanup.
+                continue
+            identity_key = (identity_type, normalized_value)
+            if identity_key in existing:
+                continue
+            existing.add(identity_key)
+            values.append(
+                {
+                    "user_id": user["id"],
+                    "identity_type": identity_type,
+                    "normalized_value": normalized_value,
+                    "display_value": display_value,
+                    "verification_status": "verified",
+                    "verification_method": "legacy_backfill",
+                    "verified_at": now,
+                    "created_at": now,
+                    "updated_at": now,
+                }
             )
-            SELECT
-                users.id,
-                :identity_type,
-                {normalized_expression},
-                users.{display_column},
-                'verified',
-                'legacy_backfill',
-                CURRENT_TIMESTAMP,
-                CURRENT_TIMESTAMP,
-                CURRENT_TIMESTAMP
-            FROM users
-            WHERE users.{display_column} IS NOT NULL
-              AND TRIM(users.{display_column}) != ''
-              AND users.id = (
-                  SELECT MIN(candidate.id)
-                  FROM users AS candidate
-                  WHERE candidate.{display_column} IS NOT NULL
-                    AND TRIM(candidate.{display_column}) != ''
-                    AND {candidate_expression} = {normalized_expression}
-              )
-              AND NOT EXISTS (
-                  SELECT 1
-                  FROM user_identities
-                  WHERE user_identities.identity_type = :identity_type
-                    AND user_identities.normalized_value = {normalized_expression}
-              )
-            """
-        ).bindparams(identity_type=identity_type)
-    )
+    if values:
+        bind.execute(sa.insert(identities), values)
 
 
 def _add_pending_activation_enum_value():
@@ -660,6 +669,8 @@ def _downgrade_existing_create_all_schema():
         op.drop_table("identity_verification_challenges")
     if _has_table("user_identities"):
         op.drop_table("user_identities")
+    _drop_postgresql_enum("identity_verification_status")
+    op.execute("UPDATE users SET status = 'disabled' WHERE status = 'pending_activation'")
     columns_to_drop = [
         column_name
         for column_name in ("session_version", "capabilities")
@@ -731,4 +742,19 @@ def _downgrade_fresh_schema():
 
     op.drop_table("competition_tags")
     _drop_baseline_table()
+    for enum_name in (
+        "competition_status",
+        "identity_verification_status",
+        "reminder_status",
+        "review_status",
+        "subscription_status",
+        "user_role",
+        "user_status",
+    ):
+        _drop_postgresql_enum(enum_name)
     # ### end Alembic commands ###
+
+
+def _drop_postgresql_enum(enum_name):
+    if op.get_bind().dialect.name == "postgresql":
+        sa.Enum(name=enum_name).drop(op.get_bind(), checkfirst=True)

@@ -86,6 +86,17 @@ Start PostgreSQL and Redis:
 just infra-up
 ```
 
+Create or upgrade the application schema before starting the API:
+
+```bash
+just api-db-upgrade
+```
+
+This runs the committed Alembic revisions against `DATABASE_URL`. Do not use
+`db.create_all()` for a development or production database. Migration authors
+can exercise fresh and legacy upgrade/downgrade paths against disposable local
+PostgreSQL databases with `just api-migration-test-postgres` after `just infra-up`.
+
 Stop them when finished:
 
 ```bash

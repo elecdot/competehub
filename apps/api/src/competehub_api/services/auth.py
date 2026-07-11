@@ -8,13 +8,16 @@ from http import HTTPStatus
 
 from flask import current_app, request
 from redis import Redis
+from sqlalchemy import select, update
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from competehub_api.extensions import db
+from competehub_api.identity_normalization import normalize_identity_value
 from competehub_api.models import IdentityVerificationChallenge, User, UserIdentity
 from competehub_api.models.enums import IdentityVerificationStatus, UserRole, UserStatus
 from competehub_api.repositories.users import find_identity, get_user
 from competehub_api.services.errors import ServiceError
+from competehub_api.services.passwords import create_password_hash, verify_password_hash
 from competehub_api.services.profiles import create_missing_student_profile
 
 WEAK_PASSWORDS = {
@@ -76,14 +79,18 @@ def register_student(payload: dict) -> None:
 
 def verify_identity(payload: dict) -> None:
     _check_rate_limit("verify", payload["identity_type"], payload["identity"])
-    identity = find_identity(
+    identity = _find_identity_for_update(
         payload["identity_type"],
         normalize_identity(payload["identity_type"], payload["identity"]),
     )
-    if identity is None:
+    if (
+        identity is None
+        or identity.verification_status != IdentityVerificationStatus.PENDING
+        or identity.user.status != UserStatus.PENDING_ACTIVATION
+    ):
         raise _generic_auth_error()
 
-    challenge = _latest_active_challenge(identity)
+    challenge = _latest_active_challenge_for_update(identity)
     if challenge is not None and challenge.attempt_count >= _verification_attempt_limit():
         raise _generic_auth_error()
     if challenge is None or not check_password_hash(challenge.secret_hash, payload["code"]):
@@ -93,7 +100,7 @@ def verify_identity(payload: dict) -> None:
         raise _generic_auth_error()
 
     now = _utcnow()
-    challenge.consumed_at = now
+    _consume_unconsumed_challenges(identity, now)
     challenge.attempt_count += 1
     identity.verification_status = IdentityVerificationStatus.VERIFIED
     identity.verified_at = now
@@ -107,11 +114,16 @@ def resend_verification(payload: dict) -> None:
     sender = _registration_sender()
 
     _check_rate_limit("resend", payload["identity_type"], payload["identity"])
-    identity = find_identity(
+    identity = _find_identity_for_update(
         payload["identity_type"],
         normalize_identity(payload["identity_type"], payload["identity"]),
     )
-    if identity is not None and identity.verification_status == IdentityVerificationStatus.PENDING:
+    if (
+        identity is not None
+        and identity.verification_status == IdentityVerificationStatus.PENDING
+        and identity.user.status == UserStatus.PENDING_ACTIVATION
+    ):
+        _consume_unconsumed_challenges(identity, _utcnow())
         _create_and_send_challenge(identity, sender)
         db.session.commit()
 
@@ -126,7 +138,7 @@ def authenticate_user(identity_type: str, identity_value: str, password: str) ->
     if (
         user.status != UserStatus.ACTIVE
         or identity.verification_status != IdentityVerificationStatus.VERIFIED
-        or not check_password_hash(user.password_hash, normalize_password(password))
+        or not verify_password_hash(user.password_hash, normalize_password(password))
     ):
         raise _generic_auth_error()
     return user
@@ -135,7 +147,7 @@ def authenticate_user(identity_type: str, identity_value: str, password: str) ->
 def hash_password(password: str, *, identity: str | None = None) -> str:
     normalized = normalize_password(password)
     validate_password(normalized, identity=identity)
-    return generate_password_hash(normalized, method="scrypt:32768:8:1")
+    return create_password_hash(normalized)
 
 
 def normalize_password(password: str) -> str:
@@ -158,13 +170,10 @@ def validate_password(password: str, *, identity: str | None = None) -> None:
 
 
 def normalize_identity(identity_type: str, value: str) -> str:
-    if identity_type == "email":
-        return unicodedata.normalize("NFC", value).strip().casefold()
-    if identity_type == "student_no":
-        return unicodedata.normalize("NFC", value).strip()
-    if identity_type == "phone":
-        return _normalize_phone(value)
-    return unicodedata.normalize("NFC", value).strip()
+    try:
+        return normalize_identity_value(identity_type, value)
+    except ValueError as error:
+        raise _identity_validation_error("identity") from error
 
 
 def terminate_all_sessions(user: User) -> None:
@@ -252,16 +261,47 @@ def _registration_sender():
     return sender
 
 
-def _latest_active_challenge(identity: UserIdentity) -> IdentityVerificationChallenge | None:
+def _find_identity_for_update(identity_type: str, normalized_value: str) -> UserIdentity | None:
+    return db.session.scalar(
+        select(UserIdentity)
+        .join(User, User.id == UserIdentity.user_id)
+        .where(
+            UserIdentity.identity_type == identity_type,
+            UserIdentity.normalized_value == normalized_value,
+        )
+        .with_for_update()
+    )
+
+
+def _latest_active_challenge_for_update(
+    identity: UserIdentity,
+) -> IdentityVerificationChallenge | None:
     now = _utcnow()
-    candidates = [
-        challenge
-        for challenge in identity.challenges
-        if challenge.consumed_at is None and _ensure_aware(challenge.expires_at) > now
-    ]
-    if not candidates:
-        return None
-    return max(candidates, key=lambda challenge: challenge.created_at or datetime.min)
+    return db.session.scalar(
+        select(IdentityVerificationChallenge)
+        .where(
+            IdentityVerificationChallenge.user_identity_id == identity.id,
+            IdentityVerificationChallenge.consumed_at.is_(None),
+            IdentityVerificationChallenge.expires_at > now,
+        )
+        .order_by(
+            IdentityVerificationChallenge.created_at.desc(),
+            IdentityVerificationChallenge.id.desc(),
+        )
+        .limit(1)
+        .with_for_update()
+    )
+
+
+def _consume_unconsumed_challenges(identity: UserIdentity, consumed_at: datetime) -> None:
+    db.session.execute(
+        update(IdentityVerificationChallenge)
+        .where(
+            IdentityVerificationChallenge.user_identity_id == identity.id,
+            IdentityVerificationChallenge.consumed_at.is_(None),
+        )
+        .values(consumed_at=consumed_at)
+    )
 
 
 def _verification_attempt_limit() -> int:
@@ -310,19 +350,6 @@ def _request_source() -> str:
     if current_app.config.get("AUTH_TRUST_PROXY_HEADERS", False) and forwarded_for:
         return forwarded_for.split(",", 1)[0].strip()
     return request.remote_addr or "unknown"
-
-
-def _normalize_phone(value: str) -> str:
-    normalized = unicodedata.normalize("NFC", value).strip()
-    compact = "".join(char for char in normalized if char not in " -().")
-    if compact.startswith("00"):
-        compact = f"+{compact[2:]}"
-    if not compact.startswith("+"):
-        raise _identity_validation_error("identity")
-    digits = compact[1:]
-    if not digits.isdigit() or len(digits) < 8 or len(digits) > 15 or digits[0] == "0":
-        raise _identity_validation_error("identity")
-    return f"+{digits}"
 
 
 def _identity_validation_error(field: str) -> ServiceError:

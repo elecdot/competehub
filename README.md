@@ -81,6 +81,7 @@ Start local PostgreSQL and Redis:
 
 ```bash
 just infra-up
+just api-db-upgrade
 ```
 
 Start the backend and frontend in separate terminals:

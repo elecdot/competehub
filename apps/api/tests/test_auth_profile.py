@@ -296,6 +296,55 @@ def test_verification_challenge_rejects_correct_code_after_attempt_limit(
         assert challenge.consumed_at is None
 
 
+def test_resend_invalidates_the_previous_verification_code(client, sender, monkeypatch) -> None:
+    generated_codes = iter((111111, 222222))
+    monkeypatch.setattr(
+        "competehub_api.services.auth.secrets.randbelow", lambda _limit: next(generated_codes)
+    )
+    register_email(client)
+    previous_code = sender.latest_code
+
+    resend = client.post(
+        "/api/v1/auth/verification/resend",
+        json={"identity_type": "email", "identity": "student@example.edu"},
+    )
+    current_code = sender.latest_code
+
+    assert resend.status_code == 202
+    assert verify_email(client, sender, code=previous_code).status_code == 401
+    assert verify_email(client, sender, code=current_code).status_code == 200
+
+
+def test_consumed_or_old_code_cannot_reactivate_a_disabled_account(
+    client, app, sender, monkeypatch
+) -> None:
+    generated_codes = iter((111111, 222222))
+    monkeypatch.setattr(
+        "competehub_api.services.auth.secrets.randbelow", lambda _limit: next(generated_codes)
+    )
+    register_email(client)
+    previous_code = sender.latest_code
+    client.post(
+        "/api/v1/auth/verification/resend",
+        json={"identity_type": "email", "identity": "student@example.edu"},
+    )
+
+    assert verify_email(client, sender).status_code == 200
+    with app.app_context():
+        user = db.session.query(User).one()
+        user.status = UserStatus.DISABLED
+        db.session.commit()
+
+    replay = verify_email(client, sender, code=previous_code)
+
+    assert replay.status_code == 401
+    with app.app_context():
+        user = db.session.query(User).one()
+        challenges = db.session.query(IdentityVerificationChallenge).all()
+        assert user.status == UserStatus.DISABLED
+        assert all(challenge.consumed_at is not None for challenge in challenges)
+
+
 def test_login_requires_explicit_verified_typed_identity_and_sets_versioned_session(
     client, app
 ) -> None:
@@ -321,6 +370,12 @@ def test_session_cookie_config_matches_auth_contract(app) -> None:
     assert app.config["SESSION_COOKIE_HTTPONLY"] is True
     assert app.config["SESSION_COOKIE_SAMESITE"] == "Lax"
     assert ProductionConfig.SESSION_COOKIE_SECURE is True
+
+
+def test_new_password_hash_uses_explicit_argon2id_baseline() -> None:
+    password_hash = hash_password("correct horse battery staple")
+
+    assert password_hash.startswith("$argon2id$v=19$m=19456,t=2,p=1$")
 
 
 def test_student_me_always_returns_empty_capabilities(client, app) -> None:
@@ -609,6 +664,59 @@ def test_session_version_boundaries_increment_for_governance_changes(app) -> Non
         assert user.session_version == 2
         terminate_all_sessions(user)
         assert user.session_version == 3
+
+
+@pytest.mark.parametrize(
+    ("role", "session_field", "timeout"),
+    [
+        (UserRole.STUDENT, "last_activity_at", timedelta(hours=24)),
+        (UserRole.STUDENT, "issued_at", timedelta(days=7)),
+        (UserRole.ADMIN, "last_activity_at", timedelta(minutes=30)),
+        (UserRole.ADMIN, "issued_at", timedelta(hours=8)),
+    ],
+)
+def test_role_specific_session_timeout_boundaries(app, role, session_field, timeout) -> None:
+    provision_user(app, role=role)
+    client = app.test_client()
+
+    assert login_email(client).status_code == 200
+    with client.session_transaction() as session:
+        session[session_field] = (datetime.now(UTC) - timeout + timedelta(seconds=5)).isoformat()
+    assert client.get("/api/v1/me").status_code == 200
+
+    assert login_email(client).status_code == 200
+    with client.session_transaction() as session:
+        session[session_field] = (datetime.now(UTC) - timeout - timedelta(seconds=1)).isoformat()
+    assert client.get("/api/v1/me").status_code == 401
+
+
+def test_logout_only_ends_one_of_two_browser_sessions(app) -> None:
+    provision_user(app)
+    first_browser = app.test_client()
+    second_browser = app.test_client()
+    assert login_email(first_browser).status_code == 200
+    assert login_email(second_browser).status_code == 200
+
+    assert first_browser.post("/api/v1/auth/logout").status_code == 200
+
+    assert first_browser.get("/api/v1/me").status_code == 401
+    assert second_browser.get("/api/v1/me").status_code == 200
+
+
+def test_terminate_all_ends_both_browser_sessions(app) -> None:
+    user_id = provision_user(app)
+    first_browser = app.test_client()
+    second_browser = app.test_client()
+    assert login_email(first_browser).status_code == 200
+    assert login_email(second_browser).status_code == 200
+
+    with app.app_context():
+        user = db.session.get(User, user_id)
+        terminate_all_sessions(user)
+        db.session.commit()
+
+    assert first_browser.get("/api/v1/me").status_code == 401
+    assert second_browser.get("/api/v1/me").status_code == 401
 
 
 def test_current_user_rejects_legacy_bare_user_id(app) -> None:

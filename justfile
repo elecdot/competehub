@@ -60,9 +60,17 @@ api-sync:
 api-dev:
     ./scripts/agent-env.sh uv run --project apps/api flask --app competehub_api.app:create_app run --debug
 
+# Upgrade the configured application database to the latest Alembic revision.
+api-db-upgrade:
+    ./scripts/agent-env.sh uv run --project apps/api flask --app competehub_api.app:create_app db --directory apps/api/migrations upgrade
+
 # Run backend tests.
 api-test:
     ./scripts/agent-env.sh uv run --project apps/api pytest
+
+# Run migration tests against disposable databases on the local PostgreSQL service.
+api-migration-test-postgres:
+    POSTGRES_TEST_ADMIN_URL="${POSTGRES_TEST_ADMIN_URL:-postgresql://competehub:competehub@localhost:5432/postgres}" ./scripts/agent-env.sh uv run --project apps/api pytest apps/api/tests/test_migrations.py
 
 # Run backend lint checks.
 api-lint:
