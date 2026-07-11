@@ -1,7 +1,6 @@
 import {
   expect,
   test as base,
-  type Browser,
   type Page,
 } from '@playwright/test'
 
@@ -47,45 +46,30 @@ export const test = base.extend<ActorFixtures>({
   page: async ({ page }, use) => {
     await usePageWithErrorGuard(page, use)
   },
-  actorPage: async ({ baseURL, browser, actor, actorName }, use) => {
-    const page = await createActorPage(browser, baseURL, actor, actorName)
-    try {
-      await usePageWithErrorGuard(page, use)
-    } finally {
-      await page.context().close()
-    }
+  actorPage: async ({ page, actor, actorName }, use) => {
+    await authenticateActorPage(page, actor, actorName)
+    await use(page)
   },
 })
 
-async function createActorPage(
-  browser: Browser,
-  baseURL: string | undefined,
+async function authenticateActorPage(
+  page: Page,
   actor: ActorDefinition,
   actorName: ActorName,
 ) {
-  const context = await browser.newContext({ baseURL })
-  try {
-    const page = await context.newPage()
+  // Keep the current tracer payload shape isolated here. Issue #34 updates this
+  // helper to typed identities while preserving real login and cookie behavior.
+  const loginResponse = await page.request.post('/api/v1/auth/login', {
+    data: { account: actor.email, password: actor.password },
+  })
+  expect(loginResponse, `${actorName} login should succeed`).toBeOK()
 
-    // Keep the current tracer payload shape isolated here. Issue #34 updates this
-    // helper to typed identities while preserving real login and cookie behavior.
-    const loginResponse = await page.request.post('/api/v1/auth/login', {
-      data: { account: actor.email, password: actor.password },
-    })
-    expect(loginResponse, `${actorName} login should succeed`).toBeOK()
-
-    const currentUserResponse = await page.request.get('/api/v1/me')
-    expect(currentUserResponse, `${actorName} cookie session should reach /me`).toBeOK()
-    const currentUser = (await currentUserResponse.json()) as {
-      data: { role: string }
-    }
-    expect(currentUser.data.role).toBe(actor.role)
-
-    return page
-  } catch (error) {
-    await context.close()
-    throw error
+  const currentUserResponse = await page.request.get('/api/v1/me')
+  expect(currentUserResponse, `${actorName} cookie session should reach /me`).toBeOK()
+  const currentUser = (await currentUserResponse.json()) as {
+    data: { role: string }
   }
+  expect(currentUser.data.role).toBe(actor.role)
 }
 
 async function usePageWithErrorGuard(
