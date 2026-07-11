@@ -9,7 +9,12 @@ from competehub_api.config import ProductionConfig
 from competehub_api.extensions import db
 from competehub_api.models import IdentityVerificationChallenge, StudentProfile, User, UserIdentity
 from competehub_api.models.enums import IdentityVerificationStatus, UserRole, UserStatus
-from competehub_api.services.auth import current_user, hash_password
+from competehub_api.services.auth import (
+    apply_account_governance_change,
+    current_user,
+    hash_password,
+    terminate_all_sessions,
+)
 
 
 class InMemoryEmailSender:
@@ -22,6 +27,19 @@ class InMemoryEmailSender:
     @property
     def latest_code(self) -> str:
         return self.messages[-1]["code"]
+
+
+class FakeRedisRateLimitStore:
+    def __init__(self) -> None:
+        self.values: dict[str, int] = {}
+        self.expirations: dict[str, int] = {}
+
+    def incr(self, key: str) -> int:
+        self.values[key] = self.values.get(key, 0) + 1
+        return self.values[key]
+
+    def expire(self, key: str, seconds: int) -> None:
+        self.expirations[key] = seconds
 
 
 @pytest.fixture()
@@ -241,11 +259,15 @@ def test_verify_activates_account_without_creating_session(client, app, sender) 
         user = db.session.query(User).one()
         identity = db.session.query(UserIdentity).one()
         challenge = db.session.query(IdentityVerificationChallenge).one()
+        profile = db.session.query(StudentProfile).one()
 
         assert user.status == UserStatus.ACTIVE
         assert identity.verification_status == IdentityVerificationStatus.VERIFIED
         assert identity.verified_at is not None
         assert challenge.consumed_at is not None
+        assert profile.user_id == user.id
+        assert profile.college is None
+        assert profile.interest_tags == []
 
 
 def test_verification_challenge_rejects_correct_code_after_attempt_limit(
@@ -393,6 +415,7 @@ def test_rate_limit_returns_429_for_repeated_login_attempts(sender) -> None:
             "EMAIL_VERIFICATION_SENDER": sender,
             "AUTH_RATE_LIMIT_ENABLED": True,
             "AUTH_RATE_LIMIT_MAX_ATTEMPTS": 2,
+            "AUTH_RATE_LIMIT_STORE": FakeRedisRateLimitStore(),
         }
     )
     with app.app_context():
@@ -411,7 +434,7 @@ def test_rate_limit_returns_429_for_repeated_login_attempts(sender) -> None:
         db.drop_all()
 
 
-def test_rate_limit_is_scoped_by_request_source(sender) -> None:
+def test_rate_limit_limits_identity_across_request_sources(sender) -> None:
     app = create_app(
         {
             "TESTING": True,
@@ -420,6 +443,7 @@ def test_rate_limit_is_scoped_by_request_source(sender) -> None:
             "EMAIL_VERIFICATION_SENDER": sender,
             "AUTH_RATE_LIMIT_ENABLED": True,
             "AUTH_RATE_LIMIT_MAX_ATTEMPTS": 1,
+            "AUTH_RATE_LIMIT_STORE": FakeRedisRateLimitStore(),
         }
     )
     with app.app_context():
@@ -447,7 +471,49 @@ def test_rate_limit_is_scoped_by_request_source(sender) -> None:
     )
 
     assert first_response.status_code == 401
-    assert second_response.status_code == 401
+    assert second_response.status_code == 429
+    with app.app_context():
+        db.session.remove()
+        db.drop_all()
+
+
+def test_rate_limit_limits_request_source_across_identities(sender) -> None:
+    app = create_app(
+        {
+            "TESTING": True,
+            "SECRET_KEY": "test-secret",
+            "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:",
+            "EMAIL_VERIFICATION_SENDER": sender,
+            "AUTH_RATE_LIMIT_ENABLED": True,
+            "AUTH_RATE_LIMIT_MAX_ATTEMPTS": 1,
+            "AUTH_RATE_LIMIT_STORE": FakeRedisRateLimitStore(),
+        }
+    )
+    with app.app_context():
+        db.create_all()
+    client = app.test_client()
+
+    first_response = client.post(
+        "/api/v1/auth/login",
+        json={
+            "identity_type": "email",
+            "identity": "student@example.edu",
+            "password": "wrong password value",
+        },
+        environ_base={"REMOTE_ADDR": "198.51.100.10"},
+    )
+    second_response = client.post(
+        "/api/v1/auth/login",
+        json={
+            "identity_type": "email",
+            "identity": "other@example.edu",
+            "password": "wrong password value",
+        },
+        environ_base={"REMOTE_ADDR": "198.51.100.10"},
+    )
+
+    assert first_response.status_code == 401
+    assert second_response.status_code == 429
     with app.app_context():
         db.session.remove()
         db.drop_all()
@@ -462,6 +528,7 @@ def test_rate_limit_does_not_trust_forwarded_for_by_default(sender) -> None:
             "EMAIL_VERIFICATION_SENDER": sender,
             "AUTH_RATE_LIMIT_ENABLED": True,
             "AUTH_RATE_LIMIT_MAX_ATTEMPTS": 1,
+            "AUTH_RATE_LIMIT_STORE": FakeRedisRateLimitStore(),
         }
     )
     with app.app_context():
@@ -527,6 +594,22 @@ def test_session_guard_rejects_disabled_version_mismatch_and_expired_sessions(cl
     assert expired_response.status_code == 401
 
 
+def test_session_version_boundaries_increment_for_governance_changes(app) -> None:
+    user_id = provision_user(app)
+
+    with app.app_context():
+        user = db.session.get(User, user_id)
+        apply_account_governance_change(
+            user,
+            role=UserRole.ADMIN,
+            status=UserStatus.DISABLED,
+            capabilities=["competition_editor"],
+        )
+        assert user.session_version == 2
+        terminate_all_sessions(user)
+        assert user.session_version == 3
+
+
 def test_current_user_rejects_legacy_bare_user_id(app) -> None:
     user_id = provision_user(app)
 
@@ -554,8 +637,9 @@ def test_admin_me_returns_controlled_capabilities(client, app) -> None:
     }
 
 
-def test_get_profile_creates_default_incomplete_profile_for_active_student(client, app) -> None:
-    provision_user(app)
+def test_get_profile_reads_activation_profile_without_writing(client, app) -> None:
+    register_email(client)
+    verify_email(client, app.config["EMAIL_VERIFICATION_SENDER"])
     login_email(client)
 
     response = client.get("/api/v1/me/profile")
@@ -570,6 +654,18 @@ def test_get_profile_creates_default_incomplete_profile_for_active_student(clien
     ]
     with app.app_context():
         assert db.session.query(StudentProfile).count() == 1
+
+
+def test_get_profile_does_not_create_missing_legacy_profile(client, app) -> None:
+    provision_user(app)
+    login_email(client)
+
+    response = client.get("/api/v1/me/profile")
+
+    assert response.status_code == 404
+    assert response.get_json()["error"]["code"] == "profile_not_found"
+    with app.app_context():
+        assert db.session.query(StudentProfile).count() == 0
 
 
 def test_profile_response_normalizes_null_list_fields(client, app) -> None:
@@ -615,16 +711,61 @@ def test_profile_rejects_duplicate_or_too_many_interest_tags(client, app) -> Non
     assert too_many.get_json()["error"]["details"]["field"] == "interest_tags"
 
 
-def test_duplicate_interest_tags_do_not_count_as_recommendation_ready(client, app) -> None:
+def test_profile_rejects_values_outside_controlled_dictionary(client, app) -> None:
+    user_id = provision_user(app)
+    with app.app_context():
+        db.session.add(StudentProfile(user_id=user_id))
+        db.session.commit()
+    login_email(client)
+
+    invalid_college = client.patch(
+        "/api/v1/me/profile",
+        json={
+            "college": "不存在学院",
+            "major": "软件工程",
+            "grade": "大二",
+            "interest_tags": ["人工智能"],
+        },
+    )
+    invalid_major_relation = client.patch(
+        "/api/v1/me/profile",
+        json={
+            "college": "计算机学院",
+            "major": "金融学",
+            "grade": "大二",
+            "interest_tags": ["人工智能"],
+        },
+    )
+    invalid_tag = client.patch(
+        "/api/v1/me/profile",
+        json={
+            "college": "计算机学院",
+            "major": "软件工程",
+            "grade": "大二",
+            "interest_tags": ["不存在标签"],
+        },
+    )
+
+    assert invalid_college.status_code == 400
+    assert invalid_college.get_json()["error"]["details"]["field"] == "college"
+    assert invalid_major_relation.status_code == 400
+    assert invalid_major_relation.get_json()["error"]["details"]["field"] == "major"
+    assert invalid_tag.status_code == 400
+    assert invalid_tag.get_json()["error"]["details"]["field"] == "interest_tags"
+
+
+def test_invalid_existing_dictionary_values_do_not_count_as_recommendation_ready(
+    client, app
+) -> None:
     user_id = provision_user(app)
     with app.app_context():
         db.session.add(
             StudentProfile(
                 user_id=user_id,
-                college="计算机学院",
-                major="软件工程",
+                college="不存在学院",
+                major="不存在专业",
                 grade="大二",
-                interest_tags=["人工智能", "人工智能"],
+                interest_tags=["不存在标签"],
             )
         )
         db.session.commit()
@@ -635,11 +776,14 @@ def test_duplicate_interest_tags_do_not_count_as_recommendation_ready(client, ap
     assert response.status_code == 200
     data = response.get_json()["data"]
     assert data["profile_status"] == "incomplete"
-    assert data["missing_fields"] == ["interest_tags"]
+    assert data["missing_fields"] == ["college", "major", "interest_tags"]
 
 
 def test_profile_readiness_is_derived_with_stable_missing_field_order(client, app) -> None:
-    provision_user(app)
+    user_id = provision_user(app)
+    with app.app_context():
+        db.session.add(StudentProfile(user_id=user_id))
+        db.session.commit()
     login_email(client)
 
     incomplete = client.patch(
@@ -660,3 +804,23 @@ def test_profile_readiness_is_derived_with_stable_missing_field_order(client, ap
     assert ready.status_code == 200
     assert ready.get_json()["data"]["profile_status"] == "recommendation_ready"
     assert ready.get_json()["data"]["missing_fields"] == []
+
+
+def test_phone_identity_normalizes_to_e164_for_login(client, app) -> None:
+    provision_user(
+        app,
+        identity_type="phone",
+        identity="+8613800000000",
+        password="correct horse battery staple",
+    )
+
+    response = client.post(
+        "/api/v1/auth/login",
+        json={
+            "identity_type": "phone",
+            "identity": "+86 138 0000 0000",
+            "password": "correct horse battery staple",
+        },
+    )
+
+    assert response.status_code == 200

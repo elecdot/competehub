@@ -2,6 +2,8 @@ export type Role = 'student' | 'admin' | 'teacher' | 'organizer'
 
 export type ProfileStatus = 'incomplete' | 'recommendation_ready'
 
+export type IdentityType = 'email' | 'phone' | 'student_no'
+
 export interface CurrentUserResponse {
   id: number
   display_name: string | null
@@ -30,4 +32,24 @@ export interface StudentProfile {
   message_enabled: boolean
   profile_status: ProfileStatus
   missing_fields: string[]
+}
+
+export interface LoginPayload {
+  identity_type: IdentityType
+  identifier: string
+  password: string
+}
+
+export interface StudentProfileUpdate {
+  college?: string | null
+  major?: string | null
+  grade?: string | null
+  interest_tags?: string[]
+}
+
+export interface ProfileOptions {
+  colleges: string[]
+  majors_by_college: Record<string, string[]>
+  grades: string[]
+  interest_tags: string[]
 }

@@ -5,6 +5,8 @@ from http import HTTPStatus
 from flask import Flask, jsonify
 from werkzeug.exceptions import HTTPException
 
+from competehub_api.services.errors import ServiceError
+
 
 def error_response(status: int, code: str, message: str, details: dict | None = None):
     return jsonify(
@@ -20,6 +22,15 @@ def error_response(status: int, code: str, message: str, details: dict | None = 
 
 
 def register_error_handlers(app: Flask) -> None:
+    @app.errorhandler(ServiceError)
+    def handle_service_error(error: ServiceError):
+        return error_response(
+            error.status_code,
+            error.code,
+            error.message,
+            error.details,
+        )
+
     @app.errorhandler(HTTPException)
     def handle_http_error(error: HTTPException):
         return error_response(

@@ -336,6 +336,10 @@ a:focus-visible {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.status-layout.single {
+  align-items: start;
+}
+
 .status-section {
   background: #ffffff;
   border: 1px solid #dde2e7;
@@ -366,6 +370,10 @@ a:focus-visible {
 
 .inline-tags .ant-tag {
   margin-inline-end: 0;
+}
+
+.profile-form {
+  margin-top: 18px;
 }
 
 .competition-pagination {

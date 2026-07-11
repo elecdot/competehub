@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
 
 from flask import current_app, request
+from redis import Redis
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from competehub_api.extensions import db
@@ -14,6 +15,7 @@ from competehub_api.models import IdentityVerificationChallenge, User, UserIdent
 from competehub_api.models.enums import IdentityVerificationStatus, UserRole, UserStatus
 from competehub_api.repositories.users import find_identity, get_user
 from competehub_api.services.errors import ServiceError
+from competehub_api.services.profiles import create_missing_student_profile
 
 WEAK_PASSWORDS = {
     "password",
@@ -30,7 +32,6 @@ SESSION_TIMEOUTS = {
 
 
 def register_student(payload: dict) -> None:
-    _check_rate_limit("register", payload["identity_type"], payload["identity"])
     sender = current_app.config.get("EMAIL_VERIFICATION_SENDER")
     if sender is None:
         raise ServiceError(
@@ -39,6 +40,7 @@ def register_student(payload: dict) -> None:
             "public registration is unavailable",
         )
 
+    _check_rate_limit("register", payload["identity_type"], payload["identity"])
     identity_type = payload["identity_type"]
     display_value = payload["identity"]
     normalized_value = normalize_identity(identity_type, display_value)
@@ -94,11 +96,12 @@ def verify_identity(payload: dict) -> None:
     identity.verification_status = IdentityVerificationStatus.VERIFIED
     identity.verified_at = now
     identity.user.status = UserStatus.ACTIVE
+    if identity.user.role == UserRole.STUDENT:
+        create_missing_student_profile(identity.user)
     db.session.commit()
 
 
 def resend_verification(payload: dict) -> None:
-    _check_rate_limit("resend", payload["identity_type"], payload["identity"])
     sender = current_app.config.get("EMAIL_VERIFICATION_SENDER")
     if sender is None:
         raise ServiceError(
@@ -107,6 +110,7 @@ def resend_verification(payload: dict) -> None:
             "public registration is unavailable",
         )
 
+    _check_rate_limit("resend", payload["identity_type"], payload["identity"])
     identity = find_identity(
         payload["identity_type"],
         normalize_identity(payload["identity_type"], payload["identity"]),
@@ -162,7 +166,33 @@ def normalize_identity(identity_type: str, value: str) -> str:
         return unicodedata.normalize("NFC", value).strip().casefold()
     if identity_type == "student_no":
         return unicodedata.normalize("NFC", value).strip()
-    return value.strip()
+    if identity_type == "phone":
+        return _normalize_phone(value)
+    return unicodedata.normalize("NFC", value).strip()
+
+
+def terminate_all_sessions(user: User) -> None:
+    increment_session_version(user)
+
+
+def apply_account_governance_change(
+    user: User,
+    *,
+    role: UserRole | None = None,
+    status: UserStatus | None = None,
+    capabilities: list[str] | None = None,
+) -> None:
+    if role is not None:
+        user.role = role
+    if status is not None:
+        user.status = status
+    if capabilities is not None:
+        user.capabilities = capabilities
+    increment_session_version(user)
+
+
+def increment_session_version(user: User) -> None:
+    user.session_version += 1
 
 
 def start_session(session_data: MutableMapping, user: User) -> None:
@@ -236,19 +266,39 @@ def _check_rate_limit(action: str, identity_type: str, identity: str) -> None:
         return
     max_attempts = current_app.config.get("AUTH_RATE_LIMIT_MAX_ATTEMPTS", 10)
     window_seconds = current_app.config.get("AUTH_RATE_LIMIT_WINDOW_SECONDS", 60)
-    store = current_app.extensions.setdefault("auth_rate_limits", {})
-    key = (action, identity_type, normalize_identity(identity_type, identity), _request_source())
-    now = _utcnow()
-    window_start = now - timedelta(seconds=window_seconds)
-    attempts = [attempt for attempt in store.get(key, []) if attempt > window_start]
-    if len(attempts) >= max_attempts:
-        raise ServiceError(
-            HTTPStatus.TOO_MANY_REQUESTS,
-            "rate_limited",
-            "too many attempts",
+    normalized_identity = normalize_identity(identity_type, identity)
+    keys = (
+        f"auth-rate:{action}:identity:{identity_type}:{normalized_identity}",
+        f"auth-rate:{action}:source:{_request_source()}",
+    )
+    for key in keys:
+        count = _increment_rate_limit_key(key, window_seconds)
+        if count > max_attempts:
+            raise ServiceError(
+                HTTPStatus.TOO_MANY_REQUESTS,
+                "rate_limited",
+                "too many attempts",
+            )
+
+
+def _increment_rate_limit_key(key: str, window_seconds: int) -> int:
+    store = _rate_limit_store()
+    count = int(store.incr(key))
+    if count == 1:
+        store.expire(key, window_seconds)
+    return count
+
+
+def _rate_limit_store():
+    configured_store = current_app.config.get("AUTH_RATE_LIMIT_STORE")
+    if configured_store is not None:
+        return configured_store
+    if "auth_rate_limit_redis" not in current_app.extensions:
+        current_app.extensions["auth_rate_limit_redis"] = Redis.from_url(
+            current_app.config["REDIS_URL"],
+            decode_responses=True,
         )
-    attempts.append(now)
-    store[key] = attempts
+    return current_app.extensions["auth_rate_limit_redis"]
 
 
 def _request_source() -> str:
@@ -256,6 +306,28 @@ def _request_source() -> str:
     if current_app.config.get("AUTH_TRUST_PROXY_HEADERS", False) and forwarded_for:
         return forwarded_for.split(",", 1)[0].strip()
     return request.remote_addr or "unknown"
+
+
+def _normalize_phone(value: str) -> str:
+    normalized = unicodedata.normalize("NFC", value).strip()
+    compact = "".join(char for char in normalized if char not in " -().")
+    if compact.startswith("00"):
+        compact = f"+{compact[2:]}"
+    if not compact.startswith("+"):
+        raise _identity_validation_error("identity")
+    digits = compact[1:]
+    if not digits.isdigit() or len(digits) < 8 or len(digits) > 15 or digits[0] == "0":
+        raise _identity_validation_error("identity")
+    return f"+{digits}"
+
+
+def _identity_validation_error(field: str) -> ServiceError:
+    return ServiceError(
+        HTTPStatus.BAD_REQUEST,
+        "validation_error",
+        "identity is invalid",
+        {"field": field},
+    )
 
 
 def _parse_session_time(value: str | None) -> datetime | None:

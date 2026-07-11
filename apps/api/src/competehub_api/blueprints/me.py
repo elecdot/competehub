@@ -17,7 +17,7 @@ from competehub_api.schemas.profile import (
     profile_update_schema,
 )
 from competehub_api.services.auth import current_user
-from competehub_api.services.profiles import ensure_student_profile, update_student_profile
+from competehub_api.services.profiles import allowed_profile_options, update_student_profile
 
 me_bp = Blueprint("me", __name__)
 
@@ -35,8 +35,22 @@ def get_profile():
     user, response = _require_student()
     if response is not None:
         return response
-    profile = ensure_student_profile(user)
+    profile = user.profile
+    if profile is None:
+        return error_response(
+            HTTPStatus.NOT_FOUND,
+            "profile_not_found",
+            "学生画像尚未开通",
+        )
     return success_response(profile_schema.dump(profile))
+
+
+@me_bp.get("/me/profile/options")
+def get_profile_options():
+    user, response = _require_student()
+    if response is not None:
+        return response
+    return success_response(allowed_profile_options())
 
 
 @me_bp.patch("/me/profile")

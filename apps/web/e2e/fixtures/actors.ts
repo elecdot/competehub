@@ -4,7 +4,7 @@ import {
   type Page,
 } from '@playwright/test'
 
-export const actorNames = ['student', 'editor', 'reviewer'] as const
+export const actorNames = ['student', 'profileReady', 'editor', 'reviewer'] as const
 
 export type ActorName = (typeof actorNames)[number]
 
@@ -20,6 +20,11 @@ const actors: Record<ActorName, ActorDefinition> = {
     password: 'violet harbor lantern orbit 47',
     role: 'student',
   },
+  profileReady: {
+    email: 'profile.student-day1@example.edu',
+    password: 'green campus theorem delta 64',
+    role: 'student',
+  },
   editor: {
     email: 'admin.day1@example.edu',
     password: 'copper meadow signal river 82',
@@ -30,6 +35,11 @@ const actors: Record<ActorName, ActorDefinition> = {
     password: 'silver orchard compass cloud 59',
     role: 'admin',
   },
+}
+
+export const pendingActor = {
+  email: 'pending.day1@example.edu',
+  password: 'amber bridge pending code 91',
 }
 
 interface ActorFixtures {

@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+from http import HTTPStatus
+
+from flask import current_app
+
 from competehub_api.extensions import db
 from competehub_api.models import StudentProfile, User
+from competehub_api.services.errors import ServiceError
 
 
 def create_default_profile(user: User) -> StudentProfile:
@@ -24,12 +29,24 @@ def ensure_student_profile(user: User) -> StudentProfile:
     return profile
 
 
+def create_missing_student_profile(user: User) -> StudentProfile:
+    if user.profile is not None:
+        return user.profile
+    profile = create_default_profile(user)
+    db.session.add(profile)
+    return profile
+
+
 def update_student_profile(user: User, updates: dict) -> StudentProfile:
     profile = user.profile
     if profile is None:
-        profile = create_default_profile(user)
-        db.session.add(profile)
+        raise ServiceError(
+            HTTPStatus.NOT_FOUND,
+            "profile_not_found",
+            "student profile is not provisioned",
+        )
 
+    validate_profile_update(profile, updates)
     for field, value in updates.items():
         setattr(profile, field, value)
     db.session.commit()
@@ -42,11 +59,11 @@ def profile_status(profile: StudentProfile) -> str:
 
 def missing_fields(profile: StudentProfile) -> list[str]:
     missing = []
-    if not profile.college:
+    if not _is_allowed_college(profile.college):
         missing.append("college")
-    if not profile.major:
+    if not _is_present_and_valid_major(profile.college, profile.major):
         missing.append("major")
-    if not profile.grade:
+    if not _is_allowed_grade(profile.grade):
         missing.append("grade")
     if not recommendation_ready_interest_tags(profile.interest_tags):
         missing.append("interest_tags")
@@ -56,4 +73,104 @@ def missing_fields(profile: StudentProfile) -> list[str]:
 def recommendation_ready_interest_tags(tags: list | None) -> bool:
     if not tags or len(tags) > 10:
         return False
-    return len(set(tags)) == len(tags)
+    return len(set(tags)) == len(tags) and all(_is_allowed_interest_tag(tag) for tag in tags)
+
+
+def validate_profile_update(profile: StudentProfile, updates: dict) -> None:
+    candidate = {
+        "college": profile.college,
+        "major": profile.major,
+        "grade": profile.grade,
+        "interest_tags": profile.interest_tags,
+    }
+    candidate.update(
+        {
+            key: value
+            for key, value in updates.items()
+            if key in {"college", "major", "grade", "interest_tags"}
+        }
+    )
+    if candidate["college"] is not None and not _is_allowed_college(candidate["college"]):
+        raise _profile_validation_error("college")
+    if candidate["major"] is not None and not _is_valid_candidate_major(
+        candidate["college"], candidate["major"]
+    ):
+        raise _profile_validation_error("major")
+    if candidate["grade"] is not None and not _is_allowed_grade(candidate["grade"]):
+        raise _profile_validation_error("grade")
+    if candidate["interest_tags"] is not None and not _has_only_allowed_interest_tags(
+        candidate["interest_tags"]
+    ):
+        raise _profile_validation_error("interest_tags")
+
+
+def allowed_profile_options() -> dict:
+    return {
+        "colleges": list(_majors_by_college()),
+        "majors_by_college": {
+            college: list(majors) for college, majors in _majors_by_college().items()
+        },
+        "grades": list(_allowed_grades()),
+        "interest_tags": list(_allowed_interest_tags()),
+    }
+
+
+def _is_allowed_college(value: str | None) -> bool:
+    return bool(value) and value in _majors_by_college()
+
+
+def _is_allowed_major(college: str | None, major: str | None) -> bool:
+    if not major or not college:
+        return False
+    return major in _majors_by_college().get(college, ())
+
+
+def _is_present_and_valid_major(college: str | None, major: str | None) -> bool:
+    if not major:
+        return False
+    if college:
+        return _is_allowed_major(college, major)
+    return any(major in majors for majors in _majors_by_college().values())
+
+
+def _is_valid_candidate_major(college: str | None, major: str) -> bool:
+    if college:
+        return _is_allowed_major(college, major)
+    return any(major in majors for majors in _majors_by_college().values())
+
+
+def _is_allowed_grade(value: str | None) -> bool:
+    return bool(value) and value in _allowed_grades()
+
+
+def _is_allowed_interest_tag(value: str) -> bool:
+    return value in _allowed_interest_tags()
+
+
+def _has_only_allowed_interest_tags(tags: list) -> bool:
+    return (
+        len(tags) <= 10
+        and len(set(tags)) == len(tags)
+        and all(_is_allowed_interest_tag(tag) for tag in tags)
+    )
+
+
+def _majors_by_college() -> dict[str, tuple[str, ...]]:
+    return current_app.config["PROFILE_ALLOWED_MAJORS_BY_COLLEGE"]
+
+
+def _allowed_grades() -> tuple[str, ...]:
+    return current_app.config["PROFILE_ALLOWED_GRADES"]
+
+
+def _allowed_interest_tags() -> tuple[str, ...]:
+    return current_app.config["PROFILE_ALLOWED_INTEREST_TAGS"]
+
+
+def _profile_validation_error(field: str) -> ServiceError:
+    return ServiceError(
+        HTTPStatus.BAD_REQUEST,
+        "validation_error",
+        "profile field is outside the controlled dictionary",
+        {"field": field},
+    )

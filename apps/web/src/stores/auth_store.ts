@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 
-import { fetchCurrentUser } from '@/api/client'
-import type { CurrentUser, CurrentUserResponse } from '@/types/auth'
+import { fetchCurrentUser, loginCurrentUser } from '@/api/client'
+import type { CurrentUser, CurrentUserResponse, LoginPayload } from '@/types/auth'
 
 function mapCurrentUser(user: CurrentUserResponse): CurrentUser {
   return {
@@ -31,6 +31,19 @@ export const useAuthStore = defineStore('auth', {
       } catch {
         this.currentUser = null
         this.errorMessage = 'unauthorized'
+      } finally {
+        this.loading = false
+      }
+    },
+    async login(payload: LoginPayload) {
+      this.loading = true
+      this.errorMessage = ''
+      try {
+        this.currentUser = mapCurrentUser(await loginCurrentUser(payload))
+      } catch {
+        this.currentUser = null
+        this.errorMessage = 'unauthorized'
+        throw new Error('login_failed')
       } finally {
         this.loading = false
       }

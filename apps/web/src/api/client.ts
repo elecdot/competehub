@@ -6,7 +6,13 @@ import type {
   CompetitionListPayload,
   ParticipantForm,
 } from '@/types/competition'
-import type { CurrentUserResponse, StudentProfile } from '@/types/auth'
+import type {
+  CurrentUserResponse,
+  LoginPayload,
+  ProfileOptions,
+  StudentProfile,
+  StudentProfileUpdate,
+} from '@/types/auth'
 
 export const apiClient = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL ?? '/api/v1',
@@ -45,5 +51,20 @@ export async function fetchCurrentUser() {
 
 export async function fetchCurrentProfile() {
   const response = await apiClient.get<ApiEnvelope<StudentProfile>>('/me/profile')
+  return response.data.data
+}
+
+export async function fetchProfileOptions() {
+  const response = await apiClient.get<ApiEnvelope<ProfileOptions>>('/me/profile/options')
+  return response.data.data
+}
+
+export async function loginCurrentUser(payload: LoginPayload) {
+  const response = await apiClient.post<ApiEnvelope<CurrentUserResponse>>('/auth/login', payload)
+  return response.data.data
+}
+
+export async function updateCurrentProfile(payload: StudentProfileUpdate) {
+  const response = await apiClient.patch<ApiEnvelope<StudentProfile>>('/me/profile', payload)
   return response.data.data
 }
