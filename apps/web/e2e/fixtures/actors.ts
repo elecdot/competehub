@@ -46,15 +46,27 @@ interface ActorFixtures {
   actor: ActorDefinition
   actorName: ActorName
   actorPage: Page
+  allowLoginUnauthorizedConsoleError: boolean
+  allowProfileValidationConsoleError: boolean
 }
 
 export const test = base.extend<ActorFixtures>({
   actorName: ['student', { option: true }],
+  allowLoginUnauthorizedConsoleError: [false, { option: true }],
+  allowProfileValidationConsoleError: [false, { option: true }],
   actor: async ({ actorName }, use) => {
     await use(actors[actorName])
   },
-  page: async ({ page }, use) => {
-    await usePageWithErrorGuard(page, use)
+  page: async (
+    { page, allowLoginUnauthorizedConsoleError, allowProfileValidationConsoleError },
+    use,
+  ) => {
+    await usePageWithErrorGuard(
+      page,
+      use,
+      allowLoginUnauthorizedConsoleError,
+      allowProfileValidationConsoleError,
+    )
   },
   actorPage: async ({ page, actor, actorName }, use) => {
     await authenticateActorPage(page, actor, actorName)
@@ -87,19 +99,55 @@ async function authenticateActorPage(
 async function usePageWithErrorGuard(
   page: Page,
   use: (page: Page) => Promise<void>,
+  allowLoginUnauthorizedConsoleError: boolean,
+  allowProfileValidationConsoleError: boolean,
 ) {
   const errors: string[] = []
+  let expectedHttpErrorResponses = 0
+  let httpConsoleErrors = 0
   page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`))
+  page.on('response', (response) => {
+    const request = response.request()
+    const pathname = new URL(response.url()).pathname
+    const isCurrentUserProbe =
+      response.status() === 401 && request.method() === 'GET' && pathname === '/api/v1/me'
+    const isExpectedLoginFailure =
+      allowLoginUnauthorizedConsoleError &&
+      response.status() === 401 &&
+      request.method() === 'POST' &&
+      pathname === '/api/v1/auth/login'
+    const isExpectedProfileValidation =
+      allowProfileValidationConsoleError &&
+      response.status() === 400 &&
+      request.method() === 'PATCH' &&
+      pathname === '/api/v1/me/profile'
+    if (isCurrentUserProbe || isExpectedLoginFailure || isExpectedProfileValidation) {
+      expectedHttpErrorResponses += 1
+    } else if (response.status() === 400 || response.status() === 401) {
+      errors.push(`response: unexpected ${response.status()} from ${request.method()} ${pathname}`)
+    }
+  })
   page.on('console', (message) => {
+    if (message.type() !== 'error') {
+      return
+    }
     if (
-      message.type() === 'error' &&
-      !message.text().includes('status of 401')
+      message.text().includes('status of 401') ||
+      message.text().includes('status of 400')
     ) {
+      httpConsoleErrors += 1
+    } else {
       errors.push(`console: ${message.text()}`)
     }
   })
 
   await use(page)
+  if (httpConsoleErrors > expectedHttpErrorResponses) {
+    errors.push(
+      `console: observed ${httpConsoleErrors} HTTP resource errors for ` +
+        `${expectedHttpErrorResponses} expected responses`,
+    )
+  }
   expect(errors, 'uncaught page and console errors').toEqual([])
 }
 

@@ -30,15 +30,17 @@ SESSION_TIMEOUTS = {
     UserRole.ADMIN: (timedelta(minutes=30), timedelta(hours=8)),
 }
 
+RATE_LIMIT_INCREMENT_SCRIPT = """
+local count = redis.call("INCR", KEYS[1])
+if redis.call("TTL", KEYS[1]) < 0 then
+    redis.call("EXPIRE", KEYS[1], tonumber(ARGV[1]))
+end
+return count
+"""
+
 
 def register_student(payload: dict) -> None:
-    sender = current_app.config.get("EMAIL_VERIFICATION_SENDER")
-    if sender is None:
-        raise ServiceError(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "registration_unavailable",
-            "public registration is unavailable",
-        )
+    sender = _registration_sender()
 
     _check_rate_limit("register", payload["identity_type"], payload["identity"])
     identity_type = payload["identity_type"]
@@ -102,13 +104,7 @@ def verify_identity(payload: dict) -> None:
 
 
 def resend_verification(payload: dict) -> None:
-    sender = current_app.config.get("EMAIL_VERIFICATION_SENDER")
-    if sender is None:
-        raise ServiceError(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "registration_unavailable",
-            "public registration is unavailable",
-        )
+    sender = _registration_sender()
 
     _check_rate_limit("resend", payload["identity_type"], payload["identity"])
     identity = find_identity(
@@ -245,6 +241,17 @@ def _create_and_send_challenge(identity: UserIdentity, sender) -> None:
     sender.send_verification_code(to=identity.display_value, code=code)
 
 
+def _registration_sender():
+    sender = current_app.config.get("EMAIL_VERIFICATION_SENDER")
+    if not current_app.config.get("PUBLIC_EMAIL_REGISTRATION_ENABLED") or sender is None:
+        raise ServiceError(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "registration_unavailable",
+            "public registration is unavailable",
+        )
+    return sender
+
+
 def _latest_active_challenge(identity: UserIdentity) -> IdentityVerificationChallenge | None:
     now = _utcnow()
     candidates = [
@@ -283,10 +290,7 @@ def _check_rate_limit(action: str, identity_type: str, identity: str) -> None:
 
 def _increment_rate_limit_key(key: str, window_seconds: int) -> int:
     store = _rate_limit_store()
-    count = int(store.incr(key))
-    if count == 1:
-        store.expire(key, window_seconds)
-    return count
+    return int(store.eval(RATE_LIMIT_INCREMENT_SCRIPT, 1, key, window_seconds))
 
 
 def _rate_limit_store():

@@ -24,7 +24,8 @@ const profile = ref<StudentProfile | null>(null)
 const profileOptions = ref<ProfileOptions | null>(null)
 const profileLoading = ref(false)
 const profileSaving = ref(false)
-const profileError = ref('')
+const profileLoadError = ref('')
+const profileSaveError = ref('')
 const loginError = ref('')
 
 const loginForm = ref<LoginPayload>({
@@ -87,7 +88,8 @@ async function loadProfile() {
     return
   }
   profileLoading.value = true
-  profileError.value = ''
+  profileLoadError.value = ''
+  profileSaveError.value = ''
   try {
     const [options, currentProfile] = await Promise.all([
       fetchProfileOptions(),
@@ -98,7 +100,7 @@ async function loadProfile() {
     syncProfileForm(currentProfile)
   } catch {
     profile.value = null
-    profileError.value = 'profile_load_failed'
+    profileLoadError.value = 'profile_load_failed'
   } finally {
     profileLoading.value = false
   }
@@ -106,7 +108,7 @@ async function loadProfile() {
 
 async function saveProfile() {
   profileSaving.value = true
-  profileError.value = ''
+  profileSaveError.value = ''
   try {
     profile.value = await updateCurrentProfile({
       college: profileForm.value.college ?? null,
@@ -116,7 +118,7 @@ async function saveProfile() {
     })
     syncProfileForm(profile.value)
   } catch {
-    profileError.value = 'profile_save_failed'
+    profileSaveError.value = 'profile_save_failed'
   } finally {
     profileSaving.value = false
   }
@@ -234,12 +236,19 @@ onMounted(reload)
         <h2 id="profile-heading">学生画像</h2>
         <ASkeleton v-if="profileLoading" active />
         <AAlert
-          v-else-if="profileError"
+          v-else-if="profileLoadError"
           type="error"
           message="画像状态加载失败"
           show-icon
         />
         <template v-else-if="profile">
+          <AAlert
+            v-if="profileSaveError"
+            data-testid="profile-save-error"
+            type="error"
+            message="画像保存失败，请检查后重试"
+            show-icon
+          />
           <ADescriptions bordered :column="1" size="small">
             <ADescriptionsItem label="状态">
               <ATag

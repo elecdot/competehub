@@ -3,6 +3,10 @@ from __future__ import annotations
 import os
 
 
+def _env_bool(name: str, *, default: bool = False) -> bool:
+    return os.getenv(name, str(default)).casefold() == "true"
+
+
 class BaseConfig:
     SECRET_KEY = os.getenv("SECRET_KEY", "dev-only-change-me")
     SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL", "sqlite:///competehub_dev.db")
@@ -16,6 +20,7 @@ class BaseConfig:
     SESSION_COOKIE_SECURE = False
     EMAIL_VERIFICATION_SENDER = None
     EMAIL_VERIFICATION_SENDER_DSN = os.getenv("EMAIL_VERIFICATION_SENDER_DSN")
+    PUBLIC_EMAIL_REGISTRATION_ENABLED = _env_bool("PUBLIC_EMAIL_REGISTRATION_ENABLED")
     AUTH_TRUST_PROXY_HEADERS = False
     AUTH_VERIFICATION_MAX_ATTEMPTS = 5
     AUTH_RATE_LIMIT_ENABLED = True

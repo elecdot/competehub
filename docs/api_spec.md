@@ -311,6 +311,28 @@ Response data example:
 
 Requires `student`.
 
+### `GET /me/profile/options`
+
+Return the deployment-controlled values accepted by `PATCH /me/profile`. The
+response keeps majors grouped by college so the client can prevent invalid
+college-major combinations.
+
+Response data example:
+
+```json
+{
+  "colleges": ["计算机学院", "经济管理学院"],
+  "majors_by_college": {
+    "计算机学院": ["软件工程", "计算机科学与技术"],
+    "经济管理学院": ["金融学", "工商管理"]
+  },
+  "grades": ["大一", "大二", "大三", "大四"],
+  "interest_tags": ["人工智能", "创新创业", "程序设计"]
+}
+```
+
+Requires `student`.
+
 ### `PATCH /me/profile`
 
 Update current student's profile.

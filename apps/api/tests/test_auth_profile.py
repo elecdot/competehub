@@ -34,12 +34,12 @@ class FakeRedisRateLimitStore:
         self.values: dict[str, int] = {}
         self.expirations: dict[str, int] = {}
 
-    def incr(self, key: str) -> int:
+    def eval(self, _script: str, num_keys: int, key: str, window_seconds: int) -> int:
+        assert num_keys == 1
         self.values[key] = self.values.get(key, 0) + 1
+        if key not in self.expirations:
+            self.expirations[key] = int(window_seconds)
         return self.values[key]
-
-    def expire(self, key: str, seconds: int) -> None:
-        self.expirations[key] = seconds
 
 
 @pytest.fixture()
@@ -54,6 +54,7 @@ def app(sender):
             "TESTING": True,
             "SECRET_KEY": "test-secret",
             "EMAIL_VERIFICATION_SENDER": sender,
+            "PUBLIC_EMAIL_REGISTRATION_ENABLED": True,
             "AUTH_RATE_LIMIT_ENABLED": False,
         }
     )

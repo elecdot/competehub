@@ -66,6 +66,18 @@ cp .env.example .env
 
 The default values point to the PostgreSQL and Redis services defined in `infra/docker-compose.yml`.
 
+Public email registration is disabled by default. To enable it, set both:
+
+```dotenv
+PUBLIC_EMAIL_REGISTRATION_ENABLED=true
+EMAIL_VERIFICATION_SENDER_DSN=smtp://username:password@smtp.example.edu:587?from=CompeteHub%20%3Cnoreply%40example.edu%3E&starttls=true
+```
+
+Use `smtp://` with `starttls=true` for STARTTLS or `smtps://` for implicit TLS.
+Percent-encode credentials and the `from` query value. The API fails fast at
+startup when public email registration is enabled without a valid sender; when
+registration is disabled, the endpoint returns `registration_unavailable`.
+
 ## Start Local Services
 
 Start PostgreSQL and Redis:

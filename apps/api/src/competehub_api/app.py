@@ -10,6 +10,7 @@ from competehub_api.config import config_from_env
 from competehub_api.e2e_seed import register_e2e_commands
 from competehub_api.errors import register_error_handlers
 from competehub_api.extensions import init_extensions
+from competehub_api.services.email_verification import configure_email_verification_sender
 
 
 def create_app(test_config: dict[str, Any] | None = None) -> Flask:
@@ -19,6 +20,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     if test_config:
         app.config.update(test_config)
 
+    configure_email_verification_sender(app.config)
     init_extensions(app)
     # Import models after extension setup so Flask-Migrate can discover metadata.
     import competehub_api.models  # noqa: F401

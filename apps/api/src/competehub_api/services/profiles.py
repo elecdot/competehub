@@ -20,15 +20,6 @@ def create_default_profile(user: User) -> StudentProfile:
     )
 
 
-def ensure_student_profile(user: User) -> StudentProfile:
-    if user.profile is not None:
-        return user.profile
-    profile = create_default_profile(user)
-    db.session.add(profile)
-    db.session.commit()
-    return profile
-
-
 def create_missing_student_profile(user: User) -> StudentProfile:
     if user.profile is not None:
         return user.profile
@@ -71,9 +62,7 @@ def missing_fields(profile: StudentProfile) -> list[str]:
 
 
 def recommendation_ready_interest_tags(tags: list | None) -> bool:
-    if not tags or len(tags) > 10:
-        return False
-    return len(set(tags)) == len(tags) and all(_is_allowed_interest_tag(tag) for tag in tags)
+    return bool(tags) and _has_only_allowed_interest_tags(tags)
 
 
 def validate_profile_update(profile: StudentProfile, updates: dict) -> None:
@@ -92,7 +81,7 @@ def validate_profile_update(profile: StudentProfile, updates: dict) -> None:
     )
     if candidate["college"] is not None and not _is_allowed_college(candidate["college"]):
         raise _profile_validation_error("college")
-    if candidate["major"] is not None and not _is_valid_candidate_major(
+    if candidate["major"] is not None and not _is_present_and_valid_major(
         candidate["college"], candidate["major"]
     ):
         raise _profile_validation_error("major")
@@ -133,25 +122,15 @@ def _is_present_and_valid_major(college: str | None, major: str | None) -> bool:
     return any(major in majors for majors in _majors_by_college().values())
 
 
-def _is_valid_candidate_major(college: str | None, major: str) -> bool:
-    if college:
-        return _is_allowed_major(college, major)
-    return any(major in majors for majors in _majors_by_college().values())
-
-
 def _is_allowed_grade(value: str | None) -> bool:
     return bool(value) and value in _allowed_grades()
-
-
-def _is_allowed_interest_tag(value: str) -> bool:
-    return value in _allowed_interest_tags()
 
 
 def _has_only_allowed_interest_tags(tags: list) -> bool:
     return (
         len(tags) <= 10
         and len(set(tags)) == len(tags)
-        and all(_is_allowed_interest_tag(tag) for tag in tags)
+        and all(tag in _allowed_interest_tags() for tag in tags)
     )
 
 
