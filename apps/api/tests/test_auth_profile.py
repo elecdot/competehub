@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from werkzeug.security import generate_password_hash
 
 from competehub_api import create_app
 from competehub_api.config import ProductionConfig
@@ -376,6 +377,56 @@ def test_new_password_hash_uses_explicit_argon2id_baseline() -> None:
     password_hash = hash_password("correct horse battery staple")
 
     assert password_hash.startswith("$argon2id$v=19$m=19456,t=2,p=1$")
+
+
+def test_successful_legacy_scrypt_login_upgrades_password_hash(client, app) -> None:
+    user_id = provision_user(app)
+    legacy_hash = generate_password_hash(
+        "correct horse battery staple",
+        method="scrypt:32768:8:1",
+    )
+    with app.app_context():
+        user = db.session.get(User, user_id)
+        user.password_hash = legacy_hash
+        db.session.commit()
+
+    response = login_email(client)
+
+    assert response.status_code == 200
+    with app.app_context():
+        upgraded_hash = db.session.get(User, user_id).password_hash
+        assert upgraded_hash != legacy_hash
+        assert upgraded_hash.startswith("$argon2id$v=19$m=19456,t=2,p=1$")
+
+
+def test_wrong_password_does_not_upgrade_legacy_scrypt_hash(client, app) -> None:
+    user_id = provision_user(app)
+    legacy_hash = generate_password_hash(
+        "correct horse battery staple",
+        method="scrypt:32768:8:1",
+    )
+    with app.app_context():
+        user = db.session.get(User, user_id)
+        user.password_hash = legacy_hash
+        db.session.commit()
+
+    response = login_email(client, password="wrong password value")
+
+    assert response.status_code == 401
+    with app.app_context():
+        assert db.session.get(User, user_id).password_hash == legacy_hash
+
+
+def test_current_argon2id_hash_is_not_rehashed_on_login(client, app) -> None:
+    user_id = provision_user(app)
+    with app.app_context():
+        original_hash = db.session.get(User, user_id).password_hash
+
+    response = login_email(client)
+
+    assert response.status_code == 200
+    with app.app_context():
+        assert db.session.get(User, user_id).password_hash == original_hash
 
 
 def test_student_me_always_returns_empty_capabilities(client, app) -> None:

@@ -26,3 +26,12 @@ def verify_password_hash(password_hash: str, password: str) -> bool:
         except (InvalidHashError, VerificationError):
             return False
     return check_password_hash(password_hash, password)
+
+
+def password_hash_needs_upgrade(password_hash: str) -> bool:
+    if not password_hash.startswith("$argon2id$"):
+        return True
+    try:
+        return ARGON2ID_HASHER.check_needs_rehash(password_hash)
+    except InvalidHashError:
+        return True

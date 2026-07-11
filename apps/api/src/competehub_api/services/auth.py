@@ -17,7 +17,11 @@ from competehub_api.models import IdentityVerificationChallenge, User, UserIdent
 from competehub_api.models.enums import IdentityVerificationStatus, UserRole, UserStatus
 from competehub_api.repositories.users import find_identity, get_user
 from competehub_api.services.errors import ServiceError
-from competehub_api.services.passwords import create_password_hash, verify_password_hash
+from competehub_api.services.passwords import (
+    create_password_hash,
+    password_hash_needs_upgrade,
+    verify_password_hash,
+)
 from competehub_api.services.profiles import create_missing_student_profile
 
 WEAK_PASSWORDS = {
@@ -135,12 +139,17 @@ def authenticate_user(identity_type: str, identity_value: str, password: str) ->
         raise _generic_auth_error()
 
     user = identity.user
+    normalized_password = normalize_password(password)
     if (
         user.status != UserStatus.ACTIVE
         or identity.verification_status != IdentityVerificationStatus.VERIFIED
-        or not verify_password_hash(user.password_hash, normalize_password(password))
+        or not verify_password_hash(user.password_hash, normalized_password)
     ):
         raise _generic_auth_error()
+
+    if password_hash_needs_upgrade(user.password_hash):
+        user.password_hash = create_password_hash(normalized_password)
+        db.session.commit()
     return user
 
 

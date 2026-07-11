@@ -85,8 +85,11 @@ Constraints:
   transaction and writes allowlisted old/new codes plus a non-empty reason to
   the audit log.
 - `password_hash` contains an adaptive hash with its algorithm and explicit work
-  parameters, never plaintext or reversible ciphertext. P1 prefers Argon2id;
-  an OWASP-baseline scrypt configuration is the permitted fallback.
+  parameters, never plaintext or reversible ciphertext. New and upgraded hashes
+  use Argon2id with the repository's current explicit parameters.
+- Historical adaptive hashes remain verifiable during migration. A successful
+  login upgrades a non-Argon2id hash, or an Argon2id hash whose parameters are
+  stale, in the same login transaction; a failed login never changes the hash.
 - New passwords contain 15 to 128 Unicode code points after NFC normalization,
   are checked against a local weak-password blocklist, and are never silently
   truncated.
