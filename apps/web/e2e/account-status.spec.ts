@@ -28,9 +28,10 @@ test.describe('profile-incomplete actor', () => {
 
   test('shows incomplete profile state and controlled profile options', async ({ actorPage }) => {
     await actorPage.goto('/me')
+    const profileSection = actorPage.locator('section[aria-labelledby="profile-heading"]')
 
     await expect(actorPage.getByTestId('profile-status')).toContainText('incomplete')
-    await expect(actorPage.getByText('学院')).toBeVisible()
+    await expect(profileSection.getByLabel('学院')).toBeVisible()
     await expect(actorPage.getByTestId('profile-save')).toBeVisible()
 
     await actorPage.locator('.profile-form .ant-select-selector').first().click()
@@ -43,9 +44,10 @@ test.describe('profile-ready actor', () => {
 
   test('shows recommendation-ready profile state', async ({ actorPage }) => {
     await actorPage.goto('/me')
+    const profileSection = actorPage.locator('section[aria-labelledby="profile-heading"]')
 
     await expect(actorPage.getByTestId('profile-status')).toContainText('recommendation_ready')
-    await expect(actorPage.getByText('缺少字段')).toBeVisible()
-    await expect(actorPage.getByText('[]')).toBeVisible()
+    await expect(profileSection.getByText('缺少字段')).toBeVisible()
+    await expect(profileSection.getByText('[]')).toBeVisible()
   })
 })

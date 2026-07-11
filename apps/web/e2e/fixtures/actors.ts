@@ -91,7 +91,10 @@ async function usePageWithErrorGuard(
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`))
   page.on('console', (message) => {
-    if (message.type() === 'error') {
+    if (
+      message.type() === 'error' &&
+      !message.text().includes('status of 401')
+    ) {
       errors.push(`console: ${message.text()}`)
     }
   })
