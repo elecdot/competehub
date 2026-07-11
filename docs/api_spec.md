@@ -938,6 +938,14 @@ addition/removal are schedule-semantic; stage, prominence, and description-only
 changes are not. Message estimates include only affected active subscriptions
 whose selected old or new node types intersect a schedule-semantic change.
 
+For an initial revision, `base_revision_id` and
+`current_published_revision_id` are both `null` until approval. Its comparison
+is derived against an empty baseline, and its impact reports an initial public
+visibility change with zero existing-subscription effects. Approval returns the
+new `published_revision_id`; rejection or return leaves that pointer unchanged.
+The response keeps the submitted comparison and impact evidence available after
+the terminal decision instead of recomputing it from mutable edition state.
+
 ### `POST /admin/competition_series`
 
 Create a赛事系列 with a canonical name. Requires `competition_editor`. The

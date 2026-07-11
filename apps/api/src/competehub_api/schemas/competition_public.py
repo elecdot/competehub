@@ -48,14 +48,20 @@ class CompetitionListQuerySchema(Schema):
 
 class PublicCompetitionTimeNodeSchema(Schema):
     id = fields.Integer(required=True)
+    logical_node_key = fields.String(allow_none=True)
+    node_revision = fields.Integer()
     node_type = fields.String(required=True)
+    occurs_at = UtcDateTime(allow_none=True)
     starts_at = UtcDateTime(allow_none=True)
     due_at = UtcDateTime(allow_none=True)
     description = fields.String(allow_none=True)
+    prominence = fields.String()
+    stage_id = fields.Integer(allow_none=True)
 
 
 class PublicCompetitionSummarySchema(Schema):
     id = fields.Integer(required=True)
+    revision_id = fields.Function(lambda competition: competition.published_revision_id)
     title = fields.String(required=True)
     short_title = fields.String(allow_none=True)
     category = fields.String(allow_none=True)

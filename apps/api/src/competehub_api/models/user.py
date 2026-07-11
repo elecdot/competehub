@@ -25,6 +25,7 @@ class User(db.Model, TimestampMixin):
     student_no: Mapped[str | None] = mapped_column(String(64), unique=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     display_name: Mapped[str | None] = mapped_column(String(120))
+    capabilities: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     role: Mapped[UserRole] = mapped_column(
         SAEnum(UserRole, values_callable=enum_values, name="user_role"),
         default=UserRole.STUDENT,

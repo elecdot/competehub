@@ -425,6 +425,15 @@ Redis 不用于：
 - `GET /api/v1/admin/audit_logs`
 - `GET /api/v1/admin/stats`
 
+Issue #35 implements the first-revision publication path in
+`models/competition.py`, `services/competition_revisions.py`, the admin
+blueprint/schemas/repositories, and `apps/web/src/pages/AdminHomePage.vue`.
+The browser acceptance path in
+`apps/web/e2e/competition-publication.spec.ts` uses real Cookie sessions to
+move from editor submission through independent reviewer approval to student
+visibility. Replacement-revision and lifecycle-maintenance expansion remains
+owned by #37.
+
 ## 十、认证、权限与审计
 
 ### 10.1 角色

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from sqlalchemy import JSON, BigInteger, ForeignKey, Integer, String, Text
+from datetime import datetime
+
+from sqlalchemy import JSON, BigInteger, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -27,6 +29,9 @@ class ReviewRecord(db.Model, TimestampMixin):
         index=True,
     )
     comment: Mapped[str | None] = mapped_column(Text)
+    differences: Mapped[list | None] = mapped_column(JSON)
+    impact: Mapped[dict | None] = mapped_column(JSON)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class AuditLog(db.Model, TimestampMixin):

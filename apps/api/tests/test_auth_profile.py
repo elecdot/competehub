@@ -50,6 +50,7 @@ def test_register_sets_session_and_returns_current_user(client) -> None:
         "id": 1,
         "display_name": "student a",
         "role": "student",
+        "capabilities": [],
     }
 
     me_response = client.get("/api/v1/me")
@@ -59,6 +60,7 @@ def test_register_sets_session_and_returns_current_user(client) -> None:
         "id": 1,
         "display_name": "student a",
         "role": "student",
+        "capabilities": [],
     }
 
 

@@ -6,7 +6,7 @@ from competehub_api.models import Competition, CompetitionTimeNode
 
 
 def sorted_time_nodes(competition: Competition) -> list[CompetitionTimeNode]:
-    return sorted(competition.time_nodes, key=_time_node_sort_key)
+    return sorted(_published_time_nodes(competition), key=_time_node_sort_key)
 
 
 def next_time_node(
@@ -16,14 +16,22 @@ def next_time_node(
     at = _as_utc(at or datetime.now(UTC))
     candidates = [
         (node_time, node.id or 0, node)
-        for node in competition.time_nodes
+        for node in _published_time_nodes(competition)
         if (node_time := _next_node_time(node, at)) is not None
     ]
     return min(candidates, default=(None, 0, None))[2]
 
 
 def competition_tag_names(competition: Competition) -> list[str]:
-    return sorted({link.tag.name for link in competition.tag_links if link.tag is not None})
+    revision = competition.published_revision
+    if revision is None:
+        return []
+    return sorted({link.tag.name for link in revision.tag_links if link.tag is not None})
+
+
+def _published_time_nodes(competition: Competition) -> list[CompetitionTimeNode]:
+    revision = competition.published_revision
+    return revision.time_nodes if revision is not None else []
 
 
 def _time_node_sort_key(node: CompetitionTimeNode) -> tuple[datetime, int]:
@@ -31,7 +39,11 @@ def _time_node_sort_key(node: CompetitionTimeNode) -> tuple[datetime, int]:
 
 
 def _node_times(node: CompetitionTimeNode) -> list[datetime]:
-    return sorted(_as_utc(value) for value in (node.starts_at, node.due_at) if value is not None)
+    return sorted(
+        _as_utc(value)
+        for value in (node.occurs_at, node.starts_at, node.due_at)
+        if value is not None
+    )
 
 
 def _first_node_time(node: CompetitionTimeNode) -> datetime | None:

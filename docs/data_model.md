@@ -1057,3 +1057,11 @@ Search can start with PostgreSQL filters and simple text matching. Add a dedicat
 - Enum changes must include a compatibility note when existing rows may be affected.
 - Data backfills should be idempotent and documented in the migration or task note.
 - Migrations should not depend on Redis.
+- The initial reproducible schema is
+  `apps/api/migrations/versions/4a17c3d9e507_add_immutable_competition_revisions.py`.
+  It creates the series, edition, revision, stage, single-instant node, review,
+  and audit relationships in dependency order and supports clean upgrade and
+  downgrade checks.
+- `seed-e2e --reset` provisions distinct student/editor/reviewer actors plus one
+  approved series/edition/revision fixture with an ordered stage and immutable
+  `occurs_at` node. It is isolated browser-test data, not a production backfill.

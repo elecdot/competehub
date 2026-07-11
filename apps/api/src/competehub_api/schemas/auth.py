@@ -34,6 +34,7 @@ class UserSchema(Schema):
     id = fields.Integer(required=True)
     display_name = fields.String(allow_none=True)
     role = fields.String(required=True)
+    capabilities = fields.List(fields.String(), required=True)
 
 
 register_schema = RegisterSchema()

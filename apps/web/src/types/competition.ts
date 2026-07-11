@@ -2,6 +2,7 @@ export type ParticipantForm = 'individual' | 'team'
 
 export interface CompetitionSummary {
   id: number
+  revision_id?: number | null
   title: string
   short_title?: string | null
   category?: string | null
@@ -21,7 +22,12 @@ export interface CompetitionSummary {
 
 export interface CompetitionTimeNode {
   id: number
+  logical_node_key?: string | null
+  node_revision?: number
   node_type: string
+  occurs_at?: string | null
+  prominence?: 'primary' | 'secondary'
+  stage_id?: number | null
   starts_at?: string | null
   due_at?: string | null
   description?: string | null

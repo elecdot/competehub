@@ -16,6 +16,7 @@ class UserStatus(StrEnum):
 
 
 class CompetitionStatus(StrEnum):
+    UNPUBLISHED = "unpublished"
     DRAFT = "draft"
     PENDING_REVIEW = "pending_review"
     PUBLISHED = "published"
@@ -24,6 +25,14 @@ class CompetitionStatus(StrEnum):
     ARCHIVED = "archived"
     CANCELLED = "cancelled"
     EXPIRED = "expired"
+
+
+class CompetitionRevisionStatus(StrEnum):
+    DRAFT = "draft"
+    PENDING_REVIEW = "pending_review"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    RETURNED = "returned"
 
 
 class ParticipantForm(StrEnum):

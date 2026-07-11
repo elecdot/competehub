@@ -20,7 +20,7 @@ This directory does not own frontend code, infrastructure definitions, course re
 - `src/competehub_api/schemas/`: Marshmallow validation and serialization schemas.
 - `src/competehub_api/tasks/`: Celery workers and scheduled task entrypoints.
 - `tests/`: Backend tests.
-- `migrations/`: Alembic migration files, created when migrations are initialized.
+- `migrations/`: Alembic migration files for reproducible schema upgrades.
 
 ## Local Commands
 
@@ -44,6 +44,13 @@ Raw Python commands should go through the workspace-safe helper:
 ```
 
 Local PostgreSQL and Redis can be started with `just infra-up`.
+
+Apply committed migrations with:
+
+```bash
+./scripts/agent-env.sh uv run --project apps/api flask \
+  --app competehub_api.app:create_app db upgrade --directory apps/api/migrations
+```
 
 The Playwright harness uses `create_e2e_app` and the guarded `seed-e2e --reset`
 command to rebuild only `.cache/tmp/competehub-e2e.db`. That factory is test
