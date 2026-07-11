@@ -216,12 +216,12 @@ function revisionPayload(): RevisionDraftUpdate {
     organizer: draft.organizer,
     source_name: draft.sourceName,
     source_url: draft.sourceUrl,
-    official_url: draft.officialUrl || undefined,
+    official_url: draft.officialUrl || null,
     summary: draft.summary,
     eligibility: draft.eligibility,
     registration_applicability: draft.registrationApplicability,
     participant_forms: draft.participantForms,
-    team_size: draft.participantForms.includes('team') ? draft.teamSize : undefined,
+    team_size: draft.participantForms.includes('team') ? draft.teamSize || null : null,
     major_scope: draft.majorScope,
     grade_scope: draft.gradeScope,
     suitable_majors: draft.majorScope === 'selected' ? splitScope(draft.majors) : [],
@@ -245,10 +245,13 @@ async function saveDraft() {
       )
       message.success('候选修订已更新')
     } else {
+      const payload = revisionPayload()
       const workspace = await createCompetitionEdition({
         series_id: selectedSeriesId.value,
         edition_label: draft.editionLabel,
-        ...revisionPayload(),
+        ...payload,
+        official_url: payload.official_url ?? undefined,
+        team_size: payload.team_size ?? undefined,
       })
       createdRevision.value = workspace.revision
       message.success('不可变候选修订已保存')

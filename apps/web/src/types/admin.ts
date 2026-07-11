@@ -100,4 +100,10 @@ export interface EditionDraftInput {
   tags: RevisionTagInput[]
 }
 
-export type RevisionDraftUpdate = Omit<EditionDraftInput, 'series_id' | 'edition_label'>
+export type RevisionDraftUpdate = Omit<
+  EditionDraftInput,
+  'series_id' | 'edition_label' | 'official_url' | 'team_size'
+> & {
+  official_url: string | null
+  team_size: string | null
+}
