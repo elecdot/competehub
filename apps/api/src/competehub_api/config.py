@@ -11,6 +11,15 @@ class BaseConfig:
     CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", REDIS_URL)
     CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", REDIS_URL)
     JSON_SORT_KEYS = False
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = "Lax"
+    SESSION_COOKIE_SECURE = False
+    EMAIL_VERIFICATION_SENDER = None
+    AUTH_TRUST_PROXY_HEADERS = False
+    AUTH_VERIFICATION_MAX_ATTEMPTS = 5
+    AUTH_RATE_LIMIT_ENABLED = True
+    AUTH_RATE_LIMIT_MAX_ATTEMPTS = 10
+    AUTH_RATE_LIMIT_WINDOW_SECONDS = 60
 
 
 class DevelopmentConfig(BaseConfig):
@@ -24,6 +33,7 @@ class TestingConfig(BaseConfig):
 
 class ProductionConfig(BaseConfig):
     DEBUG = False
+    SESSION_COOKIE_SECURE = True
 
 
 def config_from_env() -> type[BaseConfig]:

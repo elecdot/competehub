@@ -13,6 +13,7 @@ from competehub_api.models import (
     User,
 )
 from competehub_api.models.enums import CompetitionStatus, UserRole
+from competehub_api.services.auth import start_session
 
 
 @pytest.fixture(autouse=True)
@@ -384,7 +385,7 @@ def test_admin_publication_is_immediately_visible_and_maintenance_hides_it(clien
     db.session.add(admin)
     db.session.commit()
     with client.session_transaction() as session:
-        session["user_id"] = admin.id
+        start_session(session, admin)
 
     create_response = client.post(
         "/api/v1/admin/competitions",

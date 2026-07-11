@@ -51,11 +51,16 @@ a:focus-visible {
 }
 
 .topbar {
-  align-items: center;
   background: #ffffff;
   border-bottom: 1px solid #e5e7eb;
+}
+
+.topbar-inner {
+  align-items: center;
   display: flex;
   gap: 24px;
+  margin: 0 auto;
+  max-width: 1120px;
   min-height: 56px;
   padding: 0 24px;
 }
@@ -66,19 +71,38 @@ a:focus-visible {
 }
 
 .brand:hover,
-.nav-links a:hover {
+.nav-links a:hover,
+.account-nav a:hover {
   color: #176b4d;
   text-decoration: underline;
 }
 
+.account-nav,
 .nav-links {
   display: flex;
   gap: 16px;
 }
 
+.account-nav {
+  margin-left: auto;
+}
+
+.account-nav a {
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-weight: 700;
+  padding: 6px 12px;
+}
+
+.account-nav a.router-link-active,
 .nav-links a.router-link-active {
   color: #176b4d;
   font-weight: 700;
+}
+
+.account-nav a.router-link-active {
+  background: #edf7f2;
+  border-color: #176b4d;
 }
 
 .main-content {
@@ -301,6 +325,49 @@ a:focus-visible {
   display: grid;
 }
 
+.account-page,
+.status-layout,
+.status-section {
+  display: grid;
+  gap: 20px;
+}
+
+.status-layout {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.status-section {
+  background: #ffffff;
+  border: 1px solid #dde2e7;
+  border-radius: 8px;
+  padding: 18px;
+}
+
+.section-title-row {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.section-title-row .anticon {
+  color: #176b4d;
+}
+
+.status-section h2 {
+  font-size: 18px;
+  margin: 0;
+}
+
+.inline-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.inline-tags .ant-tag {
+  margin-inline-end: 0;
+}
+
 .competition-pagination {
   display: flex;
   justify-content: flex-end;
@@ -451,14 +518,13 @@ a:focus-visible {
 }
 
 @media (max-width: 640px) {
-  .topbar {
+  .topbar-inner {
     gap: 14px;
     padding: 0 16px;
   }
 
   .nav-links {
     gap: 12px;
-    margin-left: auto;
   }
 
   .main-content {
@@ -474,6 +540,7 @@ a:focus-visible {
   .filter-bar,
   .competition-card,
   .detail-grid,
+  .status-layout,
   .time-node-list li {
     grid-template-columns: 1fr;
   }
@@ -500,7 +567,7 @@ a:focus-visible {
 }
 
 @media (max-width: 460px) {
-  .topbar {
+  .topbar-inner {
     align-items: flex-start;
     flex-direction: column;
     gap: 8px;
@@ -511,6 +578,17 @@ a:focus-visible {
   .nav-links {
     justify-content: space-between;
     margin-left: 0;
+    width: 100%;
+  }
+
+  .account-nav {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .account-nav a {
+    box-sizing: border-box;
+    text-align: center;
     width: 100%;
   }
 }
