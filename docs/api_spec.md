@@ -534,6 +534,11 @@ status so the frontend can show a warning, but they are excluded from default
 list and recommendation results. Missing, `draft`, `pending_review`, `rejected`,
 and `offline` competitions return `404 not_found`.
 
+Historical detail includes `lifecycle_warning` with the current lifecycle
+`status`, the required maintenance `reason`, and `changed_at`. Published detail
+returns `lifecycle_warning: null`. The reason is current warning context; the
+append-only audit event remains the durable transition evidence.
+
 Response data extends the list item with detail fields:
 
 ```json
@@ -541,6 +546,7 @@ Response data extends the list item with detail fields:
   "id": 1,
   "title": "大学生创新创业竞赛",
   "status": "published",
+  "lifecycle_warning": null,
   "source_name": "示例高校竞赛通知",
   "source_url": "https://example.edu/notices/innovation",
   "official_url": "https://example.org/innovation",
@@ -1144,6 +1150,19 @@ reviewed. P1 permits only one active `draft` or `pending_review` revision for an
 edition. If one exists, return `409 active_revision_exists` with its revision id
 instead of creating a parallel candidate. A replacement stores the exact copied
 public revision as `base_revision_id`.
+
+The request requires the source-backed reason for preparing the replacement:
+
+```json
+{
+  "reason": "Official notice postponed the registration deadline"
+}
+```
+
+The response is the complete draft revision read model, including
+`change_reason`, base/current public identifiers, comparison, completeness, and
+live subscriber/reminder impact. Approval records the reviewer comment as the
+reason on the single revision-scoped reconciliation audit event.
 
 ### `PATCH /admin/competition_revisions/{revision_id}`
 

@@ -248,6 +248,9 @@ Key fields:
 - `series_id`
 - `edition_label`
 - `lifecycle_status`
+- `lifecycle_reason`: nullable current warning context for the latest lifecycle
+  maintenance transition
+- `lifecycle_changed_at`
 - `published_revision_id`
 - `created_by_id`
 
@@ -271,6 +274,8 @@ Key fields:
 - `revision_number`
 - `base_revision_id`: nullable FK to the public revision copied as the editing
   and review baseline
+- `change_reason`: required source-backed reason when a replacement draft is
+  created
 - `revision_status`
 - `title`
 - `short_title`
@@ -329,6 +334,11 @@ Rules:
   initial publication), then atomically selects the revision and refreshes
   public search, recommendation, and detail reads. A mismatch returns
   `409 stale_revision` and creates no terminal review decision.
+- Replacement approval appends one `competition_revision.reconcile` audit event
+  containing the immutable base/successor node differences and review reason.
+  Schedule-semantic changes cancel superseded pending plans, create only future
+  eligible plans, and emit at most one consolidated message per affected active
+  subscriber and approved revision.
 - `published_at` records the approval time at which a revision became public and
   supplies deterministic discovery tie-breaking.
 - Stages and time-node snapshots are scoped to the content revision while stable

@@ -438,8 +438,11 @@ blueprint/schemas/repositories, and `apps/web/src/pages/AdminHomePage.vue`.
 The browser acceptance path in
 `apps/web/e2e/competition-publication.spec.ts` uses real Cookie sessions to
 move from editor submission through independent reviewer approval to student
-visibility. Replacement-revision and lifecycle-maintenance expansion remains
-owned by #37.
+visibility. Issue #37 extends that same path with source-backed successor
+creation, immutable base comparison, logical-node reconciliation, subscriber
+and reminder impact previews, historical lifecycle warnings, emergency offline,
+and reviewed restoration. Schema additions live in the successor Alembic
+revision `8b4d2f7a1c90`; the merged #35 migration remains unchanged.
 
 ## 十、认证、权限与审计
 
