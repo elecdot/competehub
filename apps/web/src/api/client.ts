@@ -4,7 +4,9 @@ import type {
   ApiEnvelope,
   CompetitionDetail,
   CompetitionListPayload,
+  DiscoverySort,
   ParticipantForm,
+  RegistrationStatus,
 } from '@/types/competition'
 import type {
   CompetitionRevision,
@@ -32,11 +34,13 @@ export interface CompetitionListParams {
   major?: string
   grade?: string
   tag?: string
+  registration_status?: RegistrationStatus
   participant_form?: ParticipantForm
   deadline_from?: string
   deadline_to?: string
   page?: number
   page_size?: number
+  sort?: DiscoverySort
 }
 
 export async function fetchCompetitions(params: CompetitionListParams = {}) {
@@ -49,6 +53,17 @@ export async function fetchCompetitions(params: CompetitionListParams = {}) {
 export async function fetchCompetitionDetail(id: number) {
   const response = await apiClient.get<ApiEnvelope<CompetitionDetail>>(`/competitions/${id}`)
   return response.data.data
+}
+
+export function recordCompetitionOutboundClick(
+  id: number,
+  targetType: 'source_url' | 'official_url' | 'attachment_url',
+  sourceSurface: 'competition_list' | 'competition_detail' | 'recommendation',
+) {
+  return apiClient.post(`/competitions/${id}/outbound_clicks`, {
+    target_type: targetType,
+    source_surface: sourceSurface,
+  })
 }
 
 export async function fetchCompetitionSeries() {

@@ -22,8 +22,8 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 
 import { fetchCompetitions } from '@/api/client'
 import { useCompetitionFilterStore } from '@/stores/competition_filter_store'
-import type { CompetitionSummary } from '@/types/competition'
-import { formatNodeDate, formatNodeLabel } from '@/utils/competition'
+import type { CompetitionSummary, RegistrationStatus } from '@/types/competition'
+import { formatNodeDate, formatNodeLabel, formatRegistrationStatus } from '@/utils/competition'
 
 const route = useRoute()
 const router = useRouter()
@@ -32,6 +32,19 @@ const participantFormOptions = [
   { label: '不限参赛形式', value: '' },
   { label: '个人参赛', value: 'individual' },
   { label: '团队参赛', value: 'team' },
+]
+const registrationStatusOptions = [
+  { label: '不限报名状态', value: '' },
+  { label: '报名开放', value: 'open' },
+  { label: '即将报名', value: 'upcoming' },
+  { label: '报名结束', value: 'closed' },
+  { label: '报名待确认', value: 'unknown' },
+  { label: '无需报名', value: 'not_applicable' },
+]
+const sortOptions = [
+  { label: '按可行动性', value: 'actionable' },
+  { label: '按报名截止', value: 'registration_deadline' },
+  { label: '按发布时间', value: 'published_at' },
 ]
 type DatePickerRef = { $el: HTMLElement; focus: () => void }
 
@@ -110,6 +123,21 @@ function clearFilters() {
 function changePage(page: number) {
   filters.page = page
   void applyFiltersToRoute()
+}
+
+function changeSort() {
+  filters.page = 1
+  void applyFiltersToRoute()
+}
+
+function registrationStatusColor(status: RegistrationStatus) {
+  return {
+    open: 'green',
+    upcoming: 'blue',
+    closed: 'default',
+    unknown: 'orange',
+    not_applicable: 'cyan',
+  }[status]
 }
 
 async function applyFiltersToRoute() {
@@ -216,6 +244,14 @@ watch(
           placeholder="输入标签，例如人工智能…"
         />
       </label>
+      <label for="competition-registration-status">
+        报名状态
+        <ASelect
+          id="competition-registration-status"
+          v-model:value="filters.registrationStatus"
+          :options="registrationStatusOptions"
+        />
+      </label>
       <label for="competition-participant-form">
         参赛形式
         <ASelect
@@ -225,6 +261,15 @@ watch(
           autocomplete="off"
         />
         <input type="hidden" name="participant_form" :value="filters.participantForm" />
+      </label>
+      <label for="competition-sort">
+        排序
+        <ASelect
+          id="competition-sort"
+          v-model:value="filters.sort"
+          :options="sortOptions"
+          @change="changeSort"
+        />
       </label>
       <label for="competition-deadline-from">
         报名截止日期从
@@ -302,7 +347,9 @@ watch(
         >
           <div class="card-main">
             <div class="card-meta">
-              <ATag color="green">公开中</ATag>
+              <ATag :color="registrationStatusColor(competition.registration_status)">
+                {{ formatRegistrationStatus(competition.registration_status) }}
+              </ATag>
               <span>{{ competition.category ?? '未分类' }}</span>
             </div>
             <h2>{{ competition.title }}</h2>
@@ -315,6 +362,13 @@ watch(
             </p>
             <div v-if="competition.tags.length" class="tag-row">
               <ATag v-for="tag in competition.tags" :key="tag" color="cyan">{{ tag }}</ATag>
+            </div>
+            <div
+              v-if="competition.is_favorited || competition.is_subscribed"
+              class="tag-row personal-state"
+            >
+              <ATag v-if="competition.is_favorited" color="gold">已收藏</ATag>
+              <ATag v-if="competition.is_subscribed" color="green">已订阅</ATag>
             </div>
           </div>
           <div class="card-side">

@@ -11,7 +11,7 @@ from competehub_api.models import (
     User,
     UserIdentity,
 )
-from competehub_api.models.enums import CompetitionRevisionStatus
+from competehub_api.models.enums import CompetitionRevisionStatus, CompetitionStatus
 
 
 def test_e2e_seed_refuses_a_normal_application(app) -> None:
@@ -79,6 +79,8 @@ def test_e2e_seed_rebuilds_the_expected_actor_set() -> None:
         series = db.session.get(CompetitionSeries, 2001)
         edition = db.session.get(Competition, 2001)
         revision = db.session.get(CompetitionRevision, 2001)
+        historical_edition = db.session.get(Competition, 2002)
+        historical_revision = db.session.get(CompetitionRevision, 2002)
         assert series.canonical_name == "Seeded University Innovation Challenge"
         assert edition.published_revision_id == revision.id
         assert revision.revision_status == CompetitionRevisionStatus.APPROVED
@@ -86,6 +88,9 @@ def test_e2e_seed_rebuilds_the_expected_actor_set() -> None:
         assert revision.stages[0].time_nodes[0].occurs_at is not None
         assert revision.stages[0].time_nodes[0].starts_at is None
         assert revision.stages[0].time_nodes[0].due_at is None
+        assert revision.official_url == "https://example.org/seeded-innovation-2025"
+        assert historical_edition.status == CompetitionStatus.ARCHIVED
+        assert historical_edition.published_revision_id == historical_revision.id
 
     login_response = app.test_client().post(
         "/api/v1/auth/login",

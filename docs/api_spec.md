@@ -413,9 +413,11 @@ Response item:
   "registration_status": "open",
   "registration_status_basis": {
     "stage_id": 7,
-    "node_snapshot_id": 11,
+    "snapshot_id": 11,
     "logical_node_key": "registration-main-deadline",
-    "node_revision": 1
+    "node_revision": 1,
+    "node_type": "registration_deadline",
+    "occurs_at": "2026-12-15T16:00:00Z"
   },
   "source_name": "示例高校竞赛通知",
   "source_url": "https://example.edu/notices/innovation",
@@ -526,6 +528,11 @@ Response data extends the list item with detail fields:
   "id": 1,
   "title": "大学生创新创业竞赛",
   "status": "published",
+  "edition_label": "2026",
+  "current_revision": {
+    "id": 11,
+    "revision_number": 2
+  },
   "source_name": "示例高校竞赛通知",
   "source_url": "https://example.edu/notices/innovation",
   "official_url": "https://example.org/innovation",
@@ -577,6 +584,10 @@ reference and official or school notices remain authoritative.
 `content_updated_at` is the approval time of the current public revision. It
 changes only when a later approved revision replaces the prior public snapshot;
 editing or submitting a non-public candidate does not change the public value.
+`current_revision` identifies that selected immutable snapshot, while
+`edition_label` identifies the concrete participation cycle. Clients display
+these values with source facts and the time-node stage metadata instead of
+inferring currentness from an editable candidate.
 
 For anonymous requests, `is_favorited` and `is_subscribed` are `false`. For an
 authenticated student, they reflect that student's persisted edition-bound
@@ -603,6 +614,10 @@ Controlled source surfaces initially include `competition_list`,
 the edition's currently viewable public revision and rejects a missing or
 inaccessible target; clients cannot submit an arbitrary URL. Accepted events
 return `202` and use server time.
+
+The browser opens the HTTP(S) target directly with `noopener noreferrer`, then
+may send this request as a best-effort action. A failed, delayed, or blocked
+recording request never changes the link target or prevents navigation.
 
 The event stores edition id, public revision id, target type, source surface,
 `actor_kind` (`authenticated` or `anonymous`), and occurrence time. It does not

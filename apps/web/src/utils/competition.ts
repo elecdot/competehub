@@ -1,4 +1,4 @@
-import type { CompetitionTimeNode } from '@/types/competition'
+import type { CompetitionLifecycleStatus, CompetitionTimeNode, RegistrationStatus } from '@/types/competition'
 
 const PRODUCT_TIME_ZONE = 'Asia/Shanghai'
 
@@ -17,6 +17,21 @@ const PARTICIPANT_FORM_LABELS: Record<string, string> = {
   team: '团队参赛',
 }
 
+const REGISTRATION_STATUS_LABELS: Record<RegistrationStatus, string> = {
+  open: '报名开放',
+  upcoming: '即将报名',
+  closed: '报名结束',
+  unknown: '报名待确认',
+  not_applicable: '无需报名',
+}
+
+const COMPETITION_STATUS_LABELS: Record<CompetitionLifecycleStatus, string> = {
+  published: '公开中',
+  cancelled: '已取消',
+  archived: '已归档',
+  expired: '已过期',
+}
+
 export function formatNodeLabel(nodeType: string) {
   return NODE_LABELS[nodeType] ?? nodeType
 }
@@ -26,6 +41,14 @@ export function formatParticipantForm(participantForm?: string | null) {
     return '未填写'
   }
   return PARTICIPANT_FORM_LABELS[participantForm] ?? participantForm
+}
+
+export function formatRegistrationStatus(status: RegistrationStatus) {
+  return REGISTRATION_STATUS_LABELS[status]
+}
+
+export function formatCompetitionStatus(status: CompetitionLifecycleStatus) {
+  return COMPETITION_STATUS_LABELS[status]
 }
 
 export function formatNodeDate(node: CompetitionTimeNode, includeTime = false) {

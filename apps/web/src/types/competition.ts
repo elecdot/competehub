@@ -1,4 +1,11 @@
 export type ParticipantForm = 'individual' | 'team'
+export type RegistrationStatus = 'open' | 'upcoming' | 'closed' | 'unknown' | 'not_applicable'
+export type CompetitionLifecycleStatus =
+  | 'published'
+  | 'cancelled'
+  | 'archived'
+  | 'expired'
+export type DiscoverySort = 'actionable' | 'registration_deadline' | 'published_at'
 
 export interface CompetitionSummary {
   id: number
@@ -7,7 +14,9 @@ export interface CompetitionSummary {
   short_title?: string | null
   category?: string | null
   organizer?: string | null
-  status: 'published'
+  status: CompetitionLifecycleStatus
+  registration_status: RegistrationStatus
+  registration_status_basis?: CompetitionTimeNode | null
   source_name: string
   source_url: string
   official_url?: string | null
@@ -42,6 +51,11 @@ export interface CompetitionTimeNode {
 }
 
 export interface CompetitionDetail extends CompetitionSummary {
+  edition_label?: string | null
+  current_revision?: {
+    id: number
+    revision_number: number
+  } | null
   host?: string | null
   attachment_url?: string | null
   summary?: string | null

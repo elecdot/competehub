@@ -96,11 +96,18 @@ editor, and reviewer accounts through controlled test setup. Actor fixtures use
 the real login endpoint and browser Cookie state; they do not inject privileged
 frontend state or imply that public registration bypasses verification.
 
-The harness currently runs Chromium and treats uncaught page errors and browser
-console errors as failures. Screenshots are captured on failure, while traces
-and video are retained on failure. Reports and test results stay under
+The harness runs the same Chromium scenarios in desktop and mobile viewports
+and treats uncaught page errors and browser console errors as failures.
+Screenshots are captured on failure, while traces and video are retained on
+failure. Reports and test results stay under
 `.cache/playwright`, are ignored by Git, and are uploaded by CI only when the
 browser job fails.
+
+Public discovery scenarios cover actionable registration filtering and sorting,
+the current public revision's staged milestone display, historical-detail
+warnings, and direct official-link navigation when the best-effort tracking
+request fails. They run against the deterministic E2E seed rather than a
+frontend-only mock.
 
 ## Non-Functional Validation
 

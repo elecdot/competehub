@@ -1083,6 +1083,8 @@ Initial indexes should prioritize:
 - `reminders.due_at`
 - `messages.user_id`
 - `messages.is_read`
+- `outbound_click_events.competition_id, occurred_at`
+- `outbound_click_daily_stats.stat_date, competition_id`
 - `audit_logs.action`
 - `audit_logs.target_type`
 
@@ -1098,12 +1100,16 @@ Search can start with PostgreSQL filters and simple text matching. Add a dedicat
   `apps/api/migrations/versions/c5e0e7e0560d_initial_schema_with_verified_identities.py`;
   `13eb10903bd7_add_immutable_competition_revisions.py` adds the series,
   edition, revision, stage, single-instant node, review, and audit relationships.
+  `a64f1b9d2c7e_add_outbound_click_analytics.py` adds privacy-minimized raw
+  outbound activations and their durable daily aggregate dimensions without a
+  user or device identifier.
   Fresh SQLite and PostgreSQL paths support repeatable upgrade, downgrade, and
   re-upgrade. The known `61f2c8e4a9bd` predecessor backfills owned mutable
   competitions, nodes, and tags into immutable revision snapshots while
   retaining public visibility; unattributed rows block before schema mutation.
   The recorded legacy `db.create_all()` path preserves unknown business-table
   shapes and requires a dedicated publication bridge or reset.
-- `seed-e2e --reset` provisions distinct student/editor/reviewer actors plus one
-  approved series/edition/revision fixture with an ordered stage and immutable
-  `occurs_at` node. It is isolated browser-test data, not a production backfill.
+- `seed-e2e --reset` provisions distinct student/editor/reviewer actors plus
+  published and historical public-detail fixtures with immutable revisions,
+  staged nodes, and controlled official-link evidence. It is isolated
+  browser-test data, not a production backfill.

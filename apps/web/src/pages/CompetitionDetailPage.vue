@@ -6,6 +6,7 @@ import {
   ReloadOutlined,
 } from '@ant-design/icons-vue'
 import {
+  Alert as AAlert,
   Button as AButton,
   Empty as AEmpty,
   Result as AResult,
@@ -13,15 +14,17 @@ import {
   Tag as ATag,
 } from 'ant-design-vue'
 import { isAxiosError } from 'axios'
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 
-import { fetchCompetitionDetail } from '@/api/client'
-import type { CompetitionDetail } from '@/types/competition'
+import { fetchCompetitionDetail, recordCompetitionOutboundClick } from '@/api/client'
+import type { CompetitionDetail, CompetitionTimeNode } from '@/types/competition'
 import {
+  formatCompetitionStatus,
   formatNodeDate,
   formatNodeLabel,
   formatParticipantForm,
+  formatRegistrationStatus,
 } from '@/utils/competition'
 
 const route = useRoute()
@@ -29,6 +32,10 @@ const competition = ref<CompetitionDetail | null>(null)
 const loading = ref(false)
 const errorMessage = ref('')
 const notFound = ref(false)
+const historical = computed(
+  () => competition.value !== null && competition.value.status !== 'published',
+)
+const groupedTimeNodes = computed(() => groupTimeNodes(competition.value?.time_nodes ?? []))
 
 async function loadCompetition() {
   const routeId = Array.isArray(route.params.id) ? route.params.id[0] : route.params.id
@@ -61,6 +68,44 @@ async function loadCompetition() {
 onMounted(() => {
   void loadCompetition()
 })
+
+function recordOutbound(targetType: 'source_url' | 'official_url' | 'attachment_url') {
+  if (!competition.value) return
+  void recordCompetitionOutboundClick(
+    competition.value.id,
+    targetType,
+    'competition_detail',
+  ).catch(() => undefined)
+}
+
+function groupTimeNodes(nodes: CompetitionTimeNode[]) {
+  const groups = new Map<
+    string,
+    { key: string; label: string; order: number; nodes: CompetitionTimeNode[] }
+  >()
+  for (const node of nodes) {
+    const key = node.stage_id === null || node.stage_id === undefined ? `unassigned-${node.id}` : String(node.stage_id)
+    const group = groups.get(key) ?? {
+      key,
+      label: node.stage_label ?? '关键时间',
+      order: node.stage_order ?? Number.MAX_SAFE_INTEGER,
+      nodes: [],
+    }
+    group.nodes.push(node)
+    groups.set(key, group)
+  }
+  return [...groups.values()]
+    .map((group) => ({
+      ...group,
+      nodes: [...group.nodes].sort((left, right) => nodeTime(left) - nodeTime(right)),
+    }))
+    .sort((left, right) => left.order - right.order || left.key.localeCompare(right.key))
+}
+
+function nodeTime(node: CompetitionTimeNode) {
+  const timestamp = node.occurs_at ?? node.starts_at ?? node.due_at
+  return timestamp ? new Date(timestamp).getTime() : Number.MAX_SAFE_INTEGER
+}
 </script>
 
 <template>
@@ -108,15 +153,44 @@ onMounted(() => {
     <article v-else-if="competition" class="detail-layout">
       <header class="detail-header">
         <div class="card-meta">
-          <ATag color="green">公开中</ATag>
+          <ATag :color="historical ? 'orange' : 'green'">
+            {{ formatCompetitionStatus(competition.status) }}
+          </ATag>
+          <ATag color="blue">{{ formatRegistrationStatus(competition.registration_status) }}</ATag>
           <span>{{ competition.category ?? '未分类' }}</span>
         </div>
         <h1 class="page-title">{{ competition.title }}</h1>
         <p class="page-description">
           {{ competition.summary ?? competition.value_notes ?? '暂无赛事摘要。' }}
         </p>
+        <p class="revision-context">
+          <span v-if="competition.current_revision">
+            当前公开修订 r{{ competition.current_revision.revision_number }}
+          </span>
+          <span v-if="competition.edition_label">届次 {{ competition.edition_label }}</span>
+          <span v-if="competition.content_updated_at">内容更新于 {{ competition.content_updated_at }}</span>
+        </p>
+        <p v-if="competition.registration_status_basis" class="registration-basis">
+          报名状态依据：{{ formatNodeLabel(competition.registration_status_basis.node_type) }} ·
+          {{ formatNodeDate(competition.registration_status_basis, true) }}
+        </p>
+        <AAlert
+          v-if="historical"
+          class="historical-warning"
+          show-icon
+          type="warning"
+          :message="`${formatCompetitionStatus(competition.status)}赛事仍保留历史详情`"
+          description="该赛事已不在默认发现列表中，请以官方或学校通知为准。"
+        />
         <div v-if="competition.tags.length" class="tag-row">
           <ATag v-for="tag in competition.tags" :key="tag" color="cyan">{{ tag }}</ATag>
+        </div>
+        <div
+          v-if="competition.is_favorited || competition.is_subscribed"
+          class="tag-row personal-state"
+        >
+          <ATag v-if="competition.is_favorited" color="gold">已收藏</ATag>
+          <ATag v-if="competition.is_subscribed" color="green">已订阅</ATag>
         </div>
       </header>
 
@@ -127,7 +201,13 @@ onMounted(() => {
             <div>
               <dt>可信来源</dt>
               <dd>
-                <a :href="competition.source_url" target="_blank" rel="noreferrer">
+                <a
+                  :href="competition.source_url"
+                  data-testid="source-link"
+                  rel="noopener noreferrer"
+                  target="_blank"
+                  @click="recordOutbound('source_url')"
+                >
                   {{ competition.source_name }}
                   <ExportOutlined />
                 </a>
@@ -136,7 +216,13 @@ onMounted(() => {
             <div v-if="competition.official_url">
               <dt>官方入口</dt>
               <dd>
-                <a :href="competition.official_url" target="_blank" rel="noreferrer">
+                <a
+                  :href="competition.official_url"
+                  data-testid="official-link"
+                  rel="noopener noreferrer"
+                  target="_blank"
+                  @click="recordOutbound('official_url')"
+                >
                   打开官方报名或通知
                   <ExportOutlined />
                 </a>
@@ -145,13 +231,20 @@ onMounted(() => {
             <div v-if="competition.attachment_url">
               <dt>赛事附件</dt>
               <dd>
-                <a :href="competition.attachment_url" target="_blank" rel="noreferrer">
+                <a
+                  :href="competition.attachment_url"
+                  data-testid="attachment-link"
+                  rel="noopener noreferrer"
+                  target="_blank"
+                  @click="recordOutbound('attachment_url')"
+                >
                   查看附件
                   <PaperClipOutlined />
                 </a>
               </dd>
             </div>
           </dl>
+          <p class="reference-note">选择建议仅供参考，官方或学校通知具有最终效力。</p>
         </section>
 
         <section class="detail-section">
@@ -193,13 +286,22 @@ onMounted(() => {
 
       <section class="detail-section detail-section-wide">
         <h2>关键时间节点</h2>
-        <ul v-if="competition.time_nodes.length" class="time-node-list">
-          <li v-for="node in competition.time_nodes" :key="node.id">
-            <strong>{{ formatNodeLabel(node.node_type) }}</strong>
-            <span>{{ formatNodeDate(node, true) }}</span>
-            <small v-if="node.description">{{ node.description }}</small>
-          </li>
-        </ul>
+        <div v-if="competition.time_nodes.length" class="time-stage-list">
+          <section v-for="stage in groupedTimeNodes" :key="stage.key" class="time-stage">
+            <h3>{{ stage.label }}</h3>
+            <ul class="time-node-list">
+              <li
+                v-for="node in stage.nodes"
+                :key="node.id"
+                :class="{ 'time-node-primary': node.prominence === 'primary' }"
+              >
+                <strong>{{ formatNodeLabel(node.node_type) }}</strong>
+                <span>{{ formatNodeDate(node, true) }}</span>
+                <small v-if="node.description">{{ node.description }}</small>
+              </li>
+            </ul>
+          </section>
+        </div>
         <AEmpty v-else :image="AEmpty.PRESENTED_IMAGE_SIMPLE" description="关键时间待确认" />
       </section>
 

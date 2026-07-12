@@ -7,6 +7,7 @@ from competehub_api.schemas.common import NonBlankString, UtcDateTime
 from competehub_api.services.competition_discovery import (
     competition_tag_names,
     next_time_node,
+    registration_status,
     sorted_time_nodes,
 )
 
@@ -26,7 +27,11 @@ class CompetitionListQuerySchema(Schema):
     major = OptionalQueryText(load_default=None, allow_none=True)
     grade = OptionalQueryText(load_default=None, allow_none=True)
     tag = OptionalQueryText(load_default=None, allow_none=True)
-    status = OptionalQueryText(load_default=None, allow_none=True)
+    registration_status = OptionalQueryText(
+        load_default=None,
+        allow_none=True,
+        validate=validate.OneOf(["open", "upcoming", "closed", "unknown", "not_applicable", None]),
+    )
     participant_form = OptionalQueryText(
         load_default=None,
         allow_none=True,
@@ -34,6 +39,10 @@ class CompetitionListQuerySchema(Schema):
     )
     deadline_from = fields.Date(load_default=None, allow_none=True)
     deadline_to = fields.Date(load_default=None, allow_none=True)
+    sort = fields.String(
+        load_default="actionable",
+        validate=validate.OneOf(["actionable", "registration_deadline", "published_at"]),
+    )
 
     @validates_schema
     def validate_deadline_range(self, data, **kwargs):
@@ -44,6 +53,17 @@ class CompetitionListQuerySchema(Schema):
                 "Deadline end must not be before deadline start.",
                 field_name="deadline_to",
             )
+
+
+class OutboundClickSchema(Schema):
+    target_type = fields.String(
+        required=True,
+        validate=validate.OneOf(["source_url", "official_url", "attachment_url"]),
+    )
+    source_surface = fields.String(
+        required=True,
+        validate=validate.OneOf(["competition_list", "competition_detail", "recommendation"]),
+    )
 
 
 class PublicCompetitionTimeNodeSchema(Schema):
@@ -94,6 +114,8 @@ class PublicCompetitionSummarySchema(Schema):
     major_scope = fields.Function(lambda competition: _revision_value(competition, "major_scope"))
     grade_scope = fields.Function(lambda competition: _revision_value(competition, "grade_scope"))
     value_notes = fields.Function(lambda competition: _revision_value(competition, "value_notes"))
+    registration_status = fields.Method("serialize_registration_status")
+    registration_status_basis = fields.Method("serialize_registration_status_basis")
     next_node = fields.Method("serialize_next_node")
     is_favorited = fields.Constant(False)
     is_subscribed = fields.Constant(False)
@@ -105,8 +127,17 @@ class PublicCompetitionSummarySchema(Schema):
         node = next_time_node(competition)
         return public_competition_time_node_schema.dump(node) if node is not None else None
 
+    def serialize_registration_status(self, competition):
+        return registration_status(competition).value
+
+    def serialize_registration_status_basis(self, competition):
+        basis = registration_status(competition).basis
+        return public_competition_time_node_schema.dump(basis) if basis is not None else None
+
 
 class PublicCompetitionDetailSchema(PublicCompetitionSummarySchema):
+    edition_label = fields.Function(lambda competition: competition.edition_label)
+    current_revision = fields.Method("serialize_current_revision")
     host = fields.Function(lambda competition: _revision_value(competition, "host"))
     attachment_url = fields.Function(
         lambda competition: _revision_value(competition, "attachment_url")
@@ -126,6 +157,12 @@ class PublicCompetitionDetailSchema(PublicCompetitionSummarySchema):
             many=True,
         )
 
+    def serialize_current_revision(self, competition):
+        revision = competition.published_revision
+        if revision is None:
+            return None
+        return {"id": revision.id, "revision_number": revision.revision_number}
+
 
 class PublicCompetitionPageSchema(Schema):
     items = fields.List(fields.Nested(PublicCompetitionSummarySchema()), required=True)
@@ -140,6 +177,7 @@ class PublicCompetitionPageSchema(Schema):
 
 
 competition_list_query_schema = CompetitionListQuerySchema()
+outbound_click_schema = OutboundClickSchema()
 public_competition_time_node_schema = PublicCompetitionTimeNodeSchema()
 public_competition_detail_schema = PublicCompetitionDetailSchema()
 public_competition_page_schema = PublicCompetitionPageSchema()
