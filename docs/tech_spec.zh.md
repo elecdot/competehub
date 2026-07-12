@@ -235,6 +235,7 @@ Pinia stores：
 - `users`：账号、角色、状态和登录标识。
 - `user_identities`：类型化学号、邮箱和手机号标识及其规范化、验证状态。
 - `identity_verification_challenges`：账号标识的短期验证挑战，只保存验证码哈希、过期和消费状态。
+- `verification_delivery_outbox`：与 challenge 同事务提交的邮箱验证投递任务；只保存可由应用密钥派生验证码的随机 nonce，并在投递或丢弃后清除。
 - `student_profiles`：专业、年级、兴趣方向、竞赛经历和目标偏好。
 - `competition_series`：赛事跨届稳定身份，由管理员根据来源事实确认。
 - `competitions`：一次具体赛事届次的身份、生命周期状态和当前公开修订指针。
@@ -443,14 +444,15 @@ Redis 不用于：
 
 - 认证使用 Flask Cookie Session；session 只保存最小身份事实，不保存敏感业务数据。
 - 账号状态使用 `pending_activation`、`active` 和 `disabled`；只有 `active` 账号可以建立 session 和写入个人业务数据。
-- P1 公开注册只在 SMTP 或等价真实邮件发送方已配置时开放邮箱入口；手机号短信注册延后，学号通过高校名册或管理员受控路径配置。
-- 生产环境启用邮箱注册但缺少发送方配置时必须启动失败；关闭公开注册时前端隐藏入口、后端返回明确的能力不可用错误。
-- 测试可以注入内存发送器断言验证码流程；生产发送器不得在日志或响应中暴露验证码。注册、重发和登录失败响应不得用于枚举账号。
+- P1 公开注册只在 `PUBLIC_EMAIL_REGISTRATION_ENABLED=true` 且 SMTP 或等价真实邮件发送方已配置时开放邮箱入口；手机号短信注册延后，学号通过高校名册或管理员受控路径配置。
+- SMTP 适配器由 `EMAIL_VERIFICATION_SENDER_DSN` 配置，支持 STARTTLS 的 `smtp://` 和隐式 TLS 的 `smtps://`；生产环境启用邮箱注册但缺少或错误配置发送方时必须启动失败。关闭公开注册时前端隐藏入口、后端返回明确的能力不可用错误。
+- 测试可以注入内存发送器断言验证码流程；生产发送器不得在日志或响应中暴露验证码。注册、重发只在 HTTP 事务中写入 challenge 与 delivery outbox，SMTP 由 Celery worker 异步执行；worker 对暂时失败执行有界退避重试，并丢弃已消费或过期 challenge 的投递。
+- 注册和重发的无效分支仍执行与有效分支同等级的密码/challenge hash 工作；verify 的 missing/ineligible challenge 使用固定 dummy challenge hash。登录对 unknown、pending、disabled 和 active 账号始终执行一次自适应密码验证，unknown 使用固定 dummy Argon2id hash，并在验证后统一判断账号和 identity 状态。
 - 注册与验证不自动创建 session；身份验证完成后用户通过常规登录建立 session。
 - 单因素密码在 NFC 规范化后必须为 15 至 128 个 Unicode 字符，允许空格、粘贴、自动填充和密码管理器，不设置字符种类组合规则，不静默截断，也不做周期性强制更换。
 - 新密码必须通过仓库管理的本地常见、已泄露及上下文弱密码阻止列表；阻止列表校验不得依赖运行时在线服务。
-- 密码哈希优先使用 Argon2id；若使用 scrypt，必须显式配置达到当前 OWASP 基线并在目标部署资源上完成性能测试。禁止依赖 Werkzeug 或其他库可能变化的默认算法参数。
-- 登录失败按规范化类型化标识键和请求来源渐进限速，所有账号状态使用一致失败响应；不得因远程失败永久锁定账号。
+- 新密码使用显式 Argon2id 参数 `m=19456 KiB, t=2, p=1`；登录继续验证历史 scrypt hash，并在验证成功后使用规范化密码于同一登录事务中升级到当前 Argon2id 参数。已有 Argon2id hash 通过 `check_needs_rehash()` 判定参数升级，登录失败不得修改 hash。参数必须至少达到当前 OWASP 基线，禁止依赖 Werkzeug 或其他库可能变化的默认算法参数。
+- 登录失败按规范化类型化标识键和请求来源分别使用 Redis 渐进限速，所有账号状态使用一致失败响应；计数递增与首次 TTL 设置必须原子完成，不得因远程失败或运行中断永久锁定账号。
 - Cookie session 只保存 `user_id`、`session_version`、`issued_at` 和 `last_activity_at`；登录前清理旧 session，所有受保护请求统一经过认证守卫并从数据库重读账号状态和版本。
 - 学生 session 的空闲/绝对超时为 24 小时/7 天，管理员为 30 分钟/8 小时；活动只能延后空闲截止，不能延后绝对截止。服务端在路由执行前校验，失效后清除 Cookie 并返回统一 `401`。
 - 修改账号角色或 capability、禁用账号、确认凭据泄露或终止全部会话时原子递增 `users.session_version`；既有设备下一请求即失效。普通退出只清理当前浏览器，P1 允许多设备并发且不建设设备会话列表或“记住我”选项。

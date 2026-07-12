@@ -19,6 +19,7 @@ zone. See `docs/adr/0012-utc-instants-shanghai-calendar.md`.
 User
   |-- UserIdentity
   |     |-- IdentityVerificationChallenge
+  |           |-- VerificationDeliveryOutbox
   |-- StudentProfile
   |-- Favorite
   |-- Subscription
@@ -85,8 +86,11 @@ Constraints:
   transaction and writes allowlisted old/new codes plus a non-empty reason to
   the audit log.
 - `password_hash` contains an adaptive hash with its algorithm and explicit work
-  parameters, never plaintext or reversible ciphertext. P1 prefers Argon2id;
-  an OWASP-baseline scrypt configuration is the permitted fallback.
+  parameters, never plaintext or reversible ciphertext. New and upgraded hashes
+  use Argon2id with the repository's current explicit parameters.
+- Historical adaptive hashes remain verifiable during migration. A successful
+  login upgrades a non-Argon2id hash, or an Argon2id hash whose parameters are
+  stale, in the same login transaction; a failed login never changes the hash.
 - New passwords contain 15 to 128 Unicode code points after NFC normalization,
   are checked against a local weak-password blocklist, and are never silently
   truncated.
@@ -144,10 +148,43 @@ Rules:
   production logs.
 - A challenge is single-use, expires after a configured short lifetime, and is
   rejected after the attempt limit.
+- Resend consumes every older unconsumed challenge for the identity. Successful
+  verification locks the pending identity, consumes all of its outstanding
+  challenges, and activates only a `pending_activation` account in one
+  transaction; a code can never reactivate a disabled account.
 - Successful verification and account activation occur atomically and do not
   create an authenticated session.
 - Registration and resend responses do not reveal whether an identity exists or
   is already verified.
+
+### `verification_delivery_outbox`
+
+Stores transactional work for asynchronous verification-email delivery.
+
+Key fields:
+
+- `id`
+- `challenge_id`
+- `delivery_nonce`
+- `attempt_count`
+- `available_at`
+- `delivered_at`
+- `discarded_at`
+- `last_error`
+- `created_at`
+- `updated_at`
+
+Rules:
+
+- Challenge creation and its outbox row commit atomically. HTTP registration and
+  resend requests never contact SMTP directly.
+- `delivery_nonce` is random input to a keyed derivation of the six-digit code;
+  the plaintext code is never persisted. The nonce is cleared after delivery or
+  discard and cannot produce the code without the application secret.
+- A worker delivers only an unconsumed, unexpired challenge. It discards stale
+  work, retries transient failures with bounded backoff, and never logs the code.
+- Unknown or ineligible register/resend requests perform equivalent password or
+  challenge hashing but do not create durable outbox work.
 
 ### `student_profiles`
 

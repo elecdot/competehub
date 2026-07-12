@@ -13,7 +13,9 @@ This directory contains GitHub Actions workflow definitions.
 
 - Backend dependency sync: `./scripts/agent-env.sh uv sync --project apps/api --locked`
 - Backend lint: `./scripts/agent-env.sh uv run --project apps/api ruff check .`
-- Backend tests: `./scripts/agent-env.sh uv run --project apps/api pytest`
+- Backend tests: `./scripts/agent-env.sh uv run --project apps/api pytest`; CI
+  supplies an isolated PostgreSQL 16 service so fresh and legacy migration
+  upgrade/downgrade tests run on the production database family as well as SQLite.
 - Frontend dependency install: `npm --prefix apps/web ci`
 - Frontend typecheck: `npm --prefix apps/web run lint`
 - Frontend build: `npm --prefix apps/web run build`
@@ -27,7 +29,8 @@ This directory contains GitHub Actions workflow definitions.
 
 - Keep workflow jobs aligned with semantic repository areas: backend, frontend, infrastructure, and documentation.
 - Use lockfile-backed installs in CI.
-- Keep CI checks deterministic and avoid services unless an integration test explicitly requires them.
+- Keep CI checks deterministic. The backend PostgreSQL service exists only for
+  disposable migration integration databases created and dropped by the test fixture.
 - Upload `.cache/playwright/report` and `.cache/playwright/test-results` for
   browser-job failures only; retain them for seven days and never commit them.
 - Update this README when adding, renaming, or removing workflows.
