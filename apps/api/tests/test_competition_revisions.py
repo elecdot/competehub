@@ -1,8 +1,19 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from competehub_api.extensions import db
-from competehub_api.models import AuditLog, Competition, ReviewRecord, User
-from competehub_api.models.enums import UserRole
+from competehub_api.models import (
+    AuditLog,
+    Competition,
+    CompetitionRevision,
+    Message,
+    Reminder,
+    ReviewRecord,
+    Subscription,
+    User,
+)
+from competehub_api.models.enums import ReminderStatus, UserRole
 from competehub_api.services.auth import start_session
 
 
@@ -380,6 +391,395 @@ def test_distinct_reviewer_atomically_publishes_without_mutating_snapshot(client
             "competition_revision.submit_review",
             "competition_revision.approve",
         } <= actions
+
+
+def test_successor_revision_keeps_public_snapshot_until_approval_and_reconciles_nodes(
+    client, app
+) -> None:
+    with app.app_context():
+        editor_id = create_user(
+            31, UserRole.ADMIN, "successor-editor@example.edu", ["competition_editor"]
+        )
+        reviewer_id = create_user(
+            32, UserRole.ADMIN, "successor-reviewer@example.edu", ["competition_reviewer"]
+        )
+        student_id = create_user(33, UserRole.STUDENT, "successor-student@example.edu")
+    login(client, editor_id)
+    series_id = create_series(client)
+    created = create_edition(client, series_id)
+    edition_id = created["id"]
+    initial_revision_id = created["revision"]["id"]
+    assert (
+        client.post(
+            f"/api/v1/admin/competition_revisions/{initial_revision_id}/submit_review"
+        ).status_code
+        == 200
+    )
+
+    with app.app_context():
+        initial = db.session.get(CompetitionRevision, initial_revision_id)
+        assert initial is not None
+        deadline = next(
+            node for node in initial.time_nodes if node.logical_node_key == "registration-deadline"
+        )
+        db.session.add(
+            Subscription(
+                id=1,
+                user_id=student_id,
+                competition_id=edition_id,
+                reminder_enabled=True,
+                remind_days=3,
+                node_types=["registration_deadline"],
+            )
+        )
+        db.session.add(
+            Reminder(
+                id=1,
+                user_id=student_id,
+                competition_id=edition_id,
+                time_node_id=deadline.id,
+                node_type="registration_deadline",
+                due_at=datetime(2026, 8, 12, 16, tzinfo=UTC),
+                title="Old deadline reminder",
+                status=ReminderStatus.PENDING,
+            )
+        )
+        db.session.commit()
+    login(client, reviewer_id)
+    assert (
+        client.post(
+            f"/api/v1/admin/competition_revisions/{initial_revision_id}/review",
+            json={"action": "approve", "comment": "Initial source verified."},
+        ).status_code
+        == 200
+    )
+
+    login(client, editor_id)
+    successor_response = client.post(
+        f"/api/v1/admin/competitions/{edition_id}/revisions",
+        json={"reason": "Official registration deadline was postponed."},
+    )
+    assert successor_response.status_code == 201
+    successor = successor_response.get_json()["data"]
+    successor_id = successor["id"]
+    assert successor["revision_number"] == 2
+    assert successor["base_revision_id"] == initial_revision_id
+    assert successor["revision_status"] == "draft"
+
+    parallel = client.post(
+        f"/api/v1/admin/competitions/{edition_id}/revisions",
+        json={"reason": "A second concurrent correction."},
+    )
+    assert parallel.status_code == 409
+    assert parallel.get_json()["error"]["code"] == "active_revision_exists"
+    assert parallel.get_json()["error"]["details"]["revision_id"] == successor_id
+
+    before_public = client.get(f"/api/v1/competitions/{edition_id}").get_json()["data"]
+    old_deadline = next(
+        node
+        for node in before_public["time_nodes"]
+        if node["logical_node_key"] == "registration-deadline"
+    )
+    stages = successor["stages"]
+    successor_deadline = next(
+        node
+        for stage in stages
+        for node in stage["time_nodes"]
+        if node["logical_node_key"] == "registration-deadline"
+    )
+    assert successor_deadline["id"] != old_deadline["id"]
+    assert successor_deadline["node_revision"] == old_deadline["node_revision"]
+    successor_deadline["occurs_at"] = "2026-08-20T16:00:00Z"
+    for stage in stages:
+        for node in stage["time_nodes"]:
+            node.pop("id", None)
+            node.pop("node_revision", None)
+        stage.pop("id", None)
+
+    updated = client.patch(
+        f"/api/v1/admin/competition_revisions/{successor_id}",
+        json={"stages": stages},
+    )
+    assert updated.status_code == 200
+    assert updated.get_json()["data"]["impact"]["affected_active_subscriptions"] == 1
+    assert updated.get_json()["data"]["impact"]["pending_reminders_to_supersede"] == 1
+    assert updated.get_json()["data"]["impact"]["future_reminders_to_create"] == 1
+    assert updated.get_json()["data"]["impact"]["schedule_change_messages_estimate"] == 1
+    assert (
+        client.post(f"/api/v1/admin/competition_revisions/{successor_id}/submit_review").status_code
+        == 200
+    )
+
+    while_pending = client.get(f"/api/v1/competitions/{edition_id}").get_json()["data"]
+    assert while_pending["revision_id"] == initial_revision_id
+    assert (
+        next(
+            node
+            for node in while_pending["time_nodes"]
+            if node["logical_node_key"] == "registration-deadline"
+        )["occurs_at"]
+        == old_deadline["occurs_at"]
+    )
+
+    login(client, reviewer_id)
+    approved = client.post(
+        f"/api/v1/admin/competition_revisions/{successor_id}/review",
+        json={"action": "approve", "comment": "Corrected deadline matches the source."},
+    )
+    assert approved.status_code == 200
+    after_public = client.get(f"/api/v1/competitions/{edition_id}").get_json()["data"]
+    assert after_public["revision_id"] == successor_id
+    changed_deadline = next(
+        node
+        for node in after_public["time_nodes"]
+        if node["logical_node_key"] == "registration-deadline"
+    )
+    assert changed_deadline["node_revision"] == old_deadline["node_revision"] + 1
+    assert changed_deadline["occurs_at"] == "2026-08-20T16:00:00+00:00"
+
+    with app.app_context():
+        initial = db.session.get(CompetitionRevision, initial_revision_id)
+        assert initial is not None
+        original = next(
+            node for node in initial.time_nodes if node.logical_node_key == "registration-deadline"
+        )
+        assert original.id == old_deadline["id"]
+        assert original.occurs_at.replace(tzinfo=UTC).isoformat() == old_deadline["occurs_at"]
+        events = AuditLog.query.filter_by(action="competition_revision.reconcile").all()
+        assert len(events) == 1
+        assert events[0].target_id == successor_id
+        assert events[0].detail["reason"] == "Corrected deadline matches the source."
+        assert events[0].detail["time_node_changes"] == [
+            {
+                "logical_node_key": "registration-deadline",
+                "change": "changed",
+                "before": old_deadline["occurs_at"],
+                "after": "2026-08-20T16:00:00+00:00",
+            }
+        ]
+        reminders = Reminder.query.filter_by(competition_id=edition_id).order_by(Reminder.id).all()
+        assert [reminder.status for reminder in reminders] == [
+            ReminderStatus.CANCELLED,
+            ReminderStatus.PENDING,
+        ]
+        assert reminders[0].cancel_reason == "competition_revision_superseded"
+        assert reminders[1].time_node_id == changed_deadline["id"]
+        messages = Message.query.filter_by(
+            competition_id=edition_id,
+            message_type="competition_time_changed",
+        ).all()
+        assert len(messages) == 1
+        assert messages[0].user_id == student_id
+
+
+def test_historical_lifecycle_detail_keeps_warning_while_offline_returns_404(client, app) -> None:
+    with app.app_context():
+        editor_id = create_user(
+            41,
+            UserRole.ADMIN,
+            "lifecycle-editor@example.edu",
+            ["competition_editor", "competition_maintainer"],
+        )
+        reviewer_id = create_user(
+            42, UserRole.ADMIN, "lifecycle-reviewer@example.edu", ["competition_reviewer"]
+        )
+        student_id = create_user(43, UserRole.STUDENT, "lifecycle-student@example.edu")
+    login(client, editor_id)
+    edition = create_edition(client, create_series(client))
+    edition_id = edition["id"]
+    revision_id = edition["revision"]["id"]
+    assert (
+        client.post(f"/api/v1/admin/competition_revisions/{revision_id}/submit_review").status_code
+        == 200
+    )
+
+    with app.app_context():
+        published = db.session.get(CompetitionRevision, revision_id)
+        deadline = next(
+            node
+            for node in published.time_nodes
+            if node.logical_node_key == "registration-deadline"
+        )
+        db.session.add(
+            Subscription(
+                id=2,
+                user_id=student_id,
+                competition_id=edition_id,
+                reminder_enabled=True,
+                remind_days=3,
+                node_types=["registration_deadline"],
+            )
+        )
+        db.session.add(
+            Reminder(
+                id=2,
+                user_id=student_id,
+                competition_id=edition_id,
+                time_node_id=deadline.id,
+                node_type="registration_deadline",
+                due_at=datetime(2026, 8, 12, 16, tzinfo=UTC),
+                title="Cancellation-sensitive reminder",
+                status=ReminderStatus.PENDING,
+            )
+        )
+        db.session.commit()
+    login(client, reviewer_id)
+    assert (
+        client.post(
+            f"/api/v1/admin/competition_revisions/{revision_id}/review",
+            json={"action": "approve", "comment": "Initial publication verified."},
+        ).status_code
+        == 200
+    )
+
+    login(client, editor_id)
+    cancelled = client.patch(
+        f"/api/v1/admin/competitions/{edition_id}/status",
+        json={"status": "cancelled", "reason": "Organizer cancelled the 2026 edition."},
+    )
+    assert cancelled.status_code == 200
+    historical_detail = client.get(f"/api/v1/competitions/{edition_id}")
+    assert historical_detail.status_code == 200
+    detail_data = historical_detail.get_json()["data"]
+    assert detail_data["status"] == "cancelled"
+    assert detail_data["lifecycle_warning"]["status"] == "cancelled"
+    assert detail_data["lifecycle_warning"]["reason"] == ("Organizer cancelled the 2026 edition.")
+    assert detail_data["lifecycle_warning"]["changed_at"] is not None
+    listed_ids = {
+        item["id"] for item in client.get("/api/v1/competitions").get_json()["data"]["items"]
+    }
+    assert edition_id not in listed_ids
+    with app.app_context():
+        reminder = db.session.get(Reminder, 2)
+        assert reminder.status == ReminderStatus.CANCELLED
+        assert reminder.cancel_reason == "competition_cancelled"
+        messages = Message.query.filter_by(
+            competition_id=edition_id,
+            message_type="competition_cancelled",
+        ).all()
+        assert len(messages) == 1
+        assert messages[0].user_id == student_id
+
+
+def test_emergency_offline_cannot_flip_back_but_approved_successor_restores_publication(
+    client, app
+) -> None:
+    with app.app_context():
+        editor_id = create_user(
+            51,
+            UserRole.ADMIN,
+            "offline-editor@example.edu",
+            ["competition_editor", "competition_maintainer"],
+        )
+        reviewer_id = create_user(
+            52, UserRole.ADMIN, "offline-reviewer@example.edu", ["competition_reviewer"]
+        )
+    login(client, editor_id)
+    edition = create_edition(client, create_series(client))
+    edition_id = edition["id"]
+    initial_revision_id = edition["revision"]["id"]
+    assert (
+        client.post(
+            f"/api/v1/admin/competition_revisions/{initial_revision_id}/submit_review"
+        ).status_code
+        == 200
+    )
+    login(client, reviewer_id)
+    assert (
+        client.post(
+            f"/api/v1/admin/competition_revisions/{initial_revision_id}/review",
+            json={"action": "approve", "comment": "Initial publication verified."},
+        ).status_code
+        == 200
+    )
+
+    login(client, editor_id)
+    assert (
+        client.patch(
+            f"/api/v1/admin/competitions/{edition_id}/status",
+            json={"status": "offline", "reason": "Official link was hijacked."},
+        ).status_code
+        == 200
+    )
+    assert client.get(f"/api/v1/competitions/{edition_id}").status_code == 404
+    direct_restore = client.patch(
+        f"/api/v1/admin/competitions/{edition_id}/status",
+        json={"status": "published", "reason": "Unsafe direct restoration."},
+    )
+    assert direct_restore.status_code == 409
+
+    successor = client.post(
+        f"/api/v1/admin/competitions/{edition_id}/revisions",
+        json={"reason": "Replace the compromised official link."},
+    ).get_json()["data"]
+    successor_id = successor["id"]
+    assert (
+        client.patch(
+            f"/api/v1/admin/competition_revisions/{successor_id}",
+            json={"official_url": "https://safe.example.org/ai-2026"},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(f"/api/v1/admin/competition_revisions/{successor_id}/submit_review").status_code
+        == 200
+    )
+    login(client, reviewer_id)
+    assert (
+        client.post(
+            f"/api/v1/admin/competition_revisions/{successor_id}/review",
+            json={"action": "approve", "comment": "Replacement link verified."},
+        ).status_code
+        == 200
+    )
+    restored = client.get(f"/api/v1/competitions/{edition_id}")
+    assert restored.status_code == 200
+    assert restored.get_json()["data"]["revision_id"] == successor_id
+    assert restored.get_json()["data"]["status"] == "published"
+    assert restored.get_json()["data"]["official_url"] == "https://safe.example.org/ai-2026"
+
+
+def test_archive_and_expire_reject_current_public_future_nodes(client, app) -> None:
+    with app.app_context():
+        editor_id = create_user(
+            61,
+            UserRole.ADMIN,
+            "history-editor@example.edu",
+            ["competition_editor", "competition_maintainer"],
+        )
+        reviewer_id = create_user(
+            62, UserRole.ADMIN, "history-reviewer@example.edu", ["competition_reviewer"]
+        )
+    login(client, editor_id)
+    edition = create_edition(client, create_series(client))
+    edition_id = edition["id"]
+    revision_id = edition["revision"]["id"]
+    assert (
+        client.post(f"/api/v1/admin/competition_revisions/{revision_id}/submit_review").status_code
+        == 200
+    )
+    login(client, reviewer_id)
+    assert (
+        client.post(
+            f"/api/v1/admin/competition_revisions/{revision_id}/review",
+            json={"action": "approve", "comment": "Initial publication verified."},
+        ).status_code
+        == 200
+    )
+
+    login(client, editor_id)
+    for target_status in ("archived", "expired"):
+        response = client.patch(
+            f"/api/v1/admin/competitions/{edition_id}/status",
+            json={"status": target_status, "reason": "Routine history maintenance."},
+        )
+        assert response.status_code == 409
+        assert response.get_json()["error"]["code"] == "conflict"
+        blocking = response.get_json()["error"]["details"]["blocking_nodes"]
+        assert {node["logical_node_key"] for node in blocking} == {
+            "registration-open",
+            "registration-deadline",
+        }
 
 
 def test_student_cannot_use_editor_or_reviewer_endpoints(client, app) -> None:

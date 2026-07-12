@@ -77,6 +77,10 @@ class CompetitionStatusSchema(Schema):
     reason = NonBlankString(required=True)
 
 
+class CompetitionSuccessorRevisionSchema(Schema):
+    reason = NonBlankString(required=True)
+
+
 class CompetitionSchema(Schema):
     id = fields.Integer(required=True)
     title = fields.String(required=True)
@@ -97,6 +101,8 @@ class CompetitionSchema(Schema):
     suitable_grades = fields.List(fields.String(), allow_none=True)
     value_notes = fields.String(allow_none=True)
     status = fields.String(required=True)
+    lifecycle_reason = fields.String(allow_none=True)
+    lifecycle_changed_at = fields.DateTime(allow_none=True)
     created_by_id = fields.Integer(allow_none=True)
     time_nodes = fields.List(fields.Nested(CompetitionTimeNodeSchema()))
     tags = fields.Method("serialize_tags")
@@ -266,6 +272,7 @@ class CompetitionRevisionSchema(Schema):
     competition_id = fields.Integer(required=True)
     revision_number = fields.Integer(required=True)
     base_revision_id = fields.Integer(allow_none=True)
+    change_reason = fields.String(allow_none=True)
     revision_status = fields.Function(lambda revision: revision.revision_status.value)
     title = fields.String(required=True)
     short_title = fields.String(allow_none=True)
@@ -304,13 +311,9 @@ class EditionWorkspaceSchema(Schema):
     id = fields.Integer(required=True)
     series_id = fields.Integer(required=True)
     edition_label = fields.String(required=True)
-    lifecycle_status = fields.Function(
-        lambda edition: (
-            edition.status.value
-            if edition.status in {CompetitionStatus.UNPUBLISHED, CompetitionStatus.PUBLISHED}
-            else "unpublished"
-        )
-    )
+    lifecycle_status = fields.Function(lambda edition: edition.status.value)
+    lifecycle_reason = fields.String(allow_none=True)
+    lifecycle_changed_at = fields.DateTime(allow_none=True)
     published_revision_id = fields.Integer(allow_none=True)
     revision = fields.Method("serialize_revision")
     active_revision = fields.Method("serialize_revision")
@@ -333,6 +336,7 @@ class EditionWorkspaceSchema(Schema):
 
 competition_review_schema = CompetitionReviewSchema()
 competition_status_schema = CompetitionStatusSchema()
+competition_successor_revision_schema = CompetitionSuccessorRevisionSchema()
 competition_schema = CompetitionSchema()
 competition_series_create_schema = CompetitionSeriesCreateSchema()
 competition_series_schema = CompetitionSeriesSchema()

@@ -78,6 +78,8 @@ class Competition(db.Model, TimestampMixin):
         nullable=False,
         index=True,
     )
+    lifecycle_reason: Mapped[str | None] = mapped_column(Text)
+    lifecycle_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 
     series: Mapped[CompetitionSeries | None] = relationship(back_populates="editions")
@@ -113,6 +115,7 @@ class CompetitionRevision(db.Model, TimestampMixin):
     competition_id: Mapped[int] = mapped_column(ForeignKey("competitions.id"), nullable=False)
     revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
     base_revision_id: Mapped[int | None] = mapped_column(ForeignKey("competition_revisions.id"))
+    change_reason: Mapped[str | None] = mapped_column(Text)
     revision_status: Mapped[CompetitionRevisionStatus] = mapped_column(
         SAEnum(
             CompetitionRevisionStatus,

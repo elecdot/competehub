@@ -21,6 +21,14 @@ from competehub_api.models.enums import CompetitionStatus
 from competehub_api.timezones import product_date_start_utc
 
 PUBLIC_COMPETITION_STATUSES = frozenset({CompetitionStatus.PUBLISHED})
+PUBLIC_DETAIL_STATUSES = frozenset(
+    {
+        CompetitionStatus.PUBLISHED,
+        CompetitionStatus.CANCELLED,
+        CompetitionStatus.ARCHIVED,
+        CompetitionStatus.EXPIRED,
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -163,8 +171,12 @@ def search_public_competitions(query: PublicCompetitionQuery) -> PublicCompetiti
 
 def get_public_competition(competition_id: int) -> Competition | None:
     statement = (
-        public_competitions_statement()
-        .where(Competition.id == competition_id)
+        select(Competition)
+        .where(
+            Competition.id == competition_id,
+            Competition.status.in_(PUBLIC_DETAIL_STATUSES),
+            Competition.published_revision_id.is_not(None),
+        )
         .options(*_public_relation_options())
     )
     return db.session.scalar(statement)

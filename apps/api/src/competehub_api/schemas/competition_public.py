@@ -140,6 +140,7 @@ class PublicCompetitionSummarySchema(Schema):
 
 
 class PublicCompetitionDetailSchema(PublicCompetitionSummarySchema):
+    lifecycle_warning = fields.Method("serialize_lifecycle_warning")
     host = fields.Function(lambda competition: _revision_value(competition, "host"))
     attachment_url = fields.Function(
         lambda competition: _revision_value(competition, "attachment_url")
@@ -159,6 +160,19 @@ class PublicCompetitionDetailSchema(PublicCompetitionSummarySchema):
             sorted_time_nodes(competition),
             many=True,
         )
+
+    def serialize_lifecycle_warning(self, competition):
+        if competition.status.value not in {"cancelled", "archived", "expired"}:
+            return None
+        return {
+            "status": competition.status.value,
+            "reason": competition.lifecycle_reason,
+            "changed_at": (
+                competition.lifecycle_changed_at.isoformat()
+                if competition.lifecycle_changed_at is not None
+                else None
+            ),
+        }
 
 
 class PublicCompetitionPageSchema(Schema):

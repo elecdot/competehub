@@ -9,6 +9,7 @@ from competehub_api.schemas.competition_admin import (
     competition_revision_schema,
     edition_workspace_schema,
 )
+from competehub_api.services.competition_publication import lifecycle_impact
 from competehub_api.services.competition_revisions import (
     revision_comparison,
     revision_completeness,
@@ -83,6 +84,7 @@ def edition_workspace_read_model(
     revision_payload = revision_read_model(active, review) if active is not None else None
     payload["revision"] = revision_payload
     payload["active_revision"] = revision_payload
+    payload["lifecycle_impact"] = lifecycle_impact(edition)
     return payload
 
 

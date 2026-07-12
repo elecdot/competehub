@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from competehub_api.extensions import db
 from competehub_api.models import (
@@ -16,13 +16,18 @@ from competehub_api.models import (
     CompetitionTag,
     CompetitionTagLink,
     CompetitionTimeNode,
+    Message,
+    Reminder,
     ReviewRecord,
+    Subscription,
     User,
 )
 from competehub_api.models.enums import (
     CompetitionRevisionStatus,
     CompetitionStatus,
+    ReminderStatus,
     ReviewStatus,
+    SubscriptionStatus,
 )
 from competehub_api.repositories.competitions import (
     get_competition_series,
@@ -155,6 +160,85 @@ def create_edition_with_revision(payload: dict[str, Any], actor: User) -> Compet
     return edition
 
 
+def create_successor_revision(
+    edition: Competition,
+    actor: User,
+    reason: str,
+) -> CompetitionRevision:
+    if edition.published_revision_id is None:
+        raise ServiceError(
+            HTTPStatus.CONFLICT,
+            "conflict",
+            "a successor revision requires a published baseline",
+        )
+    active = db.session.scalar(
+        select(CompetitionRevision).where(
+            CompetitionRevision.competition_id == edition.id,
+            CompetitionRevision.revision_status.in_(
+                [CompetitionRevisionStatus.DRAFT, CompetitionRevisionStatus.PENDING_REVIEW]
+            ),
+        )
+    )
+    if active is not None:
+        raise ServiceError(
+            HTTPStatus.CONFLICT,
+            "active_revision_exists",
+            "the edition already has an active revision",
+            {"revision_id": active.id, "revision_status": active.revision_status.value},
+        )
+
+    base = db.session.get(CompetitionRevision, edition.published_revision_id)
+    if base is None:
+        raise ServiceError(HTTPStatus.CONFLICT, "conflict", "published revision is missing")
+    revision = CompetitionRevision(
+        competition=edition,
+        revision_number=max(item.revision_number for item in edition.revisions) + 1,
+        base_revision_id=base.id,
+        change_reason=reason,
+        revision_status=CompetitionRevisionStatus.DRAFT,
+        created_by_id=actor.id,
+        **{field: getattr(base, field) for field in REVISION_FIELDS},
+    )
+    db.session.add(revision)
+    for base_stage in base.stages:
+        stage = CompetitionStage(
+            stage_key=base_stage.stage_key,
+            stage_type=base_stage.stage_type,
+            label=base_stage.label,
+            stage_order=base_stage.stage_order,
+        )
+        for base_node in base_stage.time_nodes:
+            stage.time_nodes.append(
+                CompetitionTimeNode(
+                    logical_node_key=base_node.logical_node_key,
+                    node_revision=base_node.node_revision,
+                    node_type=base_node.node_type,
+                    occurs_at=base_node.occurs_at,
+                    prominence=base_node.prominence,
+                    prominence_override_reason=base_node.prominence_override_reason,
+                    description=base_node.description,
+                )
+            )
+        revision.stages.append(stage)
+    for base_link in base.tag_links:
+        revision.tag_links.append(CompetitionTagLink(tag=base_link.tag))
+    db.session.flush()
+    _write_audit(
+        actor,
+        "competition_revision.create_successor",
+        "competition_revision",
+        revision.id,
+        {
+            "competition_id": edition.id,
+            "base_revision_id": base.id,
+            "revision_number": revision.revision_number,
+            "reason": reason,
+        },
+    )
+    db.session.commit()
+    return revision
+
+
 def update_revision(
     revision: CompetitionRevision,
     payload: dict[str, Any],
@@ -213,6 +297,8 @@ def submit_revision(revision: CompetitionRevision, actor: User) -> CompetitionRe
             completeness,
         )
 
+    _freeze_node_revisions(revision)
+
     now = datetime.now(UTC)
     revision.revision_status = CompetitionRevisionStatus.PENDING_REVIEW
     revision.submitted_by_id = actor.id
@@ -255,6 +341,13 @@ def review_revision(
             "the submitter cannot review the same revision",
         )
     now = datetime.now(UTC)
+    comparison = revision_comparison(revision)
+    differences = [
+        *comparison["field_changes"],
+        *comparison["stage_changes"],
+        *comparison["time_node_changes"],
+    ]
+    impact = revision_impact(revision)
     status_by_action = {
         "approve": (CompetitionRevisionStatus.APPROVED, ReviewStatus.APPROVED),
         "reject": (CompetitionRevisionStatus.REJECTED, ReviewStatus.REJECTED),
@@ -275,9 +368,19 @@ def review_revision(
                 {"published_revision_id": edition.published_revision_id},
             )
         edition.published_revision_id = revision.id
-        edition.status = CompetitionStatus.PUBLISHED
+        if edition.status in {
+            CompetitionStatus.UNPUBLISHED,
+            CompetitionStatus.PUBLISHED,
+            CompetitionStatus.OFFLINE,
+        }:
+            edition.status = CompetitionStatus.PUBLISHED
+            edition.lifecycle_reason = None
+            edition.lifecycle_changed_at = now
         revision.published_at = now
         _sync_projection(edition, revision)
+        if revision.base_revision_id is not None:
+            _reconcile_subscriber_state(revision, comparison, now)
+            _write_reconciliation_event(actor, revision, comment, comparison)
 
     revision.revision_status = revision_status
     revision.decided_at = now
@@ -290,8 +393,8 @@ def review_revision(
             reviewed_by_id=actor.id,
             status=review_status,
             comment=comment,
-            differences=revision_differences(revision),
-            impact=revision_impact(revision),
+            differences=differences,
+            impact=impact,
             decided_at=now,
         )
     )
@@ -316,7 +419,11 @@ def revision_differences(revision: CompetitionRevision) -> list[dict[str, Any]]:
 
 
 def revision_comparison(revision: CompetitionRevision) -> dict[str, list[dict[str, Any]]]:
-    base = revision.competition.published_revision if revision.base_revision_id else None
+    base = (
+        db.session.get(CompetitionRevision, revision.base_revision_id)
+        if revision.base_revision_id
+        else None
+    )
     field_changes = []
     for field in REVISION_FIELDS:
         before = getattr(base, field) if base is not None else None
@@ -362,6 +469,53 @@ def revision_comparison(revision: CompetitionRevision) -> dict[str, list[dict[st
 
 def revision_impact(revision: CompetitionRevision) -> dict[str, Any]:
     visibility = "publish" if revision.base_revision_id is None else "replace"
+    schedule_changes = _schedule_changes(revision_comparison(revision))
+    changed_keys = {change["logical_node_key"] for change in schedule_changes}
+    subscriptions = list(
+        db.session.scalars(
+            select(Subscription).where(
+                Subscription.competition_id == revision.competition_id,
+                Subscription.status == SubscriptionStatus.ACTIVE,
+            )
+        )
+    )
+    affected_subscriptions = [
+        subscription
+        for subscription in subscriptions
+        if _subscription_affected(subscription, schedule_changes)
+    ]
+    base_node_ids = set()
+    if revision.base_revision_id is not None:
+        base = db.session.get(CompetitionRevision, revision.base_revision_id)
+        base_node_ids = {
+            node.id
+            for node in (base.time_nodes if base is not None else [])
+            if node.logical_node_key in changed_keys
+        }
+    pending_to_supersede = (
+        list(
+            db.session.scalars(
+                select(Reminder).where(
+                    Reminder.competition_id == revision.competition_id,
+                    Reminder.status == ReminderStatus.PENDING,
+                    Reminder.time_node_id.in_(base_node_ids),
+                )
+            )
+        )
+        if base_node_ids
+        else []
+    )
+    now = datetime.now(UTC)
+    future_to_create = sum(
+        1
+        for subscription in affected_subscriptions
+        for node in revision.time_nodes
+        if node.logical_node_key in changed_keys
+        and node.node_type in (subscription.node_types or [])
+        and node.occurs_at is not None
+        and _aware_utc(node.occurs_at) - timedelta(days=subscription.remind_days) > now
+        and subscription.reminder_enabled
+    )
     return {
         "public_visibility": visibility,
         "public_visibility_change": (
@@ -371,13 +525,13 @@ def revision_impact(revision: CompetitionRevision) -> dict[str, Any]:
         ),
         "search_reindex_required": True,
         "recommendation_refresh_required": True,
-        "active_subscriptions": 0,
-        "affected_active_subscriptions": 0,
-        "pending_reminders_to_supersede": 0,
-        "future_reminders_to_create": 0,
-        "schedule_change_messages_estimate": 0,
-        "schedule_semantic_changes": sum(len(stage.time_nodes) for stage in revision.stages),
-        "as_of": datetime.now(UTC).isoformat(),
+        "active_subscriptions": len(subscriptions),
+        "affected_active_subscriptions": len(affected_subscriptions),
+        "pending_reminders_to_supersede": len(pending_to_supersede),
+        "future_reminders_to_create": future_to_create,
+        "schedule_change_messages_estimate": len(affected_subscriptions),
+        "schedule_semantic_changes": len(schedule_changes),
+        "as_of": now.isoformat(),
     }
 
 
@@ -445,12 +599,20 @@ def _node_facts(stage: CompetitionStage, node: CompetitionTimeNode) -> dict[str,
     return {
         "stage_key": stage.stage_key,
         "node_type": node.node_type,
-        "occurs_at": node.occurs_at.isoformat() if node.occurs_at else None,
+        "occurs_at": _utc_iso(node.occurs_at),
         "description": node.description,
         "prominence": node.prominence,
         "prominence_override_reason": node.prominence_override_reason,
         "node_revision": node.node_revision,
     }
+
+
+def _utc_iso(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value.astimezone(UTC).isoformat()
 
 
 def _tag_codes(revision: CompetitionRevision | None) -> list[str]:
@@ -518,6 +680,207 @@ def _replace_stages(
                 )
             )
         revision.stages.append(stage)
+
+
+def _freeze_node_revisions(revision: CompetitionRevision) -> None:
+    if revision.base_revision_id is None:
+        for node in revision.time_nodes:
+            node.node_revision = 1
+        return
+    base = db.session.get(CompetitionRevision, revision.base_revision_id)
+    if base is None:
+        raise ServiceError(HTTPStatus.CONFLICT, "conflict", "base revision is missing")
+    base_nodes = {node.logical_node_key: node for node in base.time_nodes}
+    for stage in revision.stages:
+        for node in stage.time_nodes:
+            prior = base_nodes.get(node.logical_node_key)
+            if prior is None:
+                node.node_revision = 1
+                continue
+            changed = _node_behavior_facts(prior) != _node_behavior_facts(node)
+            node.node_revision = prior.node_revision + 1 if changed else prior.node_revision
+
+
+def _node_behavior_facts(node: CompetitionTimeNode) -> tuple:
+    return (
+        node.stage.stage_key if node.stage is not None else None,
+        node.node_type,
+        node.occurs_at,
+        node.prominence,
+        node.description,
+    )
+
+
+def _write_reconciliation_event(
+    actor: User,
+    revision: CompetitionRevision,
+    reason: str,
+    comparison: dict[str, list[dict[str, Any]]],
+) -> None:
+    schedule_changes = []
+    for change in comparison["time_node_changes"]:
+        before = change.get("before") or {}
+        after = change.get("after") or {}
+        if change.get("change") == "changed" and (
+            before.get("occurs_at") != after.get("occurs_at")
+            or before.get("node_type") != after.get("node_type")
+        ):
+            schedule_changes.append(
+                {
+                    "logical_node_key": change["logical_node_key"],
+                    "change": "changed",
+                    "before": before.get("occurs_at"),
+                    "after": after.get("occurs_at"),
+                }
+            )
+        elif change.get("change") in {"added", "removed"}:
+            schedule_changes.append(
+                {
+                    "logical_node_key": change["logical_node_key"],
+                    "change": change["change"],
+                    "before": before.get("occurs_at"),
+                    "after": after.get("occurs_at"),
+                }
+            )
+    _write_audit(
+        actor,
+        "competition_revision.reconcile",
+        "competition_revision",
+        revision.id,
+        {
+            "competition_id": revision.competition_id,
+            "base_revision_id": revision.base_revision_id,
+            "reason": reason,
+            "time_node_changes": schedule_changes,
+        },
+    )
+
+
+def _schedule_changes(
+    comparison: dict[str, list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    result = []
+    for change in comparison["time_node_changes"]:
+        before = change.get("before") or {}
+        after = change.get("after") or {}
+        if change.get("change") in {"added", "removed"} or (
+            before.get("occurs_at") != after.get("occurs_at")
+            or before.get("node_type") != after.get("node_type")
+        ):
+            result.append(change)
+    return result
+
+
+def _subscription_affected(
+    subscription: Subscription,
+    schedule_changes: list[dict[str, Any]],
+) -> bool:
+    selected_types = set(subscription.node_types or [])
+    return any(
+        selected_types.intersection(
+            {
+                value.get("node_type")
+                for value in (change.get("before") or {}, change.get("after") or {})
+                if value.get("node_type") is not None
+            }
+        )
+        for change in schedule_changes
+    )
+
+
+def _reconcile_subscriber_state(
+    revision: CompetitionRevision,
+    comparison: dict[str, list[dict[str, Any]]],
+    now: datetime,
+) -> None:
+    schedule_changes = _schedule_changes(comparison)
+    if not schedule_changes:
+        return
+    changed_keys = {change["logical_node_key"] for change in schedule_changes}
+    base = db.session.get(CompetitionRevision, revision.base_revision_id)
+    base_nodes = {
+        node.id: node
+        for node in (base.time_nodes if base is not None else [])
+        if node.logical_node_key in changed_keys
+    }
+    for reminder in db.session.scalars(
+        select(Reminder).where(
+            Reminder.competition_id == revision.competition_id,
+            Reminder.status == ReminderStatus.PENDING,
+            Reminder.time_node_id.in_(base_nodes),
+        )
+    ):
+        reminder.status = ReminderStatus.CANCELLED
+        reminder.cancel_reason = "competition_revision_superseded"
+
+    new_nodes = {
+        node.logical_node_key: node
+        for node in revision.time_nodes
+        if node.logical_node_key in changed_keys
+    }
+    subscriptions = list(
+        db.session.scalars(
+            select(Subscription).where(
+                Subscription.competition_id == revision.competition_id,
+                Subscription.status == SubscriptionStatus.ACTIVE,
+            )
+        )
+    )
+    for subscription in subscriptions:
+        if not _subscription_affected(subscription, schedule_changes):
+            continue
+        if subscription.reminder_enabled:
+            for node in new_nodes.values():
+                if node.node_type not in (subscription.node_types or []) or node.occurs_at is None:
+                    continue
+                due_at = _aware_utc(node.occurs_at) - timedelta(days=subscription.remind_days)
+                if due_at <= now:
+                    continue
+                db.session.add(
+                    Reminder(
+                        id=_next_pk(Reminder),
+                        user_id=subscription.user_id,
+                        competition_id=revision.competition_id,
+                        time_node_id=node.id,
+                        node_type=node.node_type,
+                        due_at=due_at,
+                        title=f"{revision.title}: {node.node_type}",
+                        body=f"Updated schedule: {node.occurs_at.isoformat()}",
+                        status=ReminderStatus.PENDING,
+                    )
+                )
+        idempotency_key = f"competition_revision:{revision.id}:time_changed"
+        existing_message = db.session.scalar(
+            select(Message).where(
+                Message.user_id == subscription.user_id,
+                Message.idempotency_key == idempotency_key,
+            )
+        )
+        if existing_message is None:
+            db.session.add(
+                Message(
+                    id=_next_pk(Message),
+                    user_id=subscription.user_id,
+                    competition_id=revision.competition_id,
+                    message_type="competition_time_changed",
+                    idempotency_key=idempotency_key,
+                    event_occurred_at=now,
+                    title=f"{revision.title} schedule changed",
+                    body="Review the updated competition timeline.",
+                )
+            )
+
+
+def _aware_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+def _next_pk(model) -> int | None:
+    if db.session.get_bind().dialect.name != "sqlite":
+        return None
+    return (db.session.scalar(select(func.max(model.id))) or 0) + 1
 
 
 def _replace_tags(revision: CompetitionRevision, payloads: list[dict[str, Any]]) -> None:
