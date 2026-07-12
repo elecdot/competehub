@@ -82,6 +82,7 @@ E2E_ACTORS = (
         role=UserRole.ADMIN,
         capabilities=(
             "competition_editor",
+            "competition_maintainer",
             "recommendation_editor",
             "recommendation_reviewer",
         ),

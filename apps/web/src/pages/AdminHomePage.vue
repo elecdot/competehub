@@ -35,10 +35,12 @@ import { RouterLink } from 'vue-router'
 import {
   createCompetitionEdition,
   createCompetitionSeries,
+  createCompetitionSuccessorRevision,
   fetchCompetitionEditions,
   fetchCompetitionSeries,
   fetchCurrentUser,
   fetchPendingCompetitionRevisions,
+  maintainCompetitionLifecycle,
   reviewCompetitionRevision,
   submitCompetitionRevision,
   updateCompetitionRevision,
@@ -77,6 +79,9 @@ const createdRevision = ref<CompetitionRevision>()
 const pendingRevisions = ref<CompetitionRevision[]>([])
 const selectedRevision = ref<CompetitionRevision>()
 const reviewComment = ref('')
+const successorReason = ref('')
+const lifecycleReason = ref('')
+const lifecycleTarget = ref<'offline' | 'archived' | 'cancelled' | 'expired'>('cancelled')
 
 const draft = reactive({
   editionLabel: '',
@@ -104,10 +109,14 @@ const isSelfReview = computed(
     selectedRevision.value?.submitted_by_id != null &&
     selectedRevision.value.submitted_by_id === currentUserId.value,
 )
-const activeEditionWorkspaces = computed(() =>
-  editionWorkspaces.value.filter((workspace) =>
-    ['draft', 'pending_review'].includes(workspace.active_revision.revision_status),
-  ),
+const activeEditionWorkspaces = computed(() => editionWorkspaces.value)
+const selectedWorkspace = computed(() =>
+  editionWorkspaces.value.find((workspace) => workspace.id === selectedEditionId.value),
+)
+const canCreateSuccessor = computed(
+  () =>
+    selectedWorkspace.value?.published_revision_id != null &&
+    selectedWorkspace.value.active_revision.revision_status === 'approved',
 )
 
 onMounted(async () => {
@@ -410,6 +419,50 @@ async function submitDraft() {
   }
 }
 
+async function startSuccessorRevision() {
+  if (selectedEditionId.value == null || !successorReason.value.trim()) return
+  loading.value = true
+  try {
+    const revision = await createCompetitionSuccessorRevision(
+      selectedEditionId.value,
+      successorReason.value.trim(),
+    )
+    const workspace = editionWorkspaces.value.find(
+      (item) => item.id === selectedEditionId.value,
+    )
+    if (workspace != null) {
+      workspace.revision = revision
+      workspace.active_revision = revision
+      openEditionWorkspace(workspace)
+    }
+    successorReason.value = ''
+    message.success('替换修订已从当前公开版本创建')
+  } catch {
+    message.error('无法创建替换修订，请检查是否已有进行中的候选版本')
+  } finally {
+    loading.value = false
+  }
+}
+
+async function maintainLifecycle() {
+  if (selectedEditionId.value == null || !lifecycleReason.value.trim()) return
+  loading.value = true
+  try {
+    await maintainCompetitionLifecycle(
+      selectedEditionId.value,
+      lifecycleTarget.value,
+      lifecycleReason.value.trim(),
+    )
+    lifecycleReason.value = ''
+    await loadEditions(selectedEditionId.value)
+    message.success('生命周期状态已更新并记录影响证据')
+  } catch {
+    message.error('状态维护失败；归档或过期前必须没有未来节点')
+  } finally {
+    loading.value = false
+  }
+}
+
 async function loadPending() {
   pendingRevisions.value = await fetchPendingCompetitionRevisions()
   if (selectedRevision.value != null) {
@@ -431,7 +484,7 @@ async function decide(action: 'approve' | 'reject' | 'return') {
     message.success(action === 'approve' ? '修订已发布' : '审核决定已记录')
     reviewComment.value = ''
     selectedRevision.value = undefined
-    await loadPending()
+    await Promise.all([loadPending(), loadEditions()])
   } catch {
     message.error(isSelfReview.value ? '提交者不能审核自己的修订' : '审核操作失败')
   } finally {
@@ -522,8 +575,8 @@ function displayValue(value: unknown) {
                 v-model:value="selectedEditionId"
                 data-testid="edition-select"
                 placeholder="选择进行中的届次修订"
-                @change="selectEditionWorkspace"
-              >
+                 @change="selectEditionWorkspace"
+               >
                 <SelectOption
                   v-for="workspace in activeEditionWorkspaces"
                   :key="workspace.id"
@@ -531,7 +584,74 @@ function displayValue(value: unknown) {
                 >
                   {{ workspace.edition_label }} · {{ workspace.active_revision.title }}
                 </SelectOption>
-              </Select>
+               </Select>
+
+              <section v-if="selectedWorkspace" class="nested-editor" aria-label="Revision and lifecycle maintenance">
+                <div class="section-heading">
+                  <h3>Current publication and lifecycle</h3>
+                  <Tag :color="selectedWorkspace.lifecycle_status === 'published' ? 'green' : 'orange'">
+                    {{ selectedWorkspace.lifecycle_status }}
+                  </Tag>
+                </div>
+                <Descriptions bordered size="small" :column="2">
+                  <DescriptionsItem label="Published revision">
+                    {{ selectedWorkspace.published_revision_id ?? 'Not published' }}
+                  </DescriptionsItem>
+                  <DescriptionsItem label="Affected subscriptions">
+                    <span data-testid="lifecycle-subscriber-impact">{{ selectedWorkspace.lifecycle_impact.affected_active_subscriptions }}</span>
+                  </DescriptionsItem>
+                  <DescriptionsItem label="Pending reminders">
+                    {{ selectedWorkspace.lifecycle_impact.pending_reminders_to_cancel }}
+                  </DescriptionsItem>
+                  <DescriptionsItem label="Future nodes">
+                    {{ selectedWorkspace.lifecycle_impact.future_nodes.length }}
+                  </DescriptionsItem>
+                </Descriptions>
+
+                <div v-if="canCreateSuccessor" class="inline-form successor-controls">
+                  <Input
+                    v-model:value="successorReason"
+                    data-testid="successor-reason"
+                    placeholder="Source-backed reason for the replacement"
+                  />
+                  <Button
+                    data-testid="create-successor-revision"
+                    type="primary"
+                    :disabled="!successorReason.trim()"
+                    @click="startSuccessorRevision"
+                  >
+                    Create replacement revision
+                  </Button>
+                </div>
+
+                <div v-if="selectedWorkspace.published_revision_id != null" class="lifecycle-controls">
+                  <Select v-model:value="lifecycleTarget" data-testid="lifecycle-target">
+                    <SelectOption value="cancelled">Cancelled</SelectOption>
+                    <SelectOption value="archived">Archived</SelectOption>
+                    <SelectOption value="expired">Expired</SelectOption>
+                    <SelectOption value="offline">Emergency offline</SelectOption>
+                  </Select>
+                  <Input
+                    v-model:value="lifecycleReason"
+                    data-testid="lifecycle-reason"
+                    placeholder="Required lifecycle reason"
+                  />
+                  <Button
+                    data-testid="maintain-lifecycle"
+                    danger
+                    :disabled="!lifecycleReason.trim() || selectedWorkspace.lifecycle_status !== 'published'"
+                    @click="maintainLifecycle"
+                  >
+                    Apply after impact review
+                  </Button>
+                </div>
+                <Alert
+                  v-if="lifecycleTarget === 'offline'"
+                  type="warning"
+                  show-icon
+                  message="Emergency offline removes public detail immediately. Restoration requires a corrected independently reviewed revision."
+                />
+              </section>
 
               <Form layout="vertical" class="editor-form">
                 <FormItem label="届次"><Input v-model:value="draft.editionLabel" data-testid="edition-label" /></FormItem>
@@ -681,6 +801,11 @@ function displayValue(value: unknown) {
                 <DescriptionsItem label="影响快照">{{ displayValue(selectedRevision.impact.as_of) }}</DescriptionsItem>
               </Descriptions>
               <h3>字段、阶段与节点差异</h3>
+              <Descriptions bordered size="small" :column="1" class="impact-summary">
+                <DescriptionsItem label="Affected subscriptions">{{ displayValue(selectedRevision.impact.affected_active_subscriptions) }}</DescriptionsItem>
+                <DescriptionsItem label="Reminders to supersede">{{ displayValue(selectedRevision.impact.pending_reminders_to_supersede) }}</DescriptionsItem>
+                <DescriptionsItem label="Schedule messages">{{ displayValue(selectedRevision.impact.schedule_change_messages_estimate) }}</DescriptionsItem>
+              </Descriptions>
               <div class="diff-table" data-testid="review-diff">
                 <div v-for="(difference, index) in selectedRevision.differences" :key="`${difference.kind}-${differenceLabel(difference)}-${index}`">
                   <strong>{{ difference.kind }} · {{ differenceLabel(difference) }}</strong>

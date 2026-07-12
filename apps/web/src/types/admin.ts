@@ -40,6 +40,8 @@ export interface CompetitionRevision {
   id: number
   competition_id: number
   revision_number: number
+  base_revision_id: number | null
+  change_reason: string | null
   revision_status: 'draft' | 'pending_review' | 'approved' | 'rejected' | 'returned'
   title: string
   category: string | null
@@ -78,10 +80,24 @@ export interface EditionWorkspace {
   id: number
   series_id: number
   edition_label: string
-  lifecycle_status: 'unpublished' | 'published'
+  lifecycle_status: 'unpublished' | 'published' | 'offline' | 'archived' | 'cancelled' | 'expired'
+  lifecycle_reason: string | null
+  lifecycle_changed_at: string | null
   published_revision_id: number | null
   revision: CompetitionRevision
   active_revision: CompetitionRevision
+  lifecycle_impact: {
+    affected_active_subscriptions: number
+    pending_reminders_to_cancel: number
+    future_nodes: Array<{
+      snapshot_id: number
+      logical_node_key: string
+      node_type: string
+      occurs_at: string
+    }>
+    historical_detail_retained_for: string[]
+    public_detail_removed_for: string[]
+  }
 }
 
 export interface EditionDraftInput {
