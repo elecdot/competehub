@@ -15,11 +15,11 @@ def next_time_node(
 ) -> CompetitionTimeNode | None:
     at = _as_utc(at or datetime.now(UTC))
     candidates = [
-        (node_time, node.id or 0, node)
+        (0 if node.prominence == "primary" else 1, node_time, node.id or 0, node)
         for node in _published_time_nodes(competition)
         if (node_time := _next_node_time(node, at)) is not None
     ]
-    return min(candidates, default=(None, 0, None))[2]
+    return min(candidates, default=(2, None, 0, None))[3]
 
 
 def competition_tag_names(competition: Competition) -> list[str]:

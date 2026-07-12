@@ -42,8 +42,14 @@ export interface CompetitionRevision {
   revision_number: number
   revision_status: 'draft' | 'pending_review' | 'approved' | 'rejected' | 'returned'
   title: string
+  category: string | null
+  organizer: string | null
   source_name: string
   source_url: string
+  official_url: string | null
+  summary: string | null
+  eligibility: string | null
+  team_size: string | null
   submitted_by_id: number | null
   differences: RevisionDifference[]
   comparison: {

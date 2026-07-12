@@ -11,8 +11,14 @@ class UserRole(StrEnum):
 
 
 class UserStatus(StrEnum):
+    PENDING_ACTIVATION = "pending_activation"
     ACTIVE = "active"
     DISABLED = "disabled"
+
+
+class IdentityVerificationStatus(StrEnum):
+    PENDING = "pending"
+    VERIFIED = "verified"
 
 
 class CompetitionStatus(StrEnum):

@@ -19,6 +19,7 @@ zone. See `docs/adr/0012-utc-instants-shanghai-calendar.md`.
 User
   |-- UserIdentity
   |     |-- IdentityVerificationChallenge
+  |           |-- VerificationDeliveryOutbox
   |-- StudentProfile
   |-- Favorite
   |-- Subscription
@@ -85,8 +86,11 @@ Constraints:
   transaction and writes allowlisted old/new codes plus a non-empty reason to
   the audit log.
 - `password_hash` contains an adaptive hash with its algorithm and explicit work
-  parameters, never plaintext or reversible ciphertext. P1 prefers Argon2id;
-  an OWASP-baseline scrypt configuration is the permitted fallback.
+  parameters, never plaintext or reversible ciphertext. New and upgraded hashes
+  use Argon2id with the repository's current explicit parameters.
+- Historical adaptive hashes remain verifiable during migration. A successful
+  login upgrades a non-Argon2id hash, or an Argon2id hash whose parameters are
+  stale, in the same login transaction; a failed login never changes the hash.
 - New passwords contain 15 to 128 Unicode code points after NFC normalization,
   are checked against a local weak-password blocklist, and are never silently
   truncated.
@@ -144,10 +148,43 @@ Rules:
   production logs.
 - A challenge is single-use, expires after a configured short lifetime, and is
   rejected after the attempt limit.
+- Resend consumes every older unconsumed challenge for the identity. Successful
+  verification locks the pending identity, consumes all of its outstanding
+  challenges, and activates only a `pending_activation` account in one
+  transaction; a code can never reactivate a disabled account.
 - Successful verification and account activation occur atomically and do not
   create an authenticated session.
 - Registration and resend responses do not reveal whether an identity exists or
   is already verified.
+
+### `verification_delivery_outbox`
+
+Stores transactional work for asynchronous verification-email delivery.
+
+Key fields:
+
+- `id`
+- `challenge_id`
+- `delivery_nonce`
+- `attempt_count`
+- `available_at`
+- `delivered_at`
+- `discarded_at`
+- `last_error`
+- `created_at`
+- `updated_at`
+
+Rules:
+
+- Challenge creation and its outbox row commit atomically. HTTP registration and
+  resend requests never contact SMTP directly.
+- `delivery_nonce` is random input to a keyed derivation of the six-digit code;
+  the plaintext code is never persisted. The nonce is cleared after delivery or
+  discard and cannot produce the code without the application secret.
+- A worker delivers only an unconsumed, unexpired challenge. It discards stale
+  work, retries transient failures with bounded backoff, and never logs the code.
+- Unknown or ineligible register/resend requests perform equivalent password or
+  challenge hashing but do not create durable outbox work.
 
 ### `student_profiles`
 
@@ -1057,11 +1094,13 @@ Search can start with PostgreSQL filters and simple text matching. Add a dedicat
 - Enum changes must include a compatibility note when existing rows may be affected.
 - Data backfills should be idempotent and documented in the migration or task note.
 - Migrations should not depend on Redis.
-- The initial reproducible schema is
-  `apps/api/migrations/versions/4a17c3d9e507_add_immutable_competition_revisions.py`.
-  It creates the series, edition, revision, stage, single-instant node, review,
-  and audit relationships in dependency order and supports clean upgrade and
-  downgrade checks.
+- The reproducible chain starts at
+  `apps/api/migrations/versions/c5e0e7e0560d_initial_schema_with_verified_identities.py`;
+  `13eb10903bd7_add_immutable_competition_revisions.py` adds the series,
+  edition, revision, stage, single-instant node, review, and audit relationships.
+  Fresh SQLite and PostgreSQL paths support repeatable upgrade, downgrade, and
+  re-upgrade. The recorded legacy `db.create_all()` path preserves unknown
+  business-table shapes and requires a dedicated publication bridge or reset.
 - `seed-e2e --reset` provisions distinct student/editor/reviewer actors plus one
   approved series/edition/revision fixture with an ordered stage and immutable
   `occurs_at` node. It is isolated browser-test data, not a production backfill.

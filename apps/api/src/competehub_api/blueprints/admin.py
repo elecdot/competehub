@@ -216,7 +216,7 @@ def update_competition_status(competition_id: int):
 
 
 def _require_admin(required_capability: str | None = None) -> tuple[User | None, object | None]:
-    user = current_user(session.get("user_id"))
+    user = current_user(session)
     if user is None:
         return None, error_response(HTTPStatus.UNAUTHORIZED, "unauthorized", "login is required")
     if user.role != UserRole.ADMIN:

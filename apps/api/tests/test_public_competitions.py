@@ -389,18 +389,20 @@ def test_public_competition_next_node_skips_elapsed_nodes(client) -> None:
     assert response.get_json()["data"]["next_node"]["id"] == 221
 
 
-def test_public_competition_next_node_uses_earliest_current_or_future_timestamp(client) -> None:
+def test_public_competition_next_node_prefers_primary_before_secondary_fallback(client) -> None:
     now = datetime.now(UTC)
-    ranged_node = CompetitionTimeNode(
+    earlier_secondary = CompetitionTimeNode(
         id=222,
         node_type="registration_period",
         starts_at=now + timedelta(days=1),
         due_at=now + timedelta(days=5),
+        prominence="secondary",
     )
-    deadline_node = CompetitionTimeNode(
+    later_primary = CompetitionTimeNode(
         id=223,
         node_type="submission_deadline",
         due_at=now + timedelta(days=2),
+        prominence="primary",
     )
     competition = Competition(
         id=121,
@@ -408,7 +410,7 @@ def test_public_competition_next_node_uses_earliest_current_or_future_timestamp(
         source_name="示例高校竞赛通知",
         source_url="https://example.edu/notices/multiple-times",
         status=CompetitionStatus.PUBLISHED,
-        time_nodes=[ranged_node, deadline_node],
+        time_nodes=[earlier_secondary, later_primary],
     )
     db.session.add(competition)
     db.session.flush()
@@ -418,7 +420,7 @@ def test_public_competition_next_node_uses_earliest_current_or_future_timestamp(
     response = client.get("/api/v1/competitions/121")
 
     assert response.status_code == 200
-    assert response.get_json()["data"]["next_node"]["id"] == 222
+    assert response.get_json()["data"]["next_node"]["id"] == 223
 
 
 @pytest.mark.parametrize("competition_id", [102, 103, 104, 105, 108, 109, 110])
@@ -442,7 +444,6 @@ def test_public_competition_requires_published_revision_pointer(client) -> None:
     )
     db.session.add(competition)
     db.session.commit()
-
     response = client.get("/api/v1/competitions/130")
 
     assert response.status_code == 404

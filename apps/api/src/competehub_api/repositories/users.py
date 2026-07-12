@@ -1,29 +1,22 @@
 from __future__ import annotations
 
-from sqlalchemy import or_, select
+from sqlalchemy import select
+from sqlalchemy.orm import joinedload
 
 from competehub_api.extensions import db
-from competehub_api.models import User
-
-IDENTITY_COLUMNS = {
-    "email": User.email,
-    "phone": User.phone,
-    "student_no": User.student_no,
-}
+from competehub_api.models import User, UserIdentity
 
 
 def get_user(user_id: int) -> User | None:
     return db.session.get(User, user_id)
 
 
-def find_user_by_identity(field: str, value: str) -> User | None:
-    return db.session.scalar(select(User).where(IDENTITY_COLUMNS[field] == value))
-
-
-def find_users_by_account(account: str) -> list[User]:
-    statement = (
-        select(User)
-        .where(or_(User.email == account, User.phone == account, User.student_no == account))
-        .order_by(User.id)
+def find_identity(identity_type: str, normalized_value: str) -> UserIdentity | None:
+    return db.session.scalar(
+        select(UserIdentity)
+        .options(joinedload(UserIdentity.user))
+        .where(
+            UserIdentity.identity_type == identity_type,
+            UserIdentity.normalized_value == normalized_value,
+        )
     )
-    return list(db.session.scalars(statement))

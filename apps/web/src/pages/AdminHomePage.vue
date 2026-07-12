@@ -34,6 +34,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import {
   createCompetitionEdition,
   createCompetitionSeries,
+  fetchCompetitionEditions,
   fetchCompetitionSeries,
   fetchCurrentUser,
   fetchPendingCompetitionRevisions,
@@ -44,6 +45,7 @@ import {
 import type {
   CompetitionRevision,
   CompetitionSeries,
+  EditionWorkspace,
   RevisionDraftUpdate,
   RevisionStageInput,
   RevisionTagInput,
@@ -66,6 +68,8 @@ const accessDenied = ref(false)
 const loading = ref(false)
 const series = ref<CompetitionSeries[]>([])
 const selectedSeriesId = ref<number>()
+const editionWorkspaces = ref<EditionWorkspace[]>([])
+const selectedEditionId = ref<number>()
 const newSeriesName = ref('')
 const currentUserId = ref<number>()
 const createdRevision = ref<CompetitionRevision>()
@@ -99,6 +103,11 @@ const isSelfReview = computed(
     selectedRevision.value?.submitted_by_id != null &&
     selectedRevision.value.submitted_by_id === currentUserId.value,
 )
+const activeEditionWorkspaces = computed(() =>
+  editionWorkspaces.value.filter((workspace) =>
+    ['draft', 'pending_review'].includes(workspace.active_revision.revision_status),
+  ),
+)
 
 onMounted(async () => {
   try {
@@ -115,7 +124,7 @@ onMounted(async () => {
       accessDenied.value = true
       return
     }
-    await Promise.all([loadSeries(), loadPending()])
+    await Promise.all([loadSeries(), loadEditions(), loadPending()])
   } catch {
     accessDenied.value = true
   }
@@ -186,6 +195,86 @@ async function loadSeries() {
   }
 }
 
+async function loadEditions(preferredEditionId?: number) {
+  editionWorkspaces.value = await fetchCompetitionEditions()
+  const editionId = preferredEditionId ?? selectedEditionId.value
+  const workspace =
+    activeEditionWorkspaces.value.find((item) => item.id === editionId) ??
+    activeEditionWorkspaces.value.find(
+      (item) => item.active_revision.revision_status === 'draft',
+    )
+  if (workspace != null) {
+    openEditionWorkspace(workspace)
+  }
+}
+
+function selectEditionWorkspace(editionId: unknown) {
+  if (typeof editionId !== 'number') return
+  const workspace = activeEditionWorkspaces.value.find((item) => item.id === editionId)
+  if (workspace != null) {
+    openEditionWorkspace(workspace)
+  }
+}
+
+function openEditionWorkspace(workspace: EditionWorkspace) {
+  const revision = workspace.active_revision
+  selectedEditionId.value = workspace.id
+  selectedSeriesId.value = workspace.series_id
+  createdRevision.value = revision
+  draft.editionLabel = workspace.edition_label
+  draft.title = revision.title
+  draft.category = revision.category ?? ''
+  draft.organizer = revision.organizer ?? ''
+  draft.sourceName = revision.source_name
+  draft.sourceUrl = revision.source_url
+  draft.officialUrl = revision.official_url ?? ''
+  draft.summary = revision.summary ?? ''
+  draft.eligibility = revision.eligibility ?? ''
+  draft.registrationApplicability = revision.registration_applicability ?? 'unknown'
+  draft.participantForms = [...revision.participant_forms]
+  draft.teamSize = revision.team_size ?? ''
+  draft.majorScope = revision.major_scope ?? 'unknown'
+  draft.gradeScope = revision.grade_scope ?? 'unknown'
+  draft.majors = (revision.suitable_majors ?? []).join(', ')
+  draft.grades = (revision.suitable_grades ?? []).join(', ')
+  draft.tags = revision.tags.map((tag) => ({
+    code: tag.code,
+    name: tag.name,
+    tag_type: tag.tag_type,
+  }))
+  draft.stages = revision.stages.map((stage) => ({
+    stage_key: stage.stage_key,
+    stage_type: stage.stage_type,
+    label: stage.label,
+    order: stage.order,
+    time_nodes: stage.time_nodes.map((node) => ({
+      logical_node_key: node.logical_node_key,
+      node_type: node.node_type,
+      occurs_at: toProductDateTimeInput(node.occurs_at),
+      description: node.description,
+      prominence: node.prominence,
+      prominence_override_reason: node.prominence_override_reason,
+    })),
+  }))
+}
+
+function toProductDateTimeInput(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value.slice(0, 16)
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date)
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((item) => item.type === type)?.value ?? ''
+  return `${part('year')}-${part('month')}-${part('day')}T${part('hour')}:${part('minute')}`
+}
+
 async function addSeries() {
   if (!newSeriesName.value.trim()) return
   loading.value = true
@@ -243,6 +332,13 @@ async function saveDraft() {
         createdRevision.value.id,
         revisionPayload(),
       )
+      const workspace = editionWorkspaces.value.find(
+        (item) => item.id === selectedEditionId.value,
+      )
+      if (workspace != null) {
+        workspace.revision = createdRevision.value
+        workspace.active_revision = createdRevision.value
+      }
       message.success('候选修订已更新')
     } else {
       const payload = revisionPayload()
@@ -254,6 +350,8 @@ async function saveDraft() {
         team_size: payload.team_size ?? undefined,
       })
       createdRevision.value = workspace.revision
+      selectedEditionId.value = workspace.id
+      editionWorkspaces.value = [...editionWorkspaces.value, workspace]
       message.success('不可变候选修订已保存')
     }
   } catch {
@@ -370,6 +468,22 @@ function displayValue(value: unknown) {
                   {{ createdRevision.revision_status }} · r{{ createdRevision.revision_number }}
                 </Tag>
               </div>
+
+              <Select
+                v-if="activeEditionWorkspaces.length"
+                v-model:value="selectedEditionId"
+                data-testid="edition-select"
+                placeholder="选择进行中的届次修订"
+                @change="selectEditionWorkspace"
+              >
+                <SelectOption
+                  v-for="workspace in activeEditionWorkspaces"
+                  :key="workspace.id"
+                  :value="workspace.id"
+                >
+                  {{ workspace.edition_label }} · {{ workspace.active_revision.title }}
+                </SelectOption>
+              </Select>
 
               <Form layout="vertical" class="editor-form">
                 <FormItem label="届次"><Input v-model:value="draft.editionLabel" data-testid="edition-label" /></FormItem>

@@ -91,6 +91,27 @@ test('editor submits, distinct reviewer publishes, and student sees the edition'
   })
   await expect(actorPage.getByText('候选修订已更新')).toBeVisible()
   await expect(actorPage.getByTestId('stage-editor-1')).toBeVisible()
+
+  await actorPage.reload()
+  await expect(actorPage.getByTestId('edition-select')).toBeVisible()
+  await expect(actorPage.getByText('draft · r1')).toBeVisible()
+  await expect(actorPage.getByTestId('edition-title')).toHaveValue(competitionTitle)
+  await expect(actorPage.getByTestId('official-url')).toHaveValue('')
+  await expect(actorPage.getByTestId('team-size')).toBeHidden()
+  await expect(actorPage.getByTestId('stage-editor-1')).toBeVisible()
+
+  await actorPage
+    .getByTestId('summary')
+    .fill('A reloaded and continued source-backed browser publication candidate.')
+  const reloadedUpdateResponsePromise = actorPage.waitForResponse(
+    (response) =>
+      response.request().method() === 'PATCH' &&
+      response.url().endsWith(`/api/v1/admin/competition_revisions/${revisionId}`),
+  )
+  await actorPage.getByTestId('save-revision').click()
+  await reloadedUpdateResponsePromise
+  await expect(actorPage.getByText('候选修订已更新')).toBeVisible()
+
   await actorPage.getByTestId('submit-revision').click()
   await expect(actorPage.getByText('pending_review · r1')).toBeVisible()
 
@@ -135,7 +156,7 @@ async function switchActor(page: Page, account: string, password: string) {
   const logoutResponse = await page.request.post('/api/v1/auth/logout')
   expect(logoutResponse).toBeOK()
   const loginResponse = await page.request.post('/api/v1/auth/login', {
-    data: { account, password },
+    data: { identity_type: 'email', identity: account, password },
   })
   expect(loginResponse).toBeOK()
 }

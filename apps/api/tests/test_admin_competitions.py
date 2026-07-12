@@ -6,6 +6,7 @@ from competehub_api.extensions import db
 from competehub_api.models import AuditLog, Competition, User
 from competehub_api.models.enums import CompetitionStatus, UserRole
 from competehub_api.repositories.competitions import PUBLIC_COMPETITION_STATUSES
+from competehub_api.services.auth import start_session
 
 
 def create_admin_user(user_id: int = 1) -> int:
@@ -38,8 +39,10 @@ def create_student_user(user_id: int = 2) -> int:
 
 
 def login(client, user_id: int) -> None:
+    with client.application.app_context():
+        user = db.session.get(User, user_id)
     with client.session_transaction() as session:
-        session["user_id"] = user_id
+        start_session(session, user)
 
 
 def test_legacy_mutable_create_payload_is_rejected(client, app) -> None:

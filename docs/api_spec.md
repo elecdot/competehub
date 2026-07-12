@@ -105,7 +105,9 @@ timeout has elapsed. Invalid sessions are cleared and return the generic
 Student sessions have a 24-hour idle timeout and a seven-day absolute timeout.
 Administrator sessions have a 30-minute idle timeout and an eight-hour absolute
 timeout. Authenticated activity refreshes only the idle timestamp and never the
-absolute deadline. P1 allows concurrent sessions and has no user-selectable
+absolute deadline. Idle timestamp Cookie writes are coalesced within a one-minute
+window so concurrent page requests do not race to overwrite the signed session;
+status, version, and timeout validation still runs on every request. P1 allows concurrent sessions and has no user-selectable
 remember-me mode. Logout clears only the current browser; disabling an account,
 changing its role or capabilities, confirming credential compromise, or
 explicitly terminating all sessions increments the account version and
@@ -214,7 +216,9 @@ Response:
 ```
 
 The successful response is `202 Accepted`, is intentionally the same whether a
-pending or existing identity received a message, and does not create a session.
+new delivery was queued or the typed identity already existed, and does not
+create a session. SMTP delivery is asynchronous through a transactional outbox;
+the HTTP request never contacts SMTP, and acceptance does not claim delivery.
 When public registration is disabled, the endpoint returns
 `registration_unavailable`; the frontend must not show the registration entry.
 
@@ -239,14 +243,19 @@ Request:
 
 Request another verification message. The response is generic, rate-limited,
 and does not reveal whether the identity exists, is pending, or is already
-verified.
+verified. Issuing a replacement consumes every older unconsumed challenge for
+the identity and commits the new challenge and delivery-outbox row atomically;
+only a pending identity on a `pending_activation` account can be verified. The
+HTTP request does not execute SMTP.
 
 ### `POST /auth/login`
 
 Login with an explicitly typed account identity. The API never searches one
 identifier across unrelated identity types. Pending, disabled, unknown, and
 incorrect-password cases use a non-enumerating authentication failure and do
-not create a session.
+not create a session. Every one of these cases performs one adaptive password
+verification; unknown identities use a fixed dummy Argon2id hash before the
+account and identity state is evaluated.
 
 Request:
 
@@ -306,6 +315,28 @@ Response data example:
   "blocked_tags": [],
   "profile_status": "recommendation_ready",
   "missing_fields": []
+}
+```
+
+Requires `student`.
+
+### `GET /me/profile/options`
+
+Return the deployment-controlled values accepted by `PATCH /me/profile`. The
+response keeps majors grouped by college so the client can prevent invalid
+college-major combinations.
+
+Response data example:
+
+```json
+{
+  "colleges": ["计算机学院", "经济管理学院"],
+  "majors_by_college": {
+    "计算机学院": ["软件工程", "计算机科学与技术"],
+    "经济管理学院": ["金融学", "工商管理"]
+  },
+  "grades": ["大一", "大二", "大三", "大四"],
+  "interest_tags": ["人工智能", "创新创业", "程序设计"]
 }
 ```
 

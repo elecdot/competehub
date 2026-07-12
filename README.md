@@ -81,6 +81,7 @@ Start local PostgreSQL and Redis:
 
 ```bash
 just infra-up
+just api-db-upgrade
 ```
 
 Start the backend and frontend in separate terminals:
@@ -88,6 +89,15 @@ Start the backend and frontend in separate terminals:
 ```bash
 just api-dev
 just web-dev
+```
+
+When public email registration is enabled, also run the Celery worker and
+scheduler in separate terminals so committed verification outbox rows are
+delivered without making SMTP part of the HTTP request:
+
+```bash
+just api-worker
+just api-worker-beat
 ```
 
 By default, the frontend dev server proxies `/api` requests to the Flask API on

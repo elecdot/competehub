@@ -16,7 +16,13 @@ from competehub_api.models.engagement import (
     Subscription,
 )
 from competehub_api.models.review import AuditLog, ReviewRecord
-from competehub_api.models.user import StudentProfile, User
+from competehub_api.models.user import (
+    IdentityVerificationChallenge,
+    StudentProfile,
+    User,
+    UserIdentity,
+    VerificationDeliveryOutbox,
+)
 
 __all__ = [
     "AuditLog",
@@ -28,6 +34,7 @@ __all__ = [
     "CompetitionTagLink",
     "CompetitionTimeNode",
     "Favorite",
+    "IdentityVerificationChallenge",
     "Message",
     "RecommendationRule",
     "Reminder",
@@ -37,4 +44,6 @@ __all__ = [
     "Subscription",
     "SystemConfig",
     "User",
+    "UserIdentity",
+    "VerificationDeliveryOutbox",
 ]

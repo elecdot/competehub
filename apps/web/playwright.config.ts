@@ -1,5 +1,17 @@
 import { defineConfig, devices } from '@playwright/test'
 
+const apiServerCommand =
+  '../../scripts/agent-env.sh uv run --project ../api flask --app competehub_api.app:create_e2e_app run --host 127.0.0.1 --port 5000'
+
+function runWithBashOnWindows(command: string) {
+  if (process.platform !== 'win32') {
+    return command
+  }
+  const gitBash = process.env.GIT_BASH ?? 'C:\\Program Files\\Git\\usr\\bin\\bash.exe'
+  const escapedCommand = command.replaceAll("'", "'\\''")
+  return `"${gitBash}" -lc '${escapedCommand}'`
+}
+
 export default defineConfig({
   testDir: './e2e',
   outputDir: '../../.cache/playwright/test-results',
@@ -24,8 +36,7 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command:
-        '../../scripts/agent-env.sh uv run --project ../api flask --app competehub_api.app:create_e2e_app run --host 127.0.0.1 --port 5000',
+      command: runWithBashOnWindows(apiServerCommand),
       url: 'http://127.0.0.1:5000/api/v1/health',
       reuseExistingServer: false,
       timeout: 120_000,

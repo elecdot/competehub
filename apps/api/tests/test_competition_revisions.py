@@ -3,6 +3,7 @@ from __future__ import annotations
 from competehub_api.extensions import db
 from competehub_api.models import AuditLog, Competition, ReviewRecord, User
 from competehub_api.models.enums import UserRole
+from competehub_api.services.auth import start_session
 
 
 def create_user(
@@ -26,8 +27,11 @@ def create_user(
 
 
 def login(client, user_id: int) -> None:
-    with client.session_transaction() as session:
-        session["user_id"] = user_id
+    with client.application.app_context():
+        user = db.session.get(User, user_id)
+        assert user is not None
+        with client.session_transaction() as session:
+            start_session(session, user)
 
 
 def complete_edition_payload(series_id: int) -> dict:
