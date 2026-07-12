@@ -1,6 +1,6 @@
 import { expect, test } from './fixtures/actors'
 
-test.use({ actorName: 'student' })
+test.use({ actorName: 'student', allowOutboundTrackingConsoleError: true })
 
 test('shows actionable discovery, staged detail, historical context, and direct official links', async ({
   actorPage,
@@ -20,7 +20,7 @@ test('shows actionable discovery, staged detail, historical context, and direct 
   await expect(actorPage.getByText('当前公开修订 r1')).toBeVisible()
   await expect(actorPage.getByRole('heading', { name: 'Registration' })).toBeVisible()
   await expect(actorPage.getByText('报名开始')).toBeVisible()
-  await expect(actorPage.getByText('报名截止')).toBeVisible()
+  await expect(actorPage.getByText('报名截止', { exact: true })).toBeVisible()
 
   await actorPage.route('**/api/v1/competitions/2001/outbound_clicks', async (route) => {
     await route.fulfill({ status: 500, contentType: 'application/json', body: '{}' })

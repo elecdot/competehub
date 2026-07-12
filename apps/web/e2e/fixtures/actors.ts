@@ -47,24 +47,32 @@ interface ActorFixtures {
   actorName: ActorName
   actorPage: Page
   allowLoginUnauthorizedConsoleError: boolean
+  allowOutboundTrackingConsoleError: boolean
   allowProfileValidationConsoleError: boolean
 }
 
 export const test = base.extend<ActorFixtures>({
   actorName: ['student', { option: true }],
   allowLoginUnauthorizedConsoleError: [false, { option: true }],
+  allowOutboundTrackingConsoleError: [false, { option: true }],
   allowProfileValidationConsoleError: [false, { option: true }],
   actor: async ({ actorName }, use) => {
     await use(actors[actorName])
   },
   page: async (
-    { page, allowLoginUnauthorizedConsoleError, allowProfileValidationConsoleError },
+    {
+      page,
+      allowLoginUnauthorizedConsoleError,
+      allowOutboundTrackingConsoleError,
+      allowProfileValidationConsoleError,
+    },
     use,
   ) => {
     await usePageWithErrorGuard(
       page,
       use,
       allowLoginUnauthorizedConsoleError,
+      allowOutboundTrackingConsoleError,
       allowProfileValidationConsoleError,
     )
   },
@@ -100,6 +108,7 @@ async function usePageWithErrorGuard(
   page: Page,
   use: (page: Page) => Promise<void>,
   allowLoginUnauthorizedConsoleError: boolean,
+  allowOutboundTrackingConsoleError: boolean,
   allowProfileValidationConsoleError: boolean,
 ) {
   const errors: string[] = []
@@ -121,7 +130,17 @@ async function usePageWithErrorGuard(
       response.status() === 400 &&
       request.method() === 'PATCH' &&
       pathname === '/api/v1/me/profile'
-    if (isCurrentUserProbe || isExpectedLoginFailure || isExpectedProfileValidation) {
+    const isExpectedOutboundTrackingFailure =
+      allowOutboundTrackingConsoleError &&
+      response.status() === 500 &&
+      request.method() === 'POST' &&
+      /^\/api\/v1\/competitions\/\d+\/outbound_clicks$/.test(pathname)
+    if (
+      isCurrentUserProbe ||
+      isExpectedLoginFailure ||
+      isExpectedOutboundTrackingFailure ||
+      isExpectedProfileValidation
+    ) {
       expectedHttpErrorResponses += 1
     } else if (response.status() === 400 || response.status() === 401) {
       errors.push(`response: unexpected ${response.status()} from ${request.method()} ${pathname}`)
@@ -133,7 +152,8 @@ async function usePageWithErrorGuard(
     }
     if (
       message.text().includes('status of 401') ||
-      message.text().includes('status of 400')
+      message.text().includes('status of 400') ||
+      (allowOutboundTrackingConsoleError && message.text().includes('status of 500'))
     ) {
       httpConsoleErrors += 1
     } else {
