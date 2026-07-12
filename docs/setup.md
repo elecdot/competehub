@@ -102,6 +102,9 @@ PostgreSQL databases with `just api-migration-test-postgres` after `just infra-u
 The legacy path safely bridges authentication data but does not infer immutable
 publication identities from unknown older business-table shapes. Reset an old
 disposable database; use a reviewed data-preserving bridge for shared data.
+The committed `61f2c8e4a9bd` predecessor is a known shape and is bridged
+automatically when every existing competition has `created_by_id`; assign an
+owner before upgrade if the migration reports unattributed competition ids.
 
 Stop them when finished:
 

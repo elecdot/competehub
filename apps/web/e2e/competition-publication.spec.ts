@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test'
 import { expect, test } from './fixtures/actors'
 
 const competitionTitle = 'Browser AI Innovation Challenge 2026'
+const alternateCompetitionTitle = 'Browser AI Innovation Challenge 2027'
 
 test.use({ actorName: 'editor' })
 
@@ -50,8 +51,24 @@ test('editor submits, distinct reviewer publishes, and student sees the edition'
   const createdWorkspace = await (await createResponsePromise).json()
   const editionId = createdWorkspace.data.id as number
   const revisionId = createdWorkspace.data.revision.id as number
+  const seriesId = createdWorkspace.data.series_id as number
   await expect(actorPage.getByText('draft · r1')).toBeVisible()
   await expect(actorPage.getByTestId('revision-completeness')).toContainText('发布完整度已满足')
+
+  const alternateWorkspaceResponse = await actorPage.request.post(
+    '/api/v1/admin/competitions',
+    {
+      data: {
+        series_id: seriesId,
+        edition_label: '2027',
+        title: alternateCompetitionTitle,
+        source_name: 'Example University Notice',
+        source_url: 'https://example.edu/notices/browser-ai-2027',
+        participant_forms: ['individual'],
+      },
+    },
+  )
+  expect(alternateWorkspaceResponse).toBeOK()
 
   await actorPage.getByTestId('official-url').clear()
   await actorPage.getByTestId('participant-forms').click()
@@ -94,6 +111,7 @@ test('editor submits, distinct reviewer publishes, and student sees the edition'
 
   await actorPage.reload()
   await expect(actorPage.getByTestId('edition-select')).toBeVisible()
+  await selectEdition(actorPage, `2026 · ${competitionTitle}`)
   await expect(actorPage.getByText('draft · r1')).toBeVisible()
   await expect(actorPage.getByTestId('edition-title')).toHaveValue(competitionTitle)
   await expect(actorPage.getByTestId('official-url')).toHaveValue('')
@@ -114,6 +132,15 @@ test('editor submits, distinct reviewer publishes, and student sees the edition'
 
   await actorPage.getByTestId('submit-revision').click()
   await expect(actorPage.getByText('pending_review · r1')).toBeVisible()
+
+  await selectEdition(actorPage, `2027 · ${alternateCompetitionTitle}`)
+  await expect(actorPage.getByTestId('edition-title')).toHaveValue(alternateCompetitionTitle)
+  await expect(actorPage.getByText('draft · r1')).toBeVisible()
+  await selectEdition(actorPage, `2026 · ${competitionTitle}`)
+  await expect(actorPage.getByTestId('edition-title')).toHaveValue(competitionTitle)
+  await expect(actorPage.getByText('pending_review · r1')).toBeVisible()
+  await expect(actorPage.getByTestId('save-revision')).toBeDisabled()
+  await expect(actorPage.getByTestId('submit-revision')).toBeDisabled()
 
   await actorPage.getByRole('tab', { name: '审核队列' }).click()
   await actorPage.getByRole('button', { name: new RegExp(competitionTitle) }).click()
@@ -159,4 +186,9 @@ async function switchActor(page: Page, account: string, password: string) {
     data: { identity_type: 'email', identity: account, password },
   })
   expect(loginResponse).toBeOK()
+}
+
+async function selectEdition(page: Page, label: string) {
+  await page.getByTestId('edition-select').click()
+  await page.locator('.ant-select-dropdown:visible').getByText(label, { exact: true }).click()
 }

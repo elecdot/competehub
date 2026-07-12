@@ -366,6 +366,13 @@ async function submitDraft() {
   loading.value = true
   try {
     createdRevision.value = await submitCompetitionRevision(createdRevision.value.id)
+    const workspace = editionWorkspaces.value.find(
+      (item) => item.id === selectedEditionId.value,
+    )
+    if (workspace != null) {
+      workspace.revision = createdRevision.value
+      workspace.active_revision = createdRevision.value
+    }
     await loadPending()
     message.success('修订已提交独立审核')
   } catch {

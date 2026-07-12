@@ -60,6 +60,9 @@ Apply committed migrations with:
 an older disposable development database created with `db.create_all()` must be
 reset before upgrade; stamping is valid only after confirming that a database
 already matches the exact current metadata.
+Databases already on the committed `61f2c8e4a9bd` predecessor automatically
+bridge owned mutable competition data into immutable publication revisions;
+unowned rows stop before schema mutation and must be assigned an owner first.
 
 The Playwright harness uses `create_e2e_app` and the guarded `seed-e2e --reset`
 command to rebuild only `.cache/tmp/competehub-e2e.db`. That factory is test

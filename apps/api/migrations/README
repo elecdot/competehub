@@ -12,4 +12,11 @@ old disposable database before upgrade. For a shared database, write and review
 a dedicated data-preserving publication bridge instead of stamping or guessing
 series, edition, and revision identities.
 
+A database already at the known `61f2c8e4a9bd` predecessor uses the committed
+publication bridge: owned mutable competitions become one-series/one-edition
+revision snapshots, existing nodes and tags are revision-scoped, and public
+visibility is retained. Rows without `created_by_id` are rejected before schema
+mutation so an operator can assign a real owner instead of receiving invented
+review attribution.
+
 `seed-e2e --reset` rebuilds only the isolated browser-test database.

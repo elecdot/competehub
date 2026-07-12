@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import uuid
 from datetime import UTC, datetime
@@ -47,6 +48,40 @@ def test_legacy_create_all_upgrade_and_downgrade_preserves_existing_tables(tmp_p
     _assert_legacy_upgrade_and_downgrade(app)
 
 
+def test_populated_predecessor_upgrade_preserves_public_competition(tmp_path) -> None:
+    app = _migration_app(tmp_path / "populated-predecessor.db")
+    _assert_populated_predecessor_upgrade(app)
+
+
+def test_unowned_predecessor_competition_blocks_before_schema_mutation(tmp_path) -> None:
+    app = _migration_app(tmp_path / "unowned-predecessor.db")
+    with app.app_context():
+        upgrade(directory=str(MIGRATIONS_DIR), revision="61f2c8e4a9bd")
+        competitions = sa.Table("competitions", sa.MetaData(), autoload_with=db.engine)
+        now = datetime(2026, 7, 12, 8, 0)
+        db.session.execute(
+            competitions.insert().values(
+                id=1,
+                title="Unowned Competition",
+                source_name="Existing Source",
+                source_url="https://example.edu/unowned-source",
+                status="draft",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        db.session.commit()
+
+        with pytest.raises(SystemExit) as error:
+            upgrade(directory=str(MIGRATIONS_DIR))
+
+        assert error.value.code == 1
+        assert "competition_revisions" not in _tables()
+        assert db.session.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == (
+            "61f2c8e4a9bd"
+        )
+
+
 def test_postgresql_fresh_upgrade_downgrade_and_reupgrade(postgresql_database_uri) -> None:
     app = _migration_app(database_uri=postgresql_database_uri)
     _assert_fresh_upgrade_and_downgrade(app)
@@ -55,6 +90,13 @@ def test_postgresql_fresh_upgrade_downgrade_and_reupgrade(postgresql_database_ur
 def test_postgresql_legacy_upgrade_and_downgrade(postgresql_database_uri) -> None:
     app = _migration_app(database_uri=postgresql_database_uri)
     _assert_legacy_upgrade_and_downgrade(app)
+
+
+def test_postgresql_populated_predecessor_upgrade_preserves_public_competition(
+    postgresql_database_uri,
+) -> None:
+    app = _migration_app(database_uri=postgresql_database_uri)
+    _assert_populated_predecessor_upgrade(app)
 
 
 def _assert_fresh_upgrade_and_downgrade(app) -> None:
@@ -93,6 +135,200 @@ def _assert_fresh_upgrade_and_downgrade(app) -> None:
         assert "competition_revisions" in _tables()
         check(directory=str(MIGRATIONS_DIR))
         downgrade(directory=str(MIGRATIONS_DIR), revision="base")
+
+
+def _assert_populated_predecessor_upgrade(app) -> None:
+    with app.app_context():
+        upgrade(directory=str(MIGRATIONS_DIR), revision="61f2c8e4a9bd")
+        _seed_predecessor_publication()
+
+        upgrade(directory=str(MIGRATIONS_DIR))
+
+        edition = (
+            db.session.execute(
+                text(
+                    """
+                SELECT series_id, published_revision_id, participant_forms
+                FROM competitions WHERE id = 1
+                """
+                )
+            )
+            .mappings()
+            .one()
+        )
+        assert edition["series_id"] is not None
+        assert edition["published_revision_id"] is not None
+        assert _decoded_json(edition["participant_forms"]) == ["individual"]
+
+        revision = (
+            db.session.execute(
+                text(
+                    """
+                SELECT revision_status, participant_forms, major_scope, grade_scope
+                FROM competition_revisions WHERE id = :revision_id
+                """
+                ),
+                {"revision_id": edition["published_revision_id"]},
+            )
+            .mappings()
+            .one()
+        )
+        assert {
+            **revision,
+            "participant_forms": _decoded_json(revision["participant_forms"]),
+        } == {
+            "revision_status": "approved",
+            "participant_forms": ["individual"],
+            "major_scope": "selected",
+            "grade_scope": "selected",
+        }
+
+        node = (
+            db.session.execute(
+                text(
+                    """
+                SELECT competition_revision_id, stage_id, logical_node_key,
+                       node_revision, occurs_at, prominence
+                FROM competition_time_nodes WHERE id = 1
+                """
+                )
+            )
+            .mappings()
+            .one()
+        )
+        assert node["competition_revision_id"] == edition["published_revision_id"]
+        assert node["stage_id"] is not None
+        assert node["logical_node_key"] == "legacy-node-1"
+        assert node["node_revision"] == 1
+        assert node["occurs_at"] is not None
+        assert node["prominence"] == "primary"
+
+        public_response = app.test_client().get("/api/v1/competitions/1")
+        assert public_response.status_code == 200
+        public_edition = public_response.get_json()["data"]
+        assert public_edition["title"] == "Existing Published Competition"
+        assert public_edition["participant_forms"] == ["individual"]
+        assert public_edition["tags"] == ["Existing Tag"]
+        assert public_edition["next_node"]["logical_node_key"] == "legacy-node-1"
+
+        if db.engine.dialect.name == "postgresql":
+            enum_values = db.session.execute(
+                text("SELECT unnest(enum_range(NULL::competition_status))::text")
+            ).scalars()
+            assert "unpublished" in set(enum_values)
+
+        db.session.remove()
+        downgrade(directory=str(MIGRATIONS_DIR), revision="61f2c8e4a9bd")
+        predecessor = (
+            db.session.execute(
+                text("SELECT title, status, participant_form FROM competitions WHERE id = 1")
+            )
+            .mappings()
+            .one()
+        )
+        assert predecessor == {
+            "title": "Existing Published Competition",
+            "status": "published",
+            "participant_form": "individual",
+        }
+        assert (
+            db.session.execute(
+                text("SELECT due_at FROM competition_time_nodes WHERE id = 1")
+            ).scalar_one()
+            is not None
+        )
+
+        db.session.remove()
+        upgrade(directory=str(MIGRATIONS_DIR))
+        assert app.test_client().get("/api/v1/competitions/1").status_code == 200
+        db.session.remove()
+        check(directory=str(MIGRATIONS_DIR))
+
+
+def _seed_predecessor_publication() -> None:
+    metadata = sa.MetaData()
+    metadata.reflect(
+        bind=db.engine,
+        only=[
+            "users",
+            "competitions",
+            "competition_time_nodes",
+            "competition_tags",
+            "competition_tag_links",
+        ],
+    )
+    now = datetime(2026, 7, 12, 8, 0)
+    users = metadata.tables["users"]
+    competitions = metadata.tables["competitions"]
+    time_nodes = metadata.tables["competition_time_nodes"]
+    tags = metadata.tables["competition_tags"]
+    tag_links = metadata.tables["competition_tag_links"]
+
+    db.session.execute(
+        users.insert().values(
+            id=1,
+            email="migration-owner@example.edu",
+            password_hash="migration-test-hash",
+            display_name="Migration Owner",
+            session_version=1,
+            capabilities=["competition_editor"],
+            role="admin",
+            status="active",
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    db.session.execute(
+        competitions.insert().values(
+            id=1,
+            title="Existing Published Competition",
+            short_title="Existing Competition",
+            category="innovation",
+            organizer="Example University",
+            source_name="Existing Source",
+            source_url="https://example.edu/existing-source",
+            summary="Existing summary",
+            eligibility="Existing eligibility",
+            participant_form="individual",
+            suitable_majors=["Computer Science"],
+            suitable_grades=["Year 2"],
+            status="published",
+            created_by_id=1,
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    db.session.execute(
+        time_nodes.insert().values(
+            id=1,
+            competition_id=1,
+            node_type="registration_deadline",
+            due_at=datetime(2099, 7, 20, 15, 59),
+            description="Existing deadline",
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    db.session.execute(
+        tags.insert().values(
+            id=1,
+            code="existing-tag",
+            name="Existing Tag",
+            tag_type="topic",
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    db.session.execute(
+        tag_links.insert().values(
+            id=1,
+            competition_id=1,
+            tag_id=1,
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    db.session.commit()
 
 
 def _assert_legacy_upgrade_and_downgrade(app) -> None:
@@ -260,3 +496,7 @@ def _tables() -> set[str]:
 
 def _columns(table_name: str) -> set[str]:
     return {column["name"] for column in inspect(db.engine).get_columns(table_name)}
+
+
+def _decoded_json(value):
+    return json.loads(value) if isinstance(value, str) else value
