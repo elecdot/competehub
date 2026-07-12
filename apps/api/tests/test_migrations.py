@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
-from flask_migrate import downgrade, upgrade
+from flask_migrate import check, downgrade, upgrade
 from psycopg import connect, sql
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import make_url
@@ -63,11 +63,14 @@ def _assert_fresh_upgrade_and_downgrade(app) -> None:
         upgrade(directory=str(MIGRATIONS_DIR))
         assert "users" in _tables()
         assert "user_identities" in _tables()
+        assert "verification_delivery_outbox" in _tables()
+        check(directory=str(MIGRATIONS_DIR))
 
         downgrade(directory=str(MIGRATIONS_DIR), revision="base")
 
         assert "users" not in _tables()
         assert "user_identities" not in _tables()
+        assert "verification_delivery_outbox" not in _tables()
         assert "competehub_migration_baselines" not in _tables()
         if db.engine.dialect.name == "postgresql":
             remaining_types = db.session.execute(
@@ -94,6 +97,7 @@ def _assert_legacy_upgrade_and_downgrade(app) -> None:
 
         assert "user_identities" in _tables()
         assert "identity_verification_challenges" in _tables()
+        assert "verification_delivery_outbox" in _tables()
         assert _columns("users") >= {"session_version", "capabilities"}
         assert db.session.execute(text("SELECT COUNT(*) FROM user_identities")).scalar_one() == 2
         phone_login = app.test_client().post(
@@ -127,6 +131,7 @@ def _assert_legacy_upgrade_and_downgrade(app) -> None:
         assert _tables() >= before_tables
         assert "user_identities" not in _tables()
         assert "identity_verification_challenges" not in _tables()
+        assert "verification_delivery_outbox" not in _tables()
         assert "session_version" not in _columns("users")
         assert "capabilities" not in _columns("users")
         assert (

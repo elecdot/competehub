@@ -29,6 +29,8 @@ Preferred commands from the repository root:
 ```bash
 just api-sync
 just api-dev
+just api-worker
+just api-worker-beat
 just api-db-upgrade
 just api-test
 just api-migration-test-postgres
@@ -59,3 +61,6 @@ support for `just web-e2e`; it is not a development or production seed path.
 - Use Marshmallow for request and response schemas unless an ADR supersedes this choice.
 - Add or update migrations whenever model changes require database schema changes.
 - Keep Celery tasks idempotent and call services instead of duplicating business rules.
+- Verification-email HTTP paths only commit transactional outbox rows. Run both
+  `just api-worker` and `just api-worker-beat` when public registration is enabled;
+  SMTP delivery belongs to the worker.

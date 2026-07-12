@@ -5,10 +5,17 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from werkzeug.security import generate_password_hash
 
+import competehub_api.services.auth as auth_service
 from competehub_api import create_app
 from competehub_api.config import ProductionConfig
 from competehub_api.extensions import db
-from competehub_api.models import IdentityVerificationChallenge, StudentProfile, User, UserIdentity
+from competehub_api.models import (
+    IdentityVerificationChallenge,
+    StudentProfile,
+    User,
+    UserIdentity,
+    VerificationDeliveryOutbox,
+)
 from competehub_api.models.enums import IdentityVerificationStatus, UserRole, UserStatus
 from competehub_api.services.auth import (
     apply_account_governance_change,
@@ -16,6 +23,7 @@ from competehub_api.services.auth import (
     hash_password,
     terminate_all_sessions,
 )
+from competehub_api.services.verification_delivery import dispatch_verification_deliveries
 
 
 class InMemoryEmailSender:
@@ -116,6 +124,11 @@ def login_email(
     )
 
 
+def dispatch_verification_email(app) -> dict[str, int]:
+    with app.app_context():
+        return dispatch_verification_deliveries()
+
+
 def provision_user(
     app,
     *,
@@ -177,7 +190,7 @@ def test_register_without_configured_sender_returns_unavailable() -> None:
         db.drop_all()
 
 
-def test_register_email_creates_pending_identity_and_sends_hashed_code_only(
+def test_register_email_queues_pending_identity_and_worker_sends_hashed_code_only(
     client, app, sender
 ) -> None:
     response = register_email(client)
@@ -185,23 +198,35 @@ def test_register_email_creates_pending_identity_and_sends_hashed_code_only(
     assert response.status_code == 202
     assert response.get_json()["data"] == {"accepted": True}
     assert client.get("/api/v1/me").status_code == 401
-    assert sender.messages == [{"to": "student@example.edu", "code": sender.latest_code}]
+    assert sender.messages == []
 
     with app.app_context():
         user = db.session.query(User).one()
         identity = db.session.query(UserIdentity).one()
         challenge = db.session.query(IdentityVerificationChallenge).one()
+        delivery = db.session.query(VerificationDeliveryOutbox).one()
 
         assert user.status == UserStatus.PENDING_ACTIVATION
         assert identity.user_id == user.id
         assert identity.identity_type == "email"
         assert identity.normalized_value == "student@example.edu"
         assert identity.verification_status == IdentityVerificationStatus.PENDING
-        assert challenge.secret_hash != sender.latest_code
         assert challenge.consumed_at is None
+        assert delivery.challenge_id == challenge.id
+        assert delivery.delivery_nonce is not None
+        assert delivery.delivered_at is None
+
+    assert dispatch_verification_email(app) == {"delivered": 1, "discarded": 0, "failed": 0}
+    assert sender.messages == [{"to": "student@example.edu", "code": sender.latest_code}]
+    with app.app_context():
+        challenge = db.session.query(IdentityVerificationChallenge).one()
+        delivery = db.session.query(VerificationDeliveryOutbox).one()
+        assert challenge.secret_hash != sender.latest_code
+        assert delivery.delivery_nonce is None
+        assert delivery.delivered_at is not None
 
 
-def test_auth_payloads_accept_documented_identifier_alias(client, sender) -> None:
+def test_auth_payloads_accept_documented_identifier_alias(client, app, sender) -> None:
     register_response = client.post(
         "/api/v1/auth/register",
         json={
@@ -211,6 +236,7 @@ def test_auth_payloads_accept_documented_identifier_alias(client, sender) -> Non
             "display_name": "student a",
         },
     )
+    dispatch_verification_email(app)
     verify_response = client.post(
         "/api/v1/auth/verify",
         json={
@@ -251,6 +277,7 @@ def test_auth_payloads_reject_conflicting_identity_aliases(client) -> None:
 
 def test_verify_activates_account_without_creating_session(client, app, sender) -> None:
     register_email(client)
+    dispatch_verification_email(app)
 
     response = verify_email(client, sender)
 
@@ -277,6 +304,7 @@ def test_verification_challenge_rejects_correct_code_after_attempt_limit(
 ) -> None:
     app.config["AUTH_VERIFICATION_MAX_ATTEMPTS"] = 2
     register_email(client)
+    dispatch_verification_email(app)
 
     for _ in range(2):
         response = verify_email(client, sender, code="000000")
@@ -297,18 +325,17 @@ def test_verification_challenge_rejects_correct_code_after_attempt_limit(
         assert challenge.consumed_at is None
 
 
-def test_resend_invalidates_the_previous_verification_code(client, sender, monkeypatch) -> None:
-    generated_codes = iter((111111, 222222))
-    monkeypatch.setattr(
-        "competehub_api.services.auth.secrets.randbelow", lambda _limit: next(generated_codes)
-    )
+def test_resend_invalidates_the_previous_verification_code(client, app, sender) -> None:
     register_email(client)
+    dispatch_verification_email(app)
     previous_code = sender.latest_code
 
     resend = client.post(
         "/api/v1/auth/verification/resend",
         json={"identity_type": "email", "identity": "student@example.edu"},
     )
+    assert len(sender.messages) == 1
+    dispatch_verification_email(app)
     current_code = sender.latest_code
 
     assert resend.status_code == 202
@@ -316,19 +343,51 @@ def test_resend_invalidates_the_previous_verification_code(client, sender, monke
     assert verify_email(client, sender, code=current_code).status_code == 200
 
 
-def test_consumed_or_old_code_cannot_reactivate_a_disabled_account(
-    client, app, sender, monkeypatch
-) -> None:
-    generated_codes = iter((111111, 222222))
-    monkeypatch.setattr(
-        "competehub_api.services.auth.secrets.randbelow", lambda _limit: next(generated_codes)
-    )
+def test_resend_before_worker_discards_the_older_queued_delivery(client, app, sender) -> None:
     register_email(client)
+    resend = client.post(
+        "/api/v1/auth/verification/resend",
+        json={"identity_type": "email", "identity": "student@example.edu"},
+    )
+
+    assert resend.status_code == 202
+    assert sender.messages == []
+    assert dispatch_verification_email(app) == {"delivered": 1, "discarded": 1, "failed": 0}
+    assert len(sender.messages) == 1
+    assert verify_email(client, sender).status_code == 200
+
+
+def test_verification_delivery_failure_remains_retryable(client, app, sender) -> None:
+    class UnavailableSender:
+        def send_verification_code(self, *, to: str, code: str) -> None:
+            raise ConnectionError("smtp unavailable")
+
+    app.config["EMAIL_VERIFICATION_SENDER"] = UnavailableSender()
+    register_email(client)
+
+    assert dispatch_verification_email(app) == {"delivered": 0, "discarded": 0, "failed": 1}
+    with app.app_context():
+        delivery = db.session.query(VerificationDeliveryOutbox).one()
+        assert delivery.attempt_count == 1
+        assert delivery.delivery_nonce is not None
+        assert delivery.last_error == "ConnectionError"
+        delivery.available_at = datetime.now(UTC) - timedelta(seconds=1)
+        db.session.commit()
+
+    app.config["EMAIL_VERIFICATION_SENDER"] = sender
+    assert dispatch_verification_email(app) == {"delivered": 1, "discarded": 0, "failed": 0}
+    assert len(sender.messages) == 1
+
+
+def test_consumed_or_old_code_cannot_reactivate_a_disabled_account(client, app, sender) -> None:
+    register_email(client)
+    dispatch_verification_email(app)
     previous_code = sender.latest_code
     client.post(
         "/api/v1/auth/verification/resend",
         json={"identity_type": "email", "identity": "student@example.edu"},
     )
+    dispatch_verification_email(app)
 
     assert verify_email(client, sender).status_code == 200
     with app.app_context():
@@ -488,6 +547,133 @@ def test_login_failures_are_generic_for_non_active_or_unverified_accounts(
 
     assert response.status_code == 401
     assert response.get_json()["error"]["code"] == "unauthorized"
+
+
+@pytest.mark.parametrize("account_state", ["unknown", "pending", "disabled", "active"])
+def test_failed_login_always_runs_one_argon2_grade_password_verification(
+    client, app, monkeypatch, account_state
+) -> None:
+    if account_state != "unknown":
+        provision_user(
+            app,
+            status=(
+                UserStatus.PENDING_ACTIVATION
+                if account_state == "pending"
+                else UserStatus.DISABLED
+                if account_state == "disabled"
+                else UserStatus.ACTIVE
+            ),
+            verification_status=(
+                IdentityVerificationStatus.PENDING
+                if account_state == "pending"
+                else IdentityVerificationStatus.VERIFIED
+            ),
+        )
+    verification_hashes: list[str] = []
+
+    def record_verification(password_hash: str, _password: str) -> bool:
+        verification_hashes.append(password_hash)
+        return False
+
+    monkeypatch.setattr(auth_service, "verify_password_hash", record_verification)
+
+    response = login_email(client, password="wrong password value")
+
+    assert response.status_code == 401
+    assert len(verification_hashes) == 1
+    assert verification_hashes[0].startswith("$argon2id$")
+
+
+@pytest.mark.parametrize("identity_state", ["unknown", "pending_without_challenge", "disabled"])
+def test_failed_verification_always_runs_one_challenge_hash_check(
+    client, app, monkeypatch, identity_state
+) -> None:
+    if identity_state != "unknown":
+        provision_user(
+            app,
+            status=(
+                UserStatus.PENDING_ACTIVATION
+                if identity_state == "pending_without_challenge"
+                else UserStatus.DISABLED
+            ),
+            verification_status=IdentityVerificationStatus.PENDING,
+        )
+    verification_hashes: list[str] = []
+
+    def record_verification(password_hash: str, _code: str) -> bool:
+        verification_hashes.append(password_hash)
+        return False
+
+    monkeypatch.setattr(auth_service, "check_password_hash", record_verification)
+
+    response = client.post(
+        "/api/v1/auth/verify",
+        json={
+            "identity_type": "email",
+            "identity": "student@example.edu",
+            "code": "000000",
+        },
+    )
+
+    assert response.status_code == 401
+    assert len(verification_hashes) == 1
+    assert verification_hashes[0].startswith("scrypt:32768:8:1$")
+
+
+def test_existing_registration_runs_password_and_challenge_hash_work(
+    client, app, monkeypatch
+) -> None:
+    provision_user(app)
+    password_hash_calls = 0
+    challenge_hash_calls = 0
+    original_password_hash = auth_service.create_password_hash
+    original_challenge_hash = auth_service.generate_password_hash
+
+    def record_password_hash(password: str) -> str:
+        nonlocal password_hash_calls
+        password_hash_calls += 1
+        return original_password_hash(password)
+
+    def record_challenge_hash(code: str, *, method: str) -> str:
+        nonlocal challenge_hash_calls
+        challenge_hash_calls += 1
+        return original_challenge_hash(code, method=method)
+
+    monkeypatch.setattr(auth_service, "create_password_hash", record_password_hash)
+    monkeypatch.setattr(auth_service, "generate_password_hash", record_challenge_hash)
+
+    response = register_email(client)
+
+    assert response.status_code == 202
+    assert password_hash_calls == 1
+    assert challenge_hash_calls == 1
+
+
+def test_unknown_resend_runs_challenge_hash_work(client, monkeypatch) -> None:
+    challenge_hash_calls = 0
+    original_challenge_hash = auth_service.generate_password_hash
+
+    def record_challenge_hash(code: str, *, method: str) -> str:
+        nonlocal challenge_hash_calls
+        challenge_hash_calls += 1
+        return original_challenge_hash(code, method=method)
+
+    monkeypatch.setattr(auth_service, "generate_password_hash", record_challenge_hash)
+
+    response = client.post(
+        "/api/v1/auth/verification/resend",
+        json={"identity_type": "email", "identity": "unknown@example.edu"},
+    )
+
+    assert response.status_code == 202
+    assert challenge_hash_calls == 1
+
+
+def test_registration_request_does_not_call_smtp_sender(client, sender) -> None:
+    response = register_email(client)
+
+    assert response.status_code == 202
+    assert sender.messages == []
 
 
 @pytest.mark.parametrize(
@@ -799,6 +985,7 @@ def test_admin_me_returns_controlled_capabilities(client, app) -> None:
 
 def test_get_profile_reads_activation_profile_without_writing(client, app) -> None:
     register_email(client)
+    dispatch_verification_email(app)
     verify_email(client, app.config["EMAIL_VERIFICATION_SENDER"])
     login_email(client)
 

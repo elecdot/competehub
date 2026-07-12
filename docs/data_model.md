@@ -19,6 +19,7 @@ zone. See `docs/adr/0012-utc-instants-shanghai-calendar.md`.
 User
   |-- UserIdentity
   |     |-- IdentityVerificationChallenge
+  |           |-- VerificationDeliveryOutbox
   |-- StudentProfile
   |-- Favorite
   |-- Subscription
@@ -155,6 +156,35 @@ Rules:
   create an authenticated session.
 - Registration and resend responses do not reveal whether an identity exists or
   is already verified.
+
+### `verification_delivery_outbox`
+
+Stores transactional work for asynchronous verification-email delivery.
+
+Key fields:
+
+- `id`
+- `challenge_id`
+- `delivery_nonce`
+- `attempt_count`
+- `available_at`
+- `delivered_at`
+- `discarded_at`
+- `last_error`
+- `created_at`
+- `updated_at`
+
+Rules:
+
+- Challenge creation and its outbox row commit atomically. HTTP registration and
+  resend requests never contact SMTP directly.
+- `delivery_nonce` is random input to a keyed derivation of the six-digit code;
+  the plaintext code is never persisted. The nonce is cleared after delivery or
+  discard and cannot produce the code without the application secret.
+- A worker delivers only an unconsumed, unexpired challenge. It discards stale
+  work, retries transient failures with bounded backoff, and never logs the code.
+- Unknown or ineligible register/resend requests perform equivalent password or
+  challenge hashing but do not create durable outbox work.
 
 ### `student_profiles`
 

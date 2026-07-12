@@ -89,6 +89,39 @@ class IdentityVerificationChallenge(db.Model, TimestampMixin):
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     identity: Mapped[UserIdentity] = relationship(back_populates="challenges")
+    delivery: Mapped[VerificationDeliveryOutbox | None] = relationship(
+        back_populates="challenge",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+
+
+class VerificationDeliveryOutbox(db.Model, TimestampMixin):
+    __tablename__ = "verification_delivery_outbox"
+
+    id: Mapped[int] = mapped_column(id_column_type, primary_key=True)
+    challenge_id: Mapped[int] = mapped_column(
+        ForeignKey("identity_verification_challenges.id"),
+        unique=True,
+        nullable=False,
+    )
+    delivery_nonce: Mapped[str | None] = mapped_column(String(64))
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    discarded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(String(255))
+
+    challenge: Mapped[IdentityVerificationChallenge] = relationship(back_populates="delivery")
+
+    __table_args__ = (
+        db.Index(
+            "ix_verification_delivery_outbox_pending",
+            "delivered_at",
+            "discarded_at",
+            "available_at",
+        ),
+    )
 
 
 class StudentProfile(db.Model, TimestampMixin):

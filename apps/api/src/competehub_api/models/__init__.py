@@ -18,6 +18,7 @@ from competehub_api.models.user import (
     StudentProfile,
     User,
     UserIdentity,
+    VerificationDeliveryOutbox,
 )
 
 __all__ = [
@@ -38,4 +39,5 @@ __all__ = [
     "SystemConfig",
     "User",
     "UserIdentity",
+    "VerificationDeliveryOutbox",
 ]

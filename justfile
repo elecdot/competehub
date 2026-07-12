@@ -60,6 +60,14 @@ api-sync:
 api-dev:
     ./scripts/agent-env.sh uv run --project apps/api flask --app competehub_api.app:create_app run --debug
 
+# Run asynchronous backend jobs, including verification-email delivery.
+api-worker:
+    ./scripts/agent-env.sh uv run --project apps/api celery -A competehub_api.tasks.celery_app.celery_app worker --loglevel=info
+
+# Schedule periodic outbox and maintenance jobs for the backend worker.
+api-worker-beat:
+    ./scripts/agent-env.sh uv run --project apps/api celery -A competehub_api.tasks.celery_app.celery_app beat --loglevel=info
+
 # Upgrade the configured application database to the latest Alembic revision.
 api-db-upgrade:
     ./scripts/agent-env.sh uv run --project apps/api flask --app competehub_api.app:create_app db --directory apps/api/migrations upgrade

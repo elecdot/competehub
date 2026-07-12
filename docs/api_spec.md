@@ -214,7 +214,9 @@ Response:
 ```
 
 The successful response is `202 Accepted`, is intentionally the same whether a
-pending or existing identity received a message, and does not create a session.
+new delivery was queued or the typed identity already existed, and does not
+create a session. SMTP delivery is asynchronous through a transactional outbox;
+the HTTP request never contacts SMTP, and acceptance does not claim delivery.
 When public registration is disabled, the endpoint returns
 `registration_unavailable`; the frontend must not show the registration entry.
 
@@ -240,15 +242,18 @@ Request:
 Request another verification message. The response is generic, rate-limited,
 and does not reveal whether the identity exists, is pending, or is already
 verified. Issuing a replacement consumes every older unconsumed challenge for
-the identity; only a pending identity on a `pending_activation` account can be
-verified.
+the identity and commits the new challenge and delivery-outbox row atomically;
+only a pending identity on a `pending_activation` account can be verified. The
+HTTP request does not execute SMTP.
 
 ### `POST /auth/login`
 
 Login with an explicitly typed account identity. The API never searches one
 identifier across unrelated identity types. Pending, disabled, unknown, and
 incorrect-password cases use a non-enumerating authentication failure and do
-not create a session.
+not create a session. Every one of these cases performs one adaptive password
+verification; unknown identities use a fixed dummy Argon2id hash before the
+account and identity state is evaluated.
 
 Request:
 

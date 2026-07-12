@@ -19,6 +19,7 @@ External dependencies:
 
 - Official competition websites and school or college announcements as source links.
 - Browser clients used by students and administrators.
+- SMTP when a deployment enables public email registration.
 - PostgreSQL for durable business data.
 - Redis for transient runtime concerns and task queue infrastructure.
 
@@ -48,7 +49,9 @@ Components:
 - API: Flask REST API under `/api/v1`.
 - PostgreSQL: system of record for users, competitions, subscriptions, reminders, messages, review records, audit logs, and configuration.
 - Redis: Celery broker/result backend, short-lived cache, rate limiting counters, and idempotency locks.
-- Celery worker: asynchronous task runner for reminder dispatch, competition expiration jobs, and future collection candidate jobs.
+- Celery worker: asynchronous task runner for verification-email outbox delivery,
+  reminder dispatch, competition expiration jobs, and future collection candidate
+  jobs.
 
 ## Repository Layout
 
@@ -129,6 +132,19 @@ Pinia stores:
 Frontend permission checks are only for user experience. Backend APIs must enforce authorization.
 
 ## Core Data Flow
+
+### Email Identity Activation
+
+```text
+Student registers or requests resend
+  -> API performs non-enumerating hash work
+  -> challenge and verification-delivery outbox row commit atomically
+  -> Celery worker derives the code and delivers it through SMTP
+  -> student verifies the pending identity
+```
+
+SMTP is never called from the HTTP request path. PostgreSQL owns pending
+delivery truth; Redis transports worker tasks but is not the outbox.
 
 ### Competition Publication
 

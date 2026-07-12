@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import os
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 def _env_bool(name: str, *, default: bool = False) -> bool:
     return os.getenv(name, str(default)).casefold() == "true"
@@ -26,6 +30,7 @@ class BaseConfig:
     AUTH_RATE_LIMIT_ENABLED = True
     AUTH_RATE_LIMIT_MAX_ATTEMPTS = 10
     AUTH_RATE_LIMIT_WINDOW_SECONDS = 60
+    VERIFICATION_DELIVERY_BATCH_SIZE = 100
     PROFILE_ALLOWED_GRADES = ("大一", "大二", "大三", "大四", "研一", "研二", "研三")
     PROFILE_ALLOWED_MAJORS_BY_COLLEGE = {
         "计算机学院": ("软件工程", "计算机科学与技术", "人工智能", "网络工程"),

@@ -43,6 +43,9 @@ Current project recipes include:
 - `build`: run build checks.
 - `api-sync`: sync backend dependencies.
 - `api-dev`: start the Flask backend.
+- `api-worker`: start the Celery worker.
+- `api-worker-beat`: schedule periodic Celery tasks, including verification outbox delivery.
+- `api-db-upgrade`: apply committed Alembic revisions to the configured database.
 - `api-test`: run backend tests.
 - `api-lint`: run backend Ruff checks.
 - `api-format`: format backend Python files.

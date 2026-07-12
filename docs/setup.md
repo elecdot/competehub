@@ -77,6 +77,9 @@ Use `smtp://` with `starttls=true` for STARTTLS or `smtps://` for implicit TLS.
 Percent-encode credentials and the `from` query value. The API fails fast at
 startup when public email registration is enabled without a valid sender; when
 registration is disabled, the endpoint returns `registration_unavailable`.
+Registration and resend commit a verification-delivery outbox row and return
+without contacting SMTP. A running Celery worker and scheduler are therefore
+required whenever public registration is enabled.
 
 ## Start Local Services
 
@@ -110,6 +113,19 @@ Run the backend API:
 ```bash
 just api-dev
 ```
+
+When public email registration is enabled, run the verification-delivery worker
+and scheduler in two additional terminals:
+
+```bash
+just api-worker
+just api-worker-beat
+```
+
+The worker polls committed outbox rows, retries transient delivery failures with
+bounded backoff, and discards rows whose challenge was consumed or expired.
+Starting only the API accepts registration requests but cannot deliver their
+verification messages.
 
 Run the frontend app:
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import secrets
 import unicodedata
 from collections.abc import MutableMapping
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
 
@@ -13,7 +14,12 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from competehub_api.extensions import db
 from competehub_api.identity_normalization import normalize_identity_value
-from competehub_api.models import IdentityVerificationChallenge, User, UserIdentity
+from competehub_api.models import (
+    IdentityVerificationChallenge,
+    User,
+    UserIdentity,
+    VerificationDeliveryOutbox,
+)
 from competehub_api.models.enums import IdentityVerificationStatus, UserRole, UserStatus
 from competehub_api.repositories.users import find_identity, get_user
 from competehub_api.services.errors import ServiceError
@@ -23,6 +29,7 @@ from competehub_api.services.passwords import (
     verify_password_hash,
 )
 from competehub_api.services.profiles import create_missing_student_profile
+from competehub_api.services.verification_delivery import derive_verification_code
 
 WEAK_PASSWORDS = {
     "password",
@@ -45,15 +52,34 @@ end
 return count
 """
 
+DUMMY_PASSWORD_HASH = (
+    "$argon2id$v=19$m=19456,t=2,p=1$GrwzQDiQxvi+JlFbriwXyQ$"
+    "CSpzXZps9pSajrLWn0EyqWtfEr19WWKJGcpHlX86w3A"
+)
+DUMMY_CHALLENGE_HASH = (
+    "scrypt:32768:8:1$S3eRBlkoQ2uapB1s$"
+    "9fe920e799c1f7dc902d5f4bf5638f1555d723ec799169a3d5591a45fc2ebfa8"
+    "df650832df79520aa7ccbc7871b702db10b32920f8abddabc51b7a609bda18bf"
+)
+
+
+@dataclass(frozen=True)
+class PreparedVerificationChallenge:
+    secret_hash: str
+    delivery_nonce: str
+
 
 def register_student(payload: dict) -> None:
-    sender = _registration_sender()
+    _require_registration_sender()
 
     _check_rate_limit("register", payload["identity_type"], payload["identity"])
     identity_type = payload["identity_type"]
     display_value = payload["identity"]
     normalized_value = normalize_identity(identity_type, display_value)
-    validate_password(payload["password"], identity=normalized_value)
+    normalized_password = normalize_password(payload["password"])
+    validate_password(normalized_password, identity=normalized_value)
+    password_hash = create_password_hash(normalized_password)
+    prepared_challenge = _prepare_verification_challenge()
 
     existing = find_identity(identity_type, normalized_value)
     if existing is not None:
@@ -61,7 +87,7 @@ def register_student(payload: dict) -> None:
 
     user = User(
         email=display_value if identity_type == "email" else None,
-        password_hash=hash_password(payload["password"], identity=normalized_value),
+        password_hash=password_hash,
         display_name=payload.get("display_name"),
         role=UserRole.STUDENT,
         status=UserStatus.PENDING_ACTIVATION,
@@ -77,7 +103,7 @@ def register_student(payload: dict) -> None:
     user.identities.append(identity)
     db.session.add(user)
     db.session.flush()
-    _create_and_send_challenge(identity, sender)
+    _create_challenge_and_delivery(identity, prepared_challenge)
     db.session.commit()
 
 
@@ -87,18 +113,21 @@ def verify_identity(payload: dict) -> None:
         payload["identity_type"],
         normalize_identity(payload["identity_type"], payload["identity"]),
     )
-    if (
-        identity is None
-        or identity.verification_status != IdentityVerificationStatus.PENDING
-        or identity.user.status != UserStatus.PENDING_ACTIVATION
-    ):
-        raise _generic_auth_error()
-
-    challenge = _latest_active_challenge_for_update(identity)
-    if challenge is not None and challenge.attempt_count >= _verification_attempt_limit():
-        raise _generic_auth_error()
-    if challenge is None or not check_password_hash(challenge.secret_hash, payload["code"]):
-        if challenge is not None:
+    identity_is_eligible = (
+        identity is not None
+        and identity.verification_status == IdentityVerificationStatus.PENDING
+        and identity.user.status == UserStatus.PENDING_ACTIVATION
+    )
+    challenge = _latest_active_challenge_for_update(identity) if identity is not None else None
+    challenge_is_eligible = (
+        challenge is not None and challenge.attempt_count < _verification_attempt_limit()
+    )
+    code_matches = check_password_hash(
+        challenge.secret_hash if challenge_is_eligible else DUMMY_CHALLENGE_HASH,
+        payload["code"],
+    )
+    if not identity_is_eligible or not challenge_is_eligible or not code_matches:
+        if challenge_is_eligible:
             challenge.attempt_count += 1
             db.session.commit()
         raise _generic_auth_error()
@@ -115,36 +144,40 @@ def verify_identity(payload: dict) -> None:
 
 
 def resend_verification(payload: dict) -> None:
-    sender = _registration_sender()
+    _require_registration_sender()
 
     _check_rate_limit("resend", payload["identity_type"], payload["identity"])
     identity = _find_identity_for_update(
         payload["identity_type"],
         normalize_identity(payload["identity_type"], payload["identity"]),
     )
+    prepared_challenge = _prepare_verification_challenge()
     if (
         identity is not None
         and identity.verification_status == IdentityVerificationStatus.PENDING
         and identity.user.status == UserStatus.PENDING_ACTIVATION
     ):
         _consume_unconsumed_challenges(identity, _utcnow())
-        _create_and_send_challenge(identity, sender)
+        _create_challenge_and_delivery(identity, prepared_challenge)
         db.session.commit()
 
 
 def authenticate_user(identity_type: str, identity_value: str, password: str) -> User:
     _check_rate_limit("login", identity_type, identity_value)
     identity = find_identity(identity_type, normalize_identity(identity_type, identity_value))
-    if identity is None:
-        raise _generic_auth_error()
-
-    user = identity.user
     normalized_password = normalize_password(password)
-    if (
-        user.status != UserStatus.ACTIVE
-        or identity.verification_status != IdentityVerificationStatus.VERIFIED
-        or not verify_password_hash(user.password_hash, normalized_password)
-    ):
+    user = identity.user if identity is not None else None
+    password_matches = verify_password_hash(
+        user.password_hash if user is not None else DUMMY_PASSWORD_HASH,
+        normalized_password,
+    )
+    identity_is_eligible = (
+        identity is not None
+        and user is not None
+        and user.status == UserStatus.ACTIVE
+        and identity.verification_status == IdentityVerificationStatus.VERIFIED
+    )
+    if not identity_is_eligible or not password_matches:
         raise _generic_auth_error()
 
     if password_hash_needs_upgrade(user.password_hash):
@@ -248,18 +281,32 @@ def current_user(session_data: MutableMapping | None) -> User | None:
     return user
 
 
-def _create_and_send_challenge(identity: UserIdentity, sender) -> None:
-    code = f"{secrets.randbelow(1_000_000):06d}"
+def _prepare_verification_challenge() -> PreparedVerificationChallenge:
+    delivery_nonce = secrets.token_hex(32)
+    code = derive_verification_code(delivery_nonce)
+    return PreparedVerificationChallenge(
+        secret_hash=generate_password_hash(code, method="scrypt:32768:8:1"),
+        delivery_nonce=delivery_nonce,
+    )
+
+
+def _create_challenge_and_delivery(
+    identity: UserIdentity,
+    prepared: PreparedVerificationChallenge,
+) -> None:
     challenge = IdentityVerificationChallenge(
         identity=identity,
-        secret_hash=generate_password_hash(code, method="scrypt:32768:8:1"),
+        secret_hash=prepared.secret_hash,
         expires_at=_utcnow() + timedelta(minutes=15),
     )
+    challenge.delivery = VerificationDeliveryOutbox(
+        delivery_nonce=prepared.delivery_nonce,
+        available_at=_utcnow(),
+    )
     db.session.add(challenge)
-    sender.send_verification_code(to=identity.display_value, code=code)
 
 
-def _registration_sender():
+def _require_registration_sender() -> None:
     sender = current_app.config.get("EMAIL_VERIFICATION_SENDER")
     if not current_app.config.get("PUBLIC_EMAIL_REGISTRATION_ENABLED") or sender is None:
         raise ServiceError(
@@ -267,7 +314,6 @@ def _registration_sender():
             "registration_unavailable",
             "public registration is unavailable",
         )
-    return sender
 
 
 def _find_identity_for_update(identity_type: str, normalized_value: str) -> UserIdentity | None:

@@ -13,6 +13,13 @@ config = context.config
 fileConfig(config.config_file_name)
 logger = logging.getLogger("alembic.env")
 
+INTERNAL_TABLES = {"competehub_migration_baselines"}
+
+
+def include_object(object_, name, type_, reflected, compare_to):
+    del object_, reflected, compare_to
+    return not (type_ == "table" and name in INTERNAL_TABLES)
+
 
 def get_engine():
     try:
@@ -89,6 +96,9 @@ def run_migrations_online():
     conf_args = current_app.extensions["migrate"].configure_args
     if conf_args.get("process_revision_directives") is None:
         conf_args["process_revision_directives"] = process_revision_directives
+    configured_include_object = conf_args.get("include_object")
+    if configured_include_object is None:
+        conf_args["include_object"] = include_object
 
     connectable = get_engine()
 
