@@ -641,6 +641,10 @@ Key fields:
 - `node_types`
 - `reminder_confirmed_at`
 
+Unique constraints:
+
+- `(user_id, competition_id)`
+
 Rules:
 
 - Active subscription can generate reminders.
@@ -659,6 +663,13 @@ Rules:
   one ordinary plan per selected time node; when disabled, no plan is created.
 - Reminder-disabled subscriptions retain their confirmed offset and node
   selection and remain in follow lists and calendars.
+- A cancelled relation may return to active only through an explicit
+  re-subscription with a fresh complete reminder confirmation. The same row is
+  reused and stores the latest configuration and `reminder_confirmed_at`; P1
+  does not retain immutable consent generations.
+- An active repeated POST is idempotent and does not replace consent. Initial
+  row creation returns `201`; active repetition and cancelled-to-active
+  re-subscription return `200`.
 - Calendar projection reads active subscriptions only, never favorites, and
   includes selected nodes independently of reminder-plan state.
 - Calendar grouping uses `Asia/Shanghai`; current stage, prominence, and pair
@@ -682,6 +693,10 @@ Rules:
 
 - This table is the single source of truth for global reminder settings; profile
   rows do not duplicate them.
+- A successor migration preserves an existing setting row. When none exists, it
+  backfills `enabled` and `default_remind_days` from the legacy profile fields
+  and supplies the controlled default node types, then removes the duplicate
+  profile columns. Downgrade restores compatibility values from this table.
 - New settings default to enabled, three days, and the controlled primary core
   types `registration_deadline`, `submission_deadline`, and
   `competition_start`. These values prefill a confirmation and are not consent.
@@ -725,6 +740,16 @@ Rules:
 - `(user_id, competition_id, logical_node_key, time_node_revision)` is unique
   for the P1 ordinary reminder plan. This permits the same logical key in
   another edition without duplicate delivery inside one node revision.
+- #38 controls the cancellation reasons `subscription_cancelled`,
+  `reminder_disabled`, `node_type_removed`, and
+  `subscription_offset_not_future`. Explicit PATCH or re-subscription may
+  reactivate only an unsent row with one of those reasons, after recalculating a
+  future trigger from the current matching immutable snapshot. Sent and failed
+  rows and global-, lifecycle-, deletion-, or supersession-cancelled rows remain
+  terminal for this workflow.
+- Initial plan creation and user-explicit reactivation require both the
+  subscription's confirmed reminder switch and the current global reminder
+  switch. Global-switch changes reconcile existing subscriptions outside #38.
 - Worker tasks must be idempotent.
 - Competition cancellation, offline status, or time node deletion should cancel pending reminders.
 - When a changed node receives a new `node_revision`, reconciliation cancels

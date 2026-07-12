@@ -193,6 +193,11 @@ deferred.
   selected nodes remain queryable in calendar ranges; stale pending reminders
   are cancelled, no new plan is eligible, and no archival/expiry message is
   created.
+- FR-026: Explicit re-subscription reuses the cancelled edition-bound relation,
+  records a fresh reminder confirmation, and reconciles only future unsent plans
+  cancelled by subscription-level choices. It never creates a second relation,
+  restores sent or failed evidence, reactivates system-cancelled plans, or
+  carries engagement to another edition.
 
 ## Non-Functional Requirements
 
@@ -290,6 +295,12 @@ deferred.
 - [ ] Given a logged-in student cancels a subscription, when calendar and
       pending reminders are checked, then future nodes for that subscription are
       removed or cancelled.
+- [ ] Given that student explicitly re-subscribes to the same currently
+      published edition, when fresh complete reminder consent is submitted, then
+      the existing relation becomes active with the latest confirmation;
+      eligible unsent plans cancelled by subscription-level choices are
+      reconciled without duplicating the ordinary plan key, while sent, failed,
+      system-cancelled, and prior-node-revision evidence remains unchanged.
 - [ ] Given global reminders are disabled and later re-enabled, when plans are
       reconciled, then subscriptions and calendar nodes remain, old pending
       plans are cancelled, only still-future triggers are recreated, and passed
