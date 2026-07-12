@@ -9,7 +9,7 @@
     "e2e:install": "playwright install chromium",
     "preview": "vite preview",
     "lint": "vue-tsc --noEmit",
-    "seed:e2e": "../../scripts/agent-env.sh uv run --project ../api flask --app competehub_api.app:create_e2e_app seed-e2e --reset",
+    "seed:e2e": "bash -lc \"unset AGENT_REPO_ROOT XDG_CACHE_HOME TMPDIR UV_CACHE_DIR PIP_CACHE_DIR PRE_COMMIT_HOME RUFF_CACHE_DIR npm_config_cache; exec ../../scripts/agent-env.sh uv run --project ../api flask --app competehub_api.app:create_e2e_app seed-e2e --reset\"",
     "test:e2e": "npm run seed:e2e && playwright test",
     "typecheck": "vue-tsc --noEmit"
   },

@@ -1,13 +1,13 @@
 import { defineConfig, devices } from '@playwright/test'
 
 const apiServerCommand =
-  '../../scripts/agent-env.sh uv run --project ../api flask --app competehub_api.app:create_e2e_app run --host 127.0.0.1 --port 5000'
+  'unset AGENT_REPO_ROOT XDG_CACHE_HOME TMPDIR UV_CACHE_DIR PIP_CACHE_DIR PRE_COMMIT_HOME RUFF_CACHE_DIR npm_config_cache; exec ../../scripts/agent-env.sh uv run --project ../api flask --app competehub_api.app:create_e2e_app run --host 127.0.0.1 --port 5000'
 
 function runWithBashOnWindows(command: string) {
   if (process.platform !== 'win32') {
     return command
   }
-  const gitBash = process.env.GIT_BASH ?? 'C:\\Program Files\\Git\\usr\\bin\\bash.exe'
+  const gitBash = process.env.GIT_BASH ?? 'bash'
   const escapedCommand = command.replaceAll("'", "'\\''")
   return `"${gitBash}" -lc '${escapedCommand}'`
 }
