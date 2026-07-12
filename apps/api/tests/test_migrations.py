@@ -308,7 +308,7 @@ def _assert_predecessor_review_actor_upgrade(app) -> None:
         revision = db.session.scalar(sa.select(CompetitionRevision))
         assert revision is not None
         assert revision.submitted_by_id == 2
-        assert revision.submitted_at == datetime(2026, 7, 12, 9, 0)
+        assert _decoded_datetime(revision.submitted_at) == datetime(2026, 7, 12, 9, 0)
         assert (
             db.session.execute(
                 text("SELECT count(*) FROM review_records WHERE status = 'pending'")
@@ -756,4 +756,7 @@ def _decoded_json(value):
 
 
 def _decoded_datetime(value):
-    return datetime.fromisoformat(value) if isinstance(value, str) else value
+    decoded = datetime.fromisoformat(value) if isinstance(value, str) else value
+    if decoded.tzinfo is not None:
+        return decoded.astimezone(UTC).replace(tzinfo=None)
+    return decoded
