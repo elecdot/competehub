@@ -426,6 +426,15 @@ Redis 不用于：
 - `GET /api/v1/admin/audit_logs`
 - `GET /api/v1/admin/stats`
 
+Issue #35 implements the first-revision publication path in
+`models/competition.py`, `services/competition_revisions.py`, the admin
+blueprint/schemas/repositories, and `apps/web/src/pages/AdminHomePage.vue`.
+The browser acceptance path in
+`apps/web/e2e/competition-publication.spec.ts` uses real Cookie sessions to
+move from editor submission through independent reviewer approval to student
+visibility. Replacement-revision and lifecycle-maintenance expansion remains
+owned by #37.
+
 ## 十、认证、权限与审计
 
 ### 10.1 角色
@@ -454,7 +463,7 @@ Redis 不用于：
 - 新密码使用显式 Argon2id 参数 `m=19456 KiB, t=2, p=1`；登录继续验证历史 scrypt hash，并在验证成功后使用规范化密码于同一登录事务中升级到当前 Argon2id 参数。已有 Argon2id hash 通过 `check_needs_rehash()` 判定参数升级，登录失败不得修改 hash。参数必须至少达到当前 OWASP 基线，禁止依赖 Werkzeug 或其他库可能变化的默认算法参数。
 - 登录失败按规范化类型化标识键和请求来源分别使用 Redis 渐进限速，所有账号状态使用一致失败响应；计数递增与首次 TTL 设置必须原子完成，不得因远程失败或运行中断永久锁定账号。
 - Cookie session 只保存 `user_id`、`session_version`、`issued_at` 和 `last_activity_at`；登录前清理旧 session，所有受保护请求统一经过认证守卫并从数据库重读账号状态和版本。
-- 学生 session 的空闲/绝对超时为 24 小时/7 天，管理员为 30 分钟/8 小时；活动只能延后空闲截止，不能延后绝对截止。服务端在路由执行前校验，失效后清除 Cookie 并返回统一 `401`。
+- 学生 session 的空闲/绝对超时为 24 小时/7 天，管理员为 30 分钟/8 小时；活动只能延后空闲截止，不能延后绝对截止。服务端在路由执行前校验，失效后清除 Cookie 并返回统一 `401`。为避免同一页面并发请求反复重签 Cookie 和覆盖较新的活动时间，`last_activity_at` 的 Cookie 写入按一分钟窗口合并；超时、账号状态和版本仍逐请求校验。
 - 修改账号角色或 capability、禁用账号、确认凭据泄露或终止全部会话时原子递增 `users.session_version`；既有设备下一请求即失效。普通退出只清理当前浏览器，P1 允许多设备并发且不建设设备会话列表或“记住我”选项。
 - Cookie 应设置 `HttpOnly`、`SameSite=Lax`，生产环境设置 `Secure`。
 - 所有修改接口必须使用 POST、PATCH 或 DELETE，不能用 GET 修改状态。

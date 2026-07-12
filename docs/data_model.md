@@ -1094,3 +1094,16 @@ Search can start with PostgreSQL filters and simple text matching. Add a dedicat
 - Enum changes must include a compatibility note when existing rows may be affected.
 - Data backfills should be idempotent and documented in the migration or task note.
 - Migrations should not depend on Redis.
+- The reproducible chain starts at
+  `apps/api/migrations/versions/c5e0e7e0560d_initial_schema_with_verified_identities.py`;
+  `13eb10903bd7_add_immutable_competition_revisions.py` adds the series,
+  edition, revision, stage, single-instant node, review, and audit relationships.
+  Fresh SQLite and PostgreSQL paths support repeatable upgrade, downgrade, and
+  re-upgrade. The known `61f2c8e4a9bd` predecessor backfills owned mutable
+  competitions, nodes, and tags into immutable revision snapshots while
+  retaining public visibility; unattributed rows block before schema mutation.
+  The recorded legacy `db.create_all()` path preserves unknown business-table
+  shapes and requires a dedicated publication bridge or reset.
+- `seed-e2e --reset` provisions distinct student/editor/reviewer actors plus one
+  approved series/edition/revision fixture with an ordered stage and immutable
+  `occurs_at` node. It is isolated browser-test data, not a production backfill.

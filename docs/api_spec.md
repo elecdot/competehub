@@ -105,7 +105,9 @@ timeout has elapsed. Invalid sessions are cleared and return the generic
 Student sessions have a 24-hour idle timeout and a seven-day absolute timeout.
 Administrator sessions have a 30-minute idle timeout and an eight-hour absolute
 timeout. Authenticated activity refreshes only the idle timestamp and never the
-absolute deadline. P1 allows concurrent sessions and has no user-selectable
+absolute deadline. Idle timestamp Cookie writes are coalesced within a one-minute
+window so concurrent page requests do not race to overwrite the signed session;
+status, version, and timeout validation still runs on every request. P1 allows concurrent sessions and has no user-selectable
 remember-me mode. Logout clears only the current browser; disabling an account,
 changing its role or capabilities, confirming credential compromise, or
 explicitly terminating all sessions increments the account version and
@@ -967,6 +969,14 @@ addition/removal are schedule-semantic; stage, prominence, and description-only
 changes are not. Message estimates include only affected active subscriptions
 whose selected old or new node types intersect a schedule-semantic change.
 
+For an initial revision, `base_revision_id` and
+`current_published_revision_id` are both `null` until approval. Its comparison
+is derived against an empty baseline, and its impact reports an initial public
+visibility change with zero existing-subscription effects. Approval returns the
+new `published_revision_id`; rejection or return leaves that pointer unchanged.
+The response keeps the submitted comparison and impact evidence available after
+the terminal decision instead of recomputing it from mutable edition state.
+
 ### `POST /admin/competition_series`
 
 Create a赛事系列 with a canonical name. Requires `competition_editor`. The
@@ -1003,12 +1013,31 @@ Structured draft fields may include time nodes and controlled tags:
   "title": "全国大学生人工智能创新挑战赛",
   "source_name": "示例高校竞赛通知",
   "source_url": "https://example.edu/notices/ai-challenge-2026",
+  "category": "创新创业",
+  "organizer": "示例高校创新中心",
   "summary": "面向大学生的人工智能创新项目竞赛。",
-  "time_nodes": [
+  "eligibility": "在校本科生可报名。",
+  "registration_applicability": "applicable",
+  "participant_forms": ["individual", "team"],
+  "team_size": "1-5",
+  "major_scope": "selected",
+  "grade_scope": "selected",
+  "suitable_majors": ["软件工程"],
+  "suitable_grades": ["大二"],
+  "stages": [
     {
-      "node_type": "registration_deadline",
-      "occurs_at": "2026-08-15T16:00:00Z",
-      "description": "报名截止"
+      "stage_key": "registration",
+      "stage_type": "registration",
+      "label": "报名阶段",
+      "order": 1,
+      "time_nodes": [
+        {
+          "logical_node_key": "registration-deadline",
+          "node_type": "registration_deadline",
+          "occurs_at": "2026-08-15T16:00:00Z",
+          "description": "报名截止"
+        }
+      ]
     }
   ],
   "tags": [
@@ -1020,6 +1049,12 @@ Structured draft fields may include time nodes and controlled tags:
   ]
 }
 ```
+
+`stages`, their `time_nodes`, and `tags` are revision-scoped. They are accepted
+on initial edition creation and draft revision updates; top-level legacy
+`time_nodes` are rejected as unknown fields. Node prominence defaults by
+controlled type. A value different from that default requires
+`prominence_override_reason`.
 
 ### `POST /admin/competitions/{id}/revisions`
 

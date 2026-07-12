@@ -7,13 +7,13 @@ import pytest
 from competehub_api.extensions import db
 from competehub_api.models import (
     Competition,
+    CompetitionRevision,
     CompetitionTag,
     CompetitionTagLink,
     CompetitionTimeNode,
     User,
 )
-from competehub_api.models.enums import CompetitionStatus, UserRole
-from competehub_api.services.auth import start_session
+from competehub_api.models.enums import CompetitionRevisionStatus, CompetitionStatus, UserRole
 
 
 @pytest.fixture(autouse=True)
@@ -22,6 +22,13 @@ def seeded_day1_competitions(app) -> None:
 
 
 def seed_day1_competitions() -> None:
+    publisher = User(
+        id=900,
+        email="fixture-publisher@example.edu",
+        password_hash="not-used",
+        display_name="Fixture Publisher",
+        role=UserRole.ADMIN,
+    )
     ai_tag = CompetitionTag(id=1, code="ai", name="人工智能", tag_type="topic")
     innovation_tag = CompetitionTag(
         id=2,
@@ -164,8 +171,55 @@ def seed_day1_competitions() -> None:
         ),
     ]
 
-    db.session.add_all([ai_tag, innovation_tag, ai_challenge, fallback, no_time, *non_public])
+    db.session.add_all(
+        [publisher, ai_tag, innovation_tag, ai_challenge, fallback, no_time, *non_public]
+    )
+    db.session.flush()
+    for competition in (ai_challenge, fallback, no_time):
+        attach_approved_revision(competition, publisher.id)
     db.session.commit()
+
+
+def attach_approved_revision(competition: Competition, publisher_id: int) -> CompetitionRevision:
+    revision = CompetitionRevision(
+        competition=competition,
+        revision_number=1,
+        revision_status=CompetitionRevisionStatus.APPROVED,
+        title=competition.title,
+        short_title=competition.short_title,
+        category=competition.category,
+        organizer=competition.organizer,
+        host=competition.host,
+        source_name=competition.source_name,
+        source_url=competition.source_url,
+        official_url=competition.official_url,
+        attachment_url=competition.attachment_url,
+        summary=competition.summary,
+        detail=competition.detail,
+        eligibility=competition.eligibility,
+        registration_applicability="applicable",
+        team_size=competition.team_size,
+        participant_forms=[competition.participant_form] if competition.participant_form else [],
+        major_scope="selected" if competition.suitable_majors else "unknown",
+        grade_scope="selected" if competition.suitable_grades else "unknown",
+        suitable_majors=competition.suitable_majors,
+        suitable_grades=competition.suitable_grades,
+        value_notes=competition.value_notes,
+        created_by_id=publisher_id,
+        published_at=datetime(2026, 7, 10, 1, 0, tzinfo=UTC),
+    )
+    db.session.add(revision)
+    db.session.flush()
+    for node in competition.time_nodes:
+        node.revision = revision
+        node.occurs_at = node.occurs_at or node.due_at or node.starts_at
+    for link in competition.tag_links:
+        link.revision = revision
+    competition.published_revision_id = revision.id
+    competition.participant_forms = revision.participant_forms
+    competition.major_scope = revision.major_scope
+    competition.grade_scope = revision.grade_scope
+    return revision
 
 
 def test_public_competition_list_uses_envelope_and_hides_non_public_states(client) -> None:
@@ -325,6 +379,8 @@ def test_public_competition_next_node_skips_elapsed_nodes(client) -> None:
         time_nodes=[elapsed_node, upcoming_node],
     )
     db.session.add(competition)
+    db.session.flush()
+    attach_approved_revision(competition, 900)
     db.session.commit()
 
     response = client.get("/api/v1/competitions/120")
@@ -333,18 +389,20 @@ def test_public_competition_next_node_skips_elapsed_nodes(client) -> None:
     assert response.get_json()["data"]["next_node"]["id"] == 221
 
 
-def test_public_competition_next_node_uses_earliest_current_or_future_timestamp(client) -> None:
+def test_public_competition_next_node_prefers_primary_before_secondary_fallback(client) -> None:
     now = datetime.now(UTC)
-    ranged_node = CompetitionTimeNode(
+    earlier_secondary = CompetitionTimeNode(
         id=222,
         node_type="registration_period",
         starts_at=now + timedelta(days=1),
         due_at=now + timedelta(days=5),
+        prominence="secondary",
     )
-    deadline_node = CompetitionTimeNode(
+    later_primary = CompetitionTimeNode(
         id=223,
         node_type="submission_deadline",
         due_at=now + timedelta(days=2),
+        prominence="primary",
     )
     competition = Competition(
         id=121,
@@ -352,15 +410,17 @@ def test_public_competition_next_node_uses_earliest_current_or_future_timestamp(
         source_name="示例高校竞赛通知",
         source_url="https://example.edu/notices/multiple-times",
         status=CompetitionStatus.PUBLISHED,
-        time_nodes=[ranged_node, deadline_node],
+        time_nodes=[earlier_secondary, later_primary],
     )
     db.session.add(competition)
+    db.session.flush()
+    attach_approved_revision(competition, 900)
     db.session.commit()
 
     response = client.get("/api/v1/competitions/121")
 
     assert response.status_code == 200
-    assert response.get_json()["data"]["next_node"]["id"] == 222
+    assert response.get_json()["data"]["next_node"]["id"] == 223
 
 
 @pytest.mark.parametrize("competition_id", [102, 103, 104, 105, 108, 109, 110])
@@ -374,63 +434,17 @@ def test_public_competition_detail_returns_404_for_non_public_competition(
     assert response.get_json()["error"]["code"] == "not_found"
 
 
-def test_admin_publication_is_immediately_visible_and_maintenance_hides_it(client) -> None:
-    admin = User(
-        id=1,
-        email="admin-public-flow@example.edu",
-        password_hash="not-used",
-        display_name="Publication Admin",
-        role=UserRole.ADMIN,
+def test_public_competition_requires_published_revision_pointer(client) -> None:
+    competition = Competition(
+        id=130,
+        title="Legacy Published Challenge",
+        source_name="School Notice",
+        source_url="https://example.edu/notices/legacy-published",
+        status=CompetitionStatus.PUBLISHED,
     )
-    db.session.add(admin)
+    db.session.add(competition)
     db.session.commit()
-    with client.session_transaction() as session:
-        start_session(session, admin)
+    response = client.get("/api/v1/competitions/130")
 
-    create_response = client.post(
-        "/api/v1/admin/competitions",
-        json={
-            "title": "跨切片发布验收赛事",
-            "category": "创新创业",
-            "source_name": "示例高校竞赛通知",
-            "source_url": "https://example.edu/notices/cross-slice",
-            "official_url": "https://example.org/cross-slice",
-            "summary": "用于验证后台发布后公开发现立即生效。",
-            "time_nodes": [
-                {
-                    "node_type": "registration_deadline",
-                    "due_at": "2026-12-15T16:00:00Z",
-                    "description": "报名截止",
-                }
-            ],
-            "tags": [{"code": "cross-slice", "name": "跨切片", "tag_type": "topic"}],
-        },
-    )
-    assert create_response.status_code == 201
-    competition_id = create_response.get_json()["data"]["id"]
-    assert client.get(f"/api/v1/competitions/{competition_id}").status_code == 404
-
-    submit_response = client.post(f"/api/v1/admin/competitions/{competition_id}/submit_review")
-    review_response = client.post(
-        f"/api/v1/admin/competitions/{competition_id}/review",
-        json={"action": "approve", "comment": "来源可信，信息完整"},
-    )
-
-    assert submit_response.status_code == 200
-    assert review_response.status_code == 200
-    list_response = client.get("/api/v1/competitions?keyword=跨切片发布验收赛事")
-    assert [item["id"] for item in list_response.get_json()["data"]["items"]] == [competition_id]
-    detail_response = client.get(f"/api/v1/competitions/{competition_id}")
-    assert detail_response.status_code == 200
-    detail = detail_response.get_json()["data"]
-    assert detail["tags"] == ["跨切片"]
-    assert detail["suitable_majors"] == []
-    assert detail["suitable_grades"] == []
-
-    maintenance_response = client.patch(
-        f"/api/v1/admin/competitions/{competition_id}/status",
-        json={"status": "offline", "reason": "验收下架"},
-    )
-
-    assert maintenance_response.status_code == 200
-    assert client.get(f"/api/v1/competitions/{competition_id}").status_code == 404
+    assert response.status_code == 404
+    assert response.get_json()["error"]["code"] == "not_found"

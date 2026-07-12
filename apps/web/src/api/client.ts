@@ -7,6 +7,13 @@ import type {
   ParticipantForm,
 } from '@/types/competition'
 import type {
+  CompetitionRevision,
+  CompetitionSeries,
+  EditionDraftInput,
+  EditionWorkspace,
+  RevisionDraftUpdate,
+} from '@/types/admin'
+import type {
   CurrentUserResponse,
   LoginPayload,
   ProfileOptions,
@@ -41,6 +48,74 @@ export async function fetchCompetitions(params: CompetitionListParams = {}) {
 
 export async function fetchCompetitionDetail(id: number) {
   const response = await apiClient.get<ApiEnvelope<CompetitionDetail>>(`/competitions/${id}`)
+  return response.data.data
+}
+
+export async function fetchCompetitionSeries() {
+  const response = await apiClient.get<ApiEnvelope<{ items: CompetitionSeries[] }>>(
+    '/admin/competition_series',
+  )
+  return response.data.data.items
+}
+
+export async function createCompetitionSeries(canonicalName: string) {
+  const response = await apiClient.post<ApiEnvelope<CompetitionSeries>>(
+    '/admin/competition_series',
+    { canonical_name: canonicalName },
+  )
+  return response.data.data
+}
+
+export async function createCompetitionEdition(payload: EditionDraftInput) {
+  const response = await apiClient.post<ApiEnvelope<EditionWorkspace>>(
+    '/admin/competitions',
+    payload,
+  )
+  return response.data.data
+}
+
+export async function fetchCompetitionEditions() {
+  const response = await apiClient.get<ApiEnvelope<{ items: EditionWorkspace[] }>>(
+    '/admin/competitions',
+  )
+  return response.data.data.items
+}
+
+export async function updateCompetitionRevision(
+  revisionId: number,
+  payload: RevisionDraftUpdate,
+) {
+  const response = await apiClient.patch<ApiEnvelope<CompetitionRevision>>(
+    `/admin/competition_revisions/${revisionId}`,
+    payload,
+  )
+  return response.data.data
+}
+
+export async function submitCompetitionRevision(revisionId: number) {
+  const response = await apiClient.post<ApiEnvelope<CompetitionRevision>>(
+    `/admin/competition_revisions/${revisionId}/submit_review`,
+  )
+  return response.data.data
+}
+
+export async function fetchPendingCompetitionRevisions() {
+  const response = await apiClient.get<ApiEnvelope<{ items: CompetitionRevision[] }>>(
+    '/admin/competition_revisions',
+    { params: { status: 'pending_review' } },
+  )
+  return response.data.data.items
+}
+
+export async function reviewCompetitionRevision(
+  revisionId: number,
+  action: 'approve' | 'reject' | 'return',
+  comment: string,
+) {
+  const response = await apiClient.post<ApiEnvelope<CompetitionRevision>>(
+    `/admin/competition_revisions/${revisionId}/review`,
+    { action, comment },
+  )
   return response.data.data
 }
 

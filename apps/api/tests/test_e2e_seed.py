@@ -3,7 +3,15 @@ from __future__ import annotations
 from competehub_api import create_app
 from competehub_api.e2e_seed import E2E_ACTORS, SEEDED_E2E_ACTORS
 from competehub_api.extensions import db
-from competehub_api.models import StudentProfile, User, UserIdentity
+from competehub_api.models import (
+    Competition,
+    CompetitionRevision,
+    CompetitionSeries,
+    StudentProfile,
+    User,
+    UserIdentity,
+)
+from competehub_api.models.enums import CompetitionRevisionStatus
 
 
 def test_e2e_seed_refuses_a_normal_application(app) -> None:
@@ -56,6 +64,9 @@ def test_e2e_seed_rebuilds_the_expected_actor_set() -> None:
         ]
         assert [user.role for user in users] == [actor.role for actor in expected_actors]
         assert [user.status for user in users] == [actor.status for actor in expected_actors]
+        assert [user.capabilities for user in users] == [
+            list(actor.capabilities) for actor in expected_actors
+        ]
         assert [identity.display_value for identity in identities] == [
             actor.email for actor in expected_actors
         ]
@@ -65,6 +76,16 @@ def test_e2e_seed_rebuilds_the_expected_actor_set() -> None:
         assert sorted(profile.user_id for profile in profiles) == sorted(
             actor.id for actor in E2E_ACTORS if actor.profile is not None
         )
+        series = db.session.get(CompetitionSeries, 2001)
+        edition = db.session.get(Competition, 2001)
+        revision = db.session.get(CompetitionRevision, 2001)
+        assert series.canonical_name == "Seeded University Innovation Challenge"
+        assert edition.published_revision_id == revision.id
+        assert revision.revision_status == CompetitionRevisionStatus.APPROVED
+        assert revision.stages[0].stage_order == 1
+        assert revision.stages[0].time_nodes[0].occurs_at is not None
+        assert revision.stages[0].time_nodes[0].starts_at is None
+        assert revision.stages[0].time_nodes[0].due_at is None
 
     login_response = app.test_client().post(
         "/api/v1/auth/login",

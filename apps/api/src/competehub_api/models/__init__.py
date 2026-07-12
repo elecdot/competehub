@@ -1,5 +1,8 @@
 from competehub_api.models.competition import (
     Competition,
+    CompetitionRevision,
+    CompetitionSeries,
+    CompetitionStage,
     CompetitionTag,
     CompetitionTagLink,
     CompetitionTimeNode,
@@ -24,6 +27,9 @@ from competehub_api.models.user import (
 __all__ = [
     "AuditLog",
     "Competition",
+    "CompetitionRevision",
+    "CompetitionSeries",
+    "CompetitionStage",
     "CompetitionTag",
     "CompetitionTagLink",
     "CompetitionTimeNode",

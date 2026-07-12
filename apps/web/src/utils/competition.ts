@@ -29,7 +29,7 @@ export function formatParticipantForm(participantForm?: string | null) {
 }
 
 export function formatNodeDate(node: CompetitionTimeNode, includeTime = false) {
-  const timestamps = [node.starts_at, node.due_at]
+  const timestamps = [node.occurs_at, node.starts_at, node.due_at]
     .filter((value): value is string => Boolean(value))
     .map((value) => new Date(value))
     .filter((value) => !Number.isNaN(value.getTime()))

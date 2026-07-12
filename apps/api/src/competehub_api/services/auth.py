@@ -43,6 +43,7 @@ SESSION_TIMEOUTS = {
     UserRole.STUDENT: (timedelta(hours=24), timedelta(days=7)),
     UserRole.ADMIN: (timedelta(minutes=30), timedelta(hours=8)),
 }
+SESSION_ACTIVITY_REFRESH_INTERVAL = timedelta(minutes=1)
 
 RATE_LIMIT_INCREMENT_SCRIPT = """
 local count = redis.call("INCR", KEYS[1])
@@ -277,7 +278,8 @@ def current_user(session_data: MutableMapping | None) -> User | None:
         session_data.clear()
         return None
 
-    session_data["last_activity_at"] = now.isoformat()
+    if now - last_activity_at >= SESSION_ACTIVITY_REFRESH_INTERVAL:
+        session_data["last_activity_at"] = now.isoformat()
     return user
 
 

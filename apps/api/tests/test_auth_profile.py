@@ -927,6 +927,24 @@ def test_role_specific_session_timeout_boundaries(app, role, session_field, time
     assert client.get("/api/v1/me").status_code == 401
 
 
+def test_authenticated_activity_coalesces_idle_timestamp_cookie_writes(app) -> None:
+    provision_user(app)
+    client = app.test_client()
+    assert login_email(client).status_code == 200
+
+    with client.session_transaction() as session:
+        initial_activity = session["last_activity_at"]
+    assert client.get("/api/v1/me").status_code == 200
+    with client.session_transaction() as session:
+        assert session["last_activity_at"] == initial_activity
+        stale_activity = datetime.now(UTC) - timedelta(minutes=2)
+        session["last_activity_at"] = stale_activity.isoformat()
+
+    assert client.get("/api/v1/me").status_code == 200
+    with client.session_transaction() as session:
+        assert datetime.fromisoformat(session["last_activity_at"]) > stale_activity
+
+
 def test_logout_only_ends_one_of_two_browser_sessions(app) -> None:
     provision_user(app)
     first_browser = app.test_client()

@@ -1,1 +1,22 @@
-Single-database configuration for Flask.
+Single-database Alembic configuration for Flask.
+
+The committed chain starts with `c5e0e7e0560d`, adds the verification-delivery
+outbox in `61f2c8e4a9bd`, and adds immutable publication persistence in
+`13eb10903bd7`.
+
+Fresh databases apply the complete chain. The initial migration records whether
+it adopted a fresh database or an older `db.create_all()` schema. On the legacy
+path, authentication tables and identities are bridged, while the immutable
+publication migration leaves unknown business-table shapes unchanged. Reset an
+old disposable database before upgrade. For a shared database, write and review
+a dedicated data-preserving publication bridge instead of stamping or guessing
+series, edition, and revision identities.
+
+A database already at the known `61f2c8e4a9bd` predecessor uses the committed
+publication bridge: owned mutable competitions become one-series/one-edition
+revision snapshots, existing nodes and tags are revision-scoped, and public
+visibility is retained. Rows without `created_by_id` are rejected before schema
+mutation so an operator can assign a real owner instead of receiving invented
+review attribution.
+
+`seed-e2e --reset` rebuilds only the isolated browser-test database.

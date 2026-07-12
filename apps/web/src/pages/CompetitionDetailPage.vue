@@ -163,7 +163,7 @@ onMounted(() => {
             </div>
             <div>
               <dt>参赛形式</dt>
-              <dd>{{ formatParticipantForm(competition.participant_form) }}</dd>
+              <dd>{{ competition.participant_forms.map(formatParticipantForm).join('、') }}</dd>
             </div>
             <div>
               <dt>团队规模</dt>
