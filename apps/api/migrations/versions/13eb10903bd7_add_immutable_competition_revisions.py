@@ -342,6 +342,7 @@ def _backfill_predecessor_publication():
             "competition_stages",
             "competition_time_nodes",
             "competition_tag_links",
+            "review_records",
         ],
     )
     series = metadata.tables["competition_series"]
@@ -350,6 +351,7 @@ def _backfill_predecessor_publication():
     stages = metadata.tables["competition_stages"]
     time_nodes = metadata.tables["competition_time_nodes"]
     tag_links = metadata.tables["competition_tag_links"]
+    review_records = metadata.tables["review_records"]
 
     predecessor_rows = bind.execute(sa.select(competitions).order_by(competitions.c.id)).mappings()
     for edition in predecessor_rows:
@@ -368,6 +370,18 @@ def _backfill_predecessor_publication():
             "applicable"
             if any(node["node_type"].startswith("registration_") for node in nodes)
             else "unknown"
+        )
+        # The predecessor stored submission and decision evidence in a mutable
+        # competition-level row. Capture it before replacing that queue model.
+        legacy_reviews = list(
+            bind.execute(
+                sa.select(review_records)
+                .where(
+                    review_records.c.target_type == "competition",
+                    review_records.c.target_id == competition_id,
+                )
+                .order_by(review_records.c.id)
+            ).mappings()
         )
         series_id = bind.execute(
             series.insert()
@@ -398,6 +412,21 @@ def _backfill_predecessor_publication():
         )
 
         revision_status = _legacy_revision_status(edition["status"])
+        review_evidence = _legacy_review_evidence(legacy_reviews, revision_status)
+        submitted_by_id = (
+            review_evidence["submitted_by_id"]
+            if review_evidence is not None and review_evidence["submitted_by_id"] is not None
+            else edition["created_by_id"]
+        )
+        submitted_at = (
+            review_evidence["created_at"] if review_evidence is not None else edition["updated_at"]
+        )
+        decided_at = (
+            review_evidence["updated_at"]
+            if review_evidence is not None
+            and review_evidence["status"] in {"approved", "rejected", "returned"}
+            else edition["updated_at"]
+        )
         revision_id = bind.execute(
             revisions.insert()
             .values(
@@ -425,17 +454,32 @@ def _backfill_predecessor_publication():
                 suitable_grades=edition["suitable_grades"],
                 value_notes=edition["value_notes"],
                 created_by_id=edition["created_by_id"],
-                submitted_by_id=(edition["created_by_id"] if revision_status != "draft" else None),
-                submitted_at=(edition["updated_at"] if revision_status != "draft" else None),
-                decided_at=(
-                    edition["updated_at"] if revision_status in {"approved", "rejected"} else None
-                ),
-                published_at=(edition["updated_at"] if revision_status == "approved" else None),
+                submitted_by_id=(submitted_by_id if revision_status != "draft" else None),
+                submitted_at=(submitted_at if revision_status != "draft" else None),
+                decided_at=(decided_at if revision_status in {"approved", "rejected"} else None),
+                published_at=(decided_at if revision_status == "approved" else None),
                 created_at=edition["created_at"],
                 updated_at=edition["updated_at"],
             )
             .returning(revisions.c.id)
         ).scalar_one()
+
+        for legacy_review in legacy_reviews:
+            if legacy_review["status"] == "pending":
+                bind.execute(
+                    review_records.delete().where(review_records.c.id == legacy_review["id"])
+                )
+                continue
+            bind.execute(
+                review_records.update()
+                .where(review_records.c.id == legacy_review["id"])
+                .values(
+                    target_type="competition_revision",
+                    target_id=revision_id,
+                    submitted_at=legacy_review["created_at"],
+                    decided_at=legacy_review["updated_at"],
+                )
+            )
 
         stage_id = None
         if nodes:
@@ -485,11 +529,17 @@ def _prepare_predecessor_downgrade():
     metadata = sa.MetaData()
     metadata.reflect(
         bind=bind,
-        only=["competitions", "competition_revisions", "competition_tag_links"],
+        only=[
+            "competitions",
+            "competition_revisions",
+            "competition_tag_links",
+            "review_records",
+        ],
     )
     competitions = metadata.tables["competitions"]
     revisions = metadata.tables["competition_revisions"]
     tag_links = metadata.tables["competition_tag_links"]
+    review_records = metadata.tables["review_records"]
 
     unpublished_editions = list(
         bind.execute(
@@ -517,6 +567,52 @@ def _prepare_predecessor_downgrade():
         row["id"]: row["competition_id"]
         for row in bind.execute(sa.select(revisions.c.id, revisions.c.competition_id)).mappings()
     }
+    terminal_reviews = list(
+        bind.execute(
+            sa.select(review_records.c.id, review_records.c.target_id).where(
+                review_records.c.target_type == "competition_revision"
+            )
+        ).mappings()
+    )
+    for review in terminal_reviews:
+        competition_id = revision_competition.get(review["target_id"])
+        if competition_id is not None:
+            bind.execute(
+                review_records.update()
+                .where(review_records.c.id == review["id"])
+                .values(target_type="competition", target_id=competition_id)
+            )
+
+    # The predecessor derives its queue from pending ReviewRecord rows, while
+    # the new model derives it from revision state. Recreate only for downgrade.
+    pending_revisions = list(
+        bind.execute(
+            sa.select(revisions).where(revisions.c.revision_status == "pending_review")
+        ).mappings()
+    )
+    for pending_revision in pending_revisions:
+        competition_id = pending_revision["competition_id"]
+        existing_pending = bind.execute(
+            sa.select(review_records.c.id).where(
+                review_records.c.target_type == "competition",
+                review_records.c.target_id == competition_id,
+                review_records.c.status == "pending",
+            )
+        ).scalar_one_or_none()
+        if existing_pending is None:
+            submitted_at = pending_revision["submitted_at"] or pending_revision["updated_at"]
+            bind.execute(
+                review_records.insert().values(
+                    target_type="competition",
+                    target_id=competition_id,
+                    submitted_by_id=pending_revision["submitted_by_id"],
+                    status="pending",
+                    submitted_at=submitted_at,
+                    created_at=submitted_at,
+                    updated_at=submitted_at,
+                )
+            )
+
     unscoped_links = list(
         bind.execute(
             sa.select(tag_links.c.id, tag_links.c.competition_revision_id).where(
@@ -550,6 +646,18 @@ def _legacy_revision_status(competition_status):
         "pending_review": "pending_review",
         "rejected": "rejected",
     }.get(competition_status, "draft")
+
+
+def _legacy_review_evidence(legacy_reviews, revision_status):
+    expected_statuses = {
+        "pending_review": {"pending"},
+        "approved": {"approved"},
+        "rejected": {"rejected", "returned"},
+    }.get(revision_status, set())
+    matching = [review for review in legacy_reviews if review["status"] in expected_statuses]
+    if matching:
+        return matching[-1]
+    return legacy_reviews[-1] if legacy_reviews else None
 
 
 def downgrade():

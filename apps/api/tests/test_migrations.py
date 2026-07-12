@@ -16,6 +16,9 @@ from werkzeug.security import generate_password_hash
 
 from competehub_api import create_app
 from competehub_api.extensions import db
+from competehub_api.models import CompetitionRevision, User
+from competehub_api.services.competition_revisions import review_revision
+from competehub_api.services.errors import ServiceError
 
 MIGRATIONS_DIR = Path(__file__).resolve().parents[1] / "migrations"
 
@@ -51,6 +54,11 @@ def test_legacy_create_all_upgrade_and_downgrade_preserves_existing_tables(tmp_p
 def test_populated_predecessor_upgrade_preserves_public_competition(tmp_path) -> None:
     app = _migration_app(tmp_path / "populated-predecessor.db")
     _assert_populated_predecessor_upgrade(app)
+
+
+def test_predecessor_upgrade_preserves_submitter_and_removes_pending_review(tmp_path) -> None:
+    app = _migration_app(tmp_path / "predecessor-review.db")
+    _assert_predecessor_review_actor_upgrade(app)
 
 
 def test_unowned_predecessor_competition_blocks_before_schema_mutation(tmp_path) -> None:
@@ -97,6 +105,13 @@ def test_postgresql_populated_predecessor_upgrade_preserves_public_competition(
 ) -> None:
     app = _migration_app(database_uri=postgresql_database_uri)
     _assert_populated_predecessor_upgrade(app)
+
+
+def test_postgresql_predecessor_upgrade_preserves_submitter_and_removes_pending_review(
+    postgresql_database_uri,
+) -> None:
+    app = _migration_app(database_uri=postgresql_database_uri)
+    _assert_predecessor_review_actor_upgrade(app)
 
 
 def _assert_fresh_upgrade_and_downgrade(app) -> None:
@@ -164,7 +179,8 @@ def _assert_populated_predecessor_upgrade(app) -> None:
             db.session.execute(
                 text(
                     """
-                SELECT revision_status, participant_forms, major_scope, grade_scope
+                SELECT revision_status, participant_forms, major_scope, grade_scope,
+                       submitted_by_id, submitted_at, decided_at
                 FROM competition_revisions WHERE id = :revision_id
                 """
                 ),
@@ -176,11 +192,44 @@ def _assert_populated_predecessor_upgrade(app) -> None:
         assert {
             **revision,
             "participant_forms": _decoded_json(revision["participant_forms"]),
+            "submitted_at": _decoded_datetime(revision["submitted_at"]),
+            "decided_at": _decoded_datetime(revision["decided_at"]),
         } == {
             "revision_status": "approved",
             "participant_forms": ["individual"],
             "major_scope": "selected",
             "grade_scope": "selected",
+            "submitted_by_id": 2,
+            "submitted_at": datetime(2026, 7, 12, 8, 30),
+            "decided_at": datetime(2026, 7, 12, 9, 0),
+        }
+
+        migrated_review = (
+            db.session.execute(
+                text(
+                    """
+                    SELECT target_type, target_id, submitted_by_id, reviewed_by_id,
+                           status, comment, submitted_at, decided_at
+                    FROM review_records
+                    """
+                )
+            )
+            .mappings()
+            .one()
+        )
+        assert {
+            **migrated_review,
+            "submitted_at": _decoded_datetime(migrated_review["submitted_at"]),
+            "decided_at": _decoded_datetime(migrated_review["decided_at"]),
+        } == {
+            "target_type": "competition_revision",
+            "target_id": edition["published_revision_id"],
+            "submitted_by_id": 2,
+            "reviewed_by_id": 3,
+            "status": "approved",
+            "comment": "Legacy approval evidence",
+            "submitted_at": datetime(2026, 7, 12, 8, 30),
+            "decided_at": datetime(2026, 7, 12, 9, 0),
         }
 
         node = (
@@ -241,8 +290,170 @@ def _assert_populated_predecessor_upgrade(app) -> None:
         db.session.remove()
         upgrade(directory=str(MIGRATIONS_DIR))
         assert app.test_client().get("/api/v1/competitions/1").status_code == 200
+        reupgraded_revision = db.session.execute(
+            text("SELECT submitted_by_id FROM competition_revisions WHERE competition_id = 1")
+        ).scalar_one()
+        assert reupgraded_revision == 2
         db.session.remove()
         check(directory=str(MIGRATIONS_DIR))
+
+
+def _assert_predecessor_review_actor_upgrade(app) -> None:
+    with app.app_context():
+        upgrade(directory=str(MIGRATIONS_DIR), revision="61f2c8e4a9bd")
+        _seed_predecessor_pending_review()
+
+        upgrade(directory=str(MIGRATIONS_DIR))
+
+        revision = db.session.scalar(sa.select(CompetitionRevision))
+        assert revision is not None
+        assert revision.submitted_by_id == 2
+        assert revision.submitted_at == datetime(2026, 7, 12, 9, 0)
+        assert (
+            db.session.execute(
+                text("SELECT count(*) FROM review_records WHERE status = 'pending'")
+            ).scalar_one()
+            == 0
+        )
+
+        db.session.remove()
+        downgrade(directory=str(MIGRATIONS_DIR), revision="61f2c8e4a9bd")
+        predecessor_pending = (
+            db.session.execute(
+                text(
+                    """
+                    SELECT c.status, r.submitted_by_id
+                    FROM competitions AS c
+                    JOIN review_records AS r
+                      ON r.target_type = 'competition' AND r.target_id = c.id
+                    WHERE c.id = 1 AND r.status = 'pending'
+                    """
+                )
+            )
+            .mappings()
+            .one()
+        )
+        assert predecessor_pending == {"status": "pending_review", "submitted_by_id": 2}
+
+        db.session.remove()
+        upgrade(directory=str(MIGRATIONS_DIR))
+        revision = db.session.scalar(sa.select(CompetitionRevision))
+        assert revision is not None
+        assert revision.submitted_by_id == 2
+        assert (
+            db.session.execute(
+                text("SELECT count(*) FROM review_records WHERE status = 'pending'")
+            ).scalar_one()
+            == 0
+        )
+
+        submitter = db.session.get(User, 2)
+        reviewer = db.session.get(User, 3)
+        assert submitter is not None
+        assert reviewer is not None
+        with pytest.raises(ServiceError) as error:
+            review_revision(revision, submitter, "approve", "self review must fail")
+        assert error.value.status_code == 403
+
+        decided = review_revision(revision, reviewer, "return", "needs source clarification")
+        assert decided.revision_status.value == "returned"
+        decision = (
+            db.session.execute(
+                text(
+                    """
+                    SELECT target_type, target_id, submitted_by_id, reviewed_by_id, status, comment
+                    FROM review_records
+                    """
+                )
+            )
+            .mappings()
+            .one()
+        )
+        assert decision == {
+            "target_type": "competition_revision",
+            "target_id": revision.id,
+            "submitted_by_id": 2,
+            "reviewed_by_id": 3,
+            "status": "returned",
+            "comment": "needs source clarification",
+        }
+
+
+def _seed_predecessor_pending_review() -> None:
+    metadata = sa.MetaData()
+    metadata.reflect(bind=db.engine, only=["users", "competitions", "review_records"])
+    users = metadata.tables["users"]
+    competitions = metadata.tables["competitions"]
+    reviews = metadata.tables["review_records"]
+    created_at = datetime(2026, 7, 12, 8, 0)
+    submitted_at = datetime(2026, 7, 12, 9, 0)
+
+    db.session.execute(
+        users.insert(),
+        [
+            {
+                "id": 1,
+                "email": "migration-creator@example.edu",
+                "password_hash": "migration-test-hash",
+                "display_name": "Migration Creator",
+                "session_version": 1,
+                "capabilities": ["competition_editor"],
+                "role": "admin",
+                "status": "active",
+                "created_at": created_at,
+                "updated_at": created_at,
+            },
+            {
+                "id": 2,
+                "email": "migration-submitter@example.edu",
+                "password_hash": "migration-test-hash",
+                "display_name": "Migration Submitter",
+                "session_version": 1,
+                "capabilities": ["competition_editor", "competition_reviewer"],
+                "role": "admin",
+                "status": "active",
+                "created_at": created_at,
+                "updated_at": created_at,
+            },
+            {
+                "id": 3,
+                "email": "migration-reviewer@example.edu",
+                "password_hash": "migration-test-hash",
+                "display_name": "Migration Reviewer",
+                "session_version": 1,
+                "capabilities": ["competition_reviewer"],
+                "role": "admin",
+                "status": "active",
+                "created_at": created_at,
+                "updated_at": created_at,
+            },
+        ],
+    )
+    db.session.execute(
+        competitions.insert().values(
+            id=1,
+            title="Pending Legacy Competition",
+            source_name="Existing Source",
+            source_url="https://example.edu/pending-source",
+            participant_form="individual",
+            status="pending_review",
+            created_by_id=1,
+            created_at=created_at,
+            updated_at=submitted_at,
+        )
+    )
+    db.session.execute(
+        reviews.insert().values(
+            id=1,
+            target_type="competition",
+            target_id=1,
+            submitted_by_id=2,
+            status="pending",
+            created_at=submitted_at,
+            updated_at=submitted_at,
+        )
+    )
+    db.session.commit()
 
 
 def _seed_predecessor_publication() -> None:
@@ -255,6 +466,7 @@ def _seed_predecessor_publication() -> None:
             "competition_time_nodes",
             "competition_tags",
             "competition_tag_links",
+            "review_records",
         ],
     )
     now = datetime(2026, 7, 12, 8, 0)
@@ -263,20 +475,48 @@ def _seed_predecessor_publication() -> None:
     time_nodes = metadata.tables["competition_time_nodes"]
     tags = metadata.tables["competition_tags"]
     tag_links = metadata.tables["competition_tag_links"]
+    reviews = metadata.tables["review_records"]
 
     db.session.execute(
-        users.insert().values(
-            id=1,
-            email="migration-owner@example.edu",
-            password_hash="migration-test-hash",
-            display_name="Migration Owner",
-            session_version=1,
-            capabilities=["competition_editor"],
-            role="admin",
-            status="active",
-            created_at=now,
-            updated_at=now,
-        )
+        users.insert(),
+        [
+            {
+                "id": 1,
+                "email": "migration-owner@example.edu",
+                "password_hash": "migration-test-hash",
+                "display_name": "Migration Owner",
+                "session_version": 1,
+                "capabilities": ["competition_editor"],
+                "role": "admin",
+                "status": "active",
+                "created_at": now,
+                "updated_at": now,
+            },
+            {
+                "id": 2,
+                "email": "migration-submitter@example.edu",
+                "password_hash": "migration-test-hash",
+                "display_name": "Migration Submitter",
+                "session_version": 1,
+                "capabilities": ["competition_editor"],
+                "role": "admin",
+                "status": "active",
+                "created_at": now,
+                "updated_at": now,
+            },
+            {
+                "id": 3,
+                "email": "migration-reviewer@example.edu",
+                "password_hash": "migration-test-hash",
+                "display_name": "Migration Reviewer",
+                "session_version": 1,
+                "capabilities": ["competition_reviewer"],
+                "role": "admin",
+                "status": "active",
+                "created_at": now,
+                "updated_at": now,
+            },
+        ],
     )
     db.session.execute(
         competitions.insert().values(
@@ -326,6 +566,19 @@ def _seed_predecessor_publication() -> None:
             tag_id=1,
             created_at=now,
             updated_at=now,
+        )
+    )
+    db.session.execute(
+        reviews.insert().values(
+            id=1,
+            target_type="competition",
+            target_id=1,
+            submitted_by_id=2,
+            reviewed_by_id=3,
+            status="approved",
+            comment="Legacy approval evidence",
+            created_at=datetime(2026, 7, 12, 8, 30),
+            updated_at=datetime(2026, 7, 12, 9, 0),
         )
     )
     db.session.commit()
@@ -500,3 +753,7 @@ def _columns(table_name: str) -> set[str]:
 
 def _decoded_json(value):
     return json.loads(value) if isinstance(value, str) else value
+
+
+def _decoded_datetime(value):
+    return datetime.fromisoformat(value) if isinstance(value, str) else value
