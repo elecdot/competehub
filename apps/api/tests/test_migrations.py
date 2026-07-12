@@ -122,6 +122,8 @@ def _assert_fresh_upgrade_and_downgrade(app) -> None:
         assert "user_identities" in _tables()
         assert "verification_delivery_outbox" in _tables()
         assert "competition_revisions" in _tables()
+        assert "recommendation_rule_sets" in _tables()
+        assert _columns("recommendation_rules") >= {"rule_set_id", "conditions"}
         check(directory=str(MIGRATIONS_DIR))
 
         downgrade(directory=str(MIGRATIONS_DIR), revision="base")
@@ -129,6 +131,7 @@ def _assert_fresh_upgrade_and_downgrade(app) -> None:
         assert "users" not in _tables()
         assert "user_identities" not in _tables()
         assert "verification_delivery_outbox" not in _tables()
+        assert "recommendation_rule_sets" not in _tables()
         assert "competehub_migration_baselines" not in _tables()
         if db.engine.dialect.name == "postgresql":
             remaining_types = db.session.execute(
@@ -137,9 +140,10 @@ def _assert_fresh_upgrade_and_downgrade(app) -> None:
                     SELECT typname FROM pg_type
                     WHERE typname IN (
                         'competition_revision_status', 'competition_status',
+                        'recommendation_rule_set_status',
                         'identity_verification_status', 'reminder_status',
-                        'review_status', 'subscription_status', 'user_role',
-                        'user_status'
+                        'review_status', 'subscription_status',
+                        'user_role', 'user_status'
                     )
                     """
                 )
@@ -594,6 +598,8 @@ def _assert_legacy_upgrade_and_downgrade(app) -> None:
         assert "user_identities" in _tables()
         assert "identity_verification_challenges" in _tables()
         assert "verification_delivery_outbox" in _tables()
+        assert "recommendation_rule_sets" in _tables()
+        assert "rule_set_id" in _columns("recommendation_rules")
         assert _columns("users") >= {"session_version", "capabilities"}
         assert db.session.execute(text("SELECT COUNT(*) FROM user_identities")).scalar_one() == 2
         phone_login = app.test_client().post(
@@ -628,6 +634,8 @@ def _assert_legacy_upgrade_and_downgrade(app) -> None:
         assert "user_identities" not in _tables()
         assert "identity_verification_challenges" not in _tables()
         assert "verification_delivery_outbox" not in _tables()
+        assert "recommendation_rule_sets" not in _tables()
+        assert "rule_set_id" not in _columns("recommendation_rules")
         assert "session_version" not in _columns("users")
         assert "capabilities" not in _columns("users")
         assert (

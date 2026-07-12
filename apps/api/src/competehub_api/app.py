@@ -6,6 +6,7 @@ from typing import Any
 from flask import Flask
 
 from competehub_api.blueprints import register_blueprints
+from competehub_api.cli import register_cli_commands
 from competehub_api.config import config_from_env
 from competehub_api.e2e_seed import register_e2e_commands
 from competehub_api.errors import register_error_handlers
@@ -26,6 +27,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     import competehub_api.models  # noqa: F401
 
     register_blueprints(app)
+    register_cli_commands(app)
     register_e2e_commands(app)
     register_error_handlers(app)
 

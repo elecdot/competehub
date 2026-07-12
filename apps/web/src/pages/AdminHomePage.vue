@@ -30,6 +30,7 @@ import {
   Textarea,
 } from 'ant-design-vue'
 import { computed, onMounted, reactive, ref } from 'vue'
+import { RouterLink } from 'vue-router'
 
 import {
   createCompetitionEdition,
@@ -429,7 +430,12 @@ function displayValue(value: unknown) {
         <h1 class="page-title">赛事发布工作台</h1>
         <p class="page-description">编辑者维护候选修订，独立审核者确认差异与影响后发布。</p>
       </div>
-      <Tag color="green">P1</Tag>
+      <Space>
+        <RouterLink to="/admin/recommendation-rule-sets">
+          <Button>推荐规则治理</Button>
+        </RouterLink>
+        <Tag color="green">P1</Tag>
+      </Space>
     </header>
 
     <Result

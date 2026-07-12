@@ -7,7 +7,11 @@ from competehub_api.models.competition import (
     CompetitionTagLink,
     CompetitionTimeNode,
 )
-from competehub_api.models.configuration import RecommendationRule, SystemConfig
+from competehub_api.models.configuration import (
+    RecommendationRule,
+    RecommendationRuleSet,
+    SystemConfig,
+)
 from competehub_api.models.engagement import (
     Favorite,
     Message,
@@ -37,6 +41,7 @@ __all__ = [
     "IdentityVerificationChallenge",
     "Message",
     "RecommendationRule",
+    "RecommendationRuleSet",
     "Reminder",
     "ReminderSetting",
     "ReviewRecord",
