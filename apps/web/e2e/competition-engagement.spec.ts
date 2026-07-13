@@ -1,0 +1,178 @@
+import { expect, test } from './fixtures/actors'
+import type { SubscriptionNodeType } from '../src/types/competition'
+
+test.describe('competition engagement', () => {
+  test.use({ actorName: 'student' })
+
+  test.beforeEach(async ({ actorPage }) => {
+    const competition = await firstPublicCompetition(actorPage)
+    await actorPage.request.delete(`/api/v1/competitions/${competition.id}/favorite`)
+    await actorPage.request.delete(`/api/v1/competitions/${competition.id}/subscription`)
+  })
+
+  test('favorites and unfavorites a competition from the canonical response state', async ({
+    actorPage,
+  }) => {
+    const competition = await firstPublicCompetition(actorPage)
+    let favoriteRequests = 0
+    await actorPage.route(`**/api/v1/competitions/${competition.id}/favorite`, async (route) => {
+      if (route.request().method() !== 'POST') {
+        await route.continue()
+        return
+      }
+      favoriteRequests += 1
+      const response = await route.fetch()
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      await route.fulfill({ response })
+    })
+    await actorPage.goto(`/competitions/${competition.id}`)
+
+    const favoriteButton = actorPage.getByTestId('favorite-action')
+    await expect(favoriteButton).toHaveAttribute('aria-pressed', 'false')
+
+    const favoriteResponse = actorPage.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        response.url().endsWith(`/api/v1/competitions/${competition.id}/favorite`),
+    )
+    await favoriteButton.click()
+    await expect(favoriteButton).toBeDisabled()
+    expect(favoriteRequests).toBe(1)
+    expect((await favoriteResponse).ok()).toBeTruthy()
+    await expect(favoriteButton).toHaveAttribute('aria-pressed', 'true')
+
+    const unfavoriteResponse = actorPage.waitForResponse(
+      (response) =>
+        response.request().method() === 'DELETE' &&
+        response.url().endsWith(`/api/v1/competitions/${competition.id}/favorite`),
+    )
+    await favoriteButton.click()
+    expect((await unfavoriteResponse).ok()).toBeTruthy()
+    await expect(favoriteButton).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  test('creates, updates, cancels, and re-subscribes with complete consent', async ({ actorPage }) => {
+    const competition = await firstPublicCompetition(actorPage)
+    await actorPage.goto(`/competitions/${competition.id}`)
+
+    await actorPage.getByTestId('subscription-action').click()
+    const consent = actorPage.getByTestId('subscription-consent')
+    await expect(consent).toBeVisible()
+    await consent.getByLabel('启用提醒').uncheck()
+    await consent.getByLabel('提前天数').fill('2')
+    await selectSubscriptionNodeTypes(consent, competition.nodeTypes)
+
+    const createResponse = actorPage.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        response.url().endsWith(`/api/v1/competitions/${competition.id}/subscription`),
+    )
+    await consent.getByRole('button', { name: '确认订阅' }).click()
+    const createRequest = await createResponse
+    expect(createRequest.request().postDataJSON()).toEqual({
+      reminder_enabled: false,
+      remind_days: 2,
+      node_types: competition.nodeTypes,
+    })
+    expect(createRequest.ok()).toBeTruthy()
+    await expect(actorPage.getByTestId('subscription-summary')).toContainText('已订阅')
+
+    await actorPage.getByTestId('subscription-action').click()
+    await consent.getByLabel('启用提醒').check()
+    await consent.getByLabel('提前天数').fill('5')
+    const updateResponse = actorPage.waitForResponse(
+      (response) =>
+        response.request().method() === 'PATCH' &&
+        response.url().endsWith(`/api/v1/competitions/${competition.id}/subscription`),
+    )
+    await consent.getByRole('button', { name: '保存订阅设置' }).click()
+    const updateRequest = await updateResponse
+    expect(updateRequest.request().postDataJSON()).toEqual({
+      reminder_enabled: true,
+      remind_days: 5,
+      node_types: competition.nodeTypes,
+    })
+    expect(updateRequest.ok()).toBeTruthy()
+    await expect(actorPage.getByTestId('subscription-summary')).toContainText('提前 5 天')
+
+    const cancelResponse = actorPage.waitForResponse(
+      (response) =>
+        response.request().method() === 'DELETE' &&
+        response.url().endsWith(`/api/v1/competitions/${competition.id}/subscription`),
+    )
+    await actorPage.getByTestId('subscription-cancel').click()
+    expect((await cancelResponse).ok()).toBeTruthy()
+    await expect(actorPage.getByTestId('subscription-summary')).toContainText('未订阅')
+
+    await actorPage.getByTestId('subscription-action').click()
+    await selectSubscriptionNodeTypes(consent, competition.nodeTypes)
+    const resubscribeResponse = actorPage.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        response.url().endsWith(`/api/v1/competitions/${competition.id}/subscription`),
+    )
+    await consent.getByRole('button', { name: '确认订阅' }).click()
+    expect((await resubscribeResponse).ok()).toBeTruthy()
+    await expect(actorPage.getByTestId('subscription-summary')).toContainText('已订阅')
+  })
+})
+
+test('anonymous engagement login returns to the competition without replaying an action', async ({ page }) => {
+  const competition = await firstPublicCompetition(page)
+  await page.request.delete(`/api/v1/competitions/${competition.id}/favorite`)
+  await page.goto(`/competitions/${competition.id}`)
+
+  await page.getByTestId('favorite-action').click()
+  await expect(page).toHaveURL(
+    new RegExp(`/me\\?returnTo=/competitions/${competition.id}`),
+  )
+
+  await page.locator('input[autocomplete="username"]').fill('student.day1@example.edu')
+  await page.locator('input[autocomplete="current-password"]').fill('violet harbor lantern orbit 47')
+  await page.getByRole('button', { name: '登录' }).click()
+
+  await expect(page).toHaveURL(new RegExp(`/competitions/${competition.id}$`))
+  await expect(page.getByTestId('favorite-action')).toHaveAttribute('aria-pressed', 'false')
+})
+
+async function firstPublicCompetition(page: import('@playwright/test').Page) {
+  const response = await page.request.get('/api/v1/competitions?page=1&page_size=1')
+  expect(response).toBeOK()
+  const payload = (await response.json()) as { data: { items: Array<{ id: number }> } }
+  const competition = payload.data.items[0]
+  expect(competition, 'the e2e seed should include a public competition').toBeDefined()
+  if (!competition) throw new Error('the e2e seed should include a public competition')
+
+  const detailResponse = await page.request.get(`/api/v1/competitions/${competition.id}`)
+  expect(detailResponse).toBeOK()
+  const detail = (await detailResponse.json()) as {
+    data: { time_nodes: Array<{ node_type: string }> }
+  }
+  const nodeTypes = detail.data.time_nodes
+    .map((node) => node.node_type)
+    .filter(isSubscriptionNodeType)
+  expect(nodeTypes, 'the public competition should expose a selectable reminder node').not.toEqual([])
+  return { ...competition, nodeTypes }
+}
+
+async function selectSubscriptionNodeTypes(
+  consent: import('@playwright/test').Locator,
+  nodeTypes: SubscriptionNodeType[],
+) {
+  const labels: Record<SubscriptionNodeType, string> = {
+    registration_deadline: '报名截止',
+    submission_deadline: '作品提交截止',
+    competition_start: '比赛开始',
+  }
+  for (const nodeType of nodeTypes) {
+    await consent.getByLabel(labels[nodeType]).check()
+  }
+}
+
+function isSubscriptionNodeType(nodeType: string): nodeType is SubscriptionNodeType {
+  return (
+    nodeType === 'registration_deadline' ||
+    nodeType === 'submission_deadline' ||
+    nodeType === 'competition_start'
+  )
+}

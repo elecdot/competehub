@@ -117,6 +117,7 @@ nav:
           - Measure Recommendation Impressions and Clicks without User Tracking: adr/0034-measure-recommendation-impressions-and-clicks-without-user-tracking.md
           - Require Complementary Review Audit and Statistics Evidence: adr/0035-require-complementary-review-audit-and-statistics-evidence.md
           - Reactivate Edition Subscriptions without Duplicating Reminder Plans: adr/0036-reactivate-edition-subscriptions-without-duplicating-reminder-plans.md
+          - Preserve Cancelled Reminder Plans through Preference Changes: adr/0037-preserve-cancelled-reminder-plans-through-preference-changes.md
   - Delivery:
       - Project Workflow: project_workflow.md
       - Testing Model: testing.md

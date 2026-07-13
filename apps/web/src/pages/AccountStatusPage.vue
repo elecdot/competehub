@@ -14,12 +14,15 @@ import {
   Tag as ATag,
 } from 'ant-design-vue'
 import { computed, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
 import { fetchCurrentProfile, fetchProfileOptions, updateCurrentProfile } from '@/api/client'
 import { useAuthStore } from '@/stores/auth_store'
 import type { IdentityType, LoginPayload, ProfileOptions, StudentProfile } from '@/types/auth'
 
 const auth = useAuthStore()
+const route = useRoute()
+const router = useRouter()
 const profile = ref<StudentProfile | null>(null)
 const profileOptions = ref<ProfileOptions | null>(null)
 const profileLoading = ref(false)
@@ -77,9 +80,19 @@ async function submitLogin() {
   try {
     await auth.login(loginForm.value)
     await loadProfile()
+    const returnTo = getSafeReturnPath(route.query.returnTo)
+    if (returnTo) {
+      await router.replace(returnTo)
+    }
   } catch {
     loginError.value = '登录失败'
   }
+}
+
+function getSafeReturnPath(value: unknown) {
+  if (typeof value !== 'string') return null
+  if (!value.startsWith('/') || value.startsWith('//') || value.includes('\\')) return null
+  return value
 }
 
 async function loadProfile() {

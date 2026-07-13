@@ -3,7 +3,7 @@ from __future__ import annotations
 from marshmallow import Schema, ValidationError, fields, validate, validates_schema
 
 from competehub_api.models.enums import ParticipantForm
-from competehub_api.schemas.common import NonBlankString, UtcDateTime
+from competehub_api.schemas.common import NonBlankString, StrictBoolean, UtcDateTime
 from competehub_api.services.competition_discovery import (
     competition_tag_names,
     next_time_node,
@@ -43,6 +43,36 @@ class CompetitionListQuerySchema(Schema):
             raise ValidationError(
                 "Deadline end must not be before deadline start.",
                 field_name="deadline_to",
+            )
+
+
+SUBSCRIPTION_NODE_TYPES = (
+    "registration_deadline",
+    "submission_deadline",
+    "competition_start",
+)
+
+
+class SubscriptionCreateSchema(Schema):
+    reminder_enabled = StrictBoolean(required=True)
+    remind_days = fields.Integer(
+        required=True,
+        strict=True,
+        validate=validate.Range(min=0, max=30),
+    )
+    node_types = fields.List(
+        fields.String(validate=validate.OneOf(SUBSCRIPTION_NODE_TYPES)),
+        required=True,
+        validate=validate.Length(min=1),
+    )
+
+    @validates_schema
+    def validate_unique_node_types(self, data, **kwargs):
+        node_types = data.get("node_types", [])
+        if len(node_types) != len(set(node_types)):
+            raise ValidationError(
+                "Node types must not contain duplicates.",
+                field_name="node_types",
             )
 
 
@@ -95,8 +125,10 @@ class PublicCompetitionSummarySchema(Schema):
     grade_scope = fields.Function(lambda competition: _revision_value(competition, "grade_scope"))
     value_notes = fields.Function(lambda competition: _revision_value(competition, "value_notes"))
     next_node = fields.Method("serialize_next_node")
-    is_favorited = fields.Constant(False)
-    is_subscribed = fields.Constant(False)
+    is_favorited = fields.Function(lambda competition: getattr(competition, "is_favorited", False))
+    is_subscribed = fields.Function(
+        lambda competition: getattr(competition, "is_subscribed", False)
+    )
 
     def serialize_tags(self, competition):
         return competition_tag_names(competition)
@@ -140,6 +172,7 @@ class PublicCompetitionPageSchema(Schema):
 
 
 competition_list_query_schema = CompetitionListQuerySchema()
+subscription_create_schema = SubscriptionCreateSchema()
 public_competition_time_node_schema = PublicCompetitionTimeNodeSchema()
 public_competition_detail_schema = PublicCompetitionDetailSchema()
 public_competition_page_schema = PublicCompetitionPageSchema()

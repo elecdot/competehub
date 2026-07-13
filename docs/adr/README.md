@@ -52,6 +52,7 @@ Use numbered lowercase filenames:
 - [0034 Measure Recommendation Impressions and Clicks without User Tracking](./0034-measure-recommendation-impressions-and-clicks-without-user-tracking.md)
 - [0035 Require Complementary Review Audit and Statistics Evidence](./0035-require-complementary-review-audit-and-statistics-evidence.md)
 - [0036 Reactivate Edition Subscriptions without Duplicating Reminder Plans](./0036-reactivate-edition-subscriptions-without-duplicating-reminder-plans.md)
+- [0037 Preserve Cancelled Reminder Plans through Preference Changes](./0037-preserve-cancelled-reminder-plans-through-preference-changes.md)
 
 ## Template
 

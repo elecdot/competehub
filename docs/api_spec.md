@@ -300,7 +300,10 @@ Requires authentication.
 Return current student's profile plus its dynamically derived readiness state.
 `profile_status` is `incomplete` or `recommendation_ready`; `missing_fields`
 contains any of `college`, `major`, `grade`, or `interest_tags`. The readiness
-state is not stored independently.
+state is not stored independently. Student profile and global reminder-setting
+rows are provisioned when a student account becomes active or is governed into
+the student role; these read and update routes do not create missing rows
+lazily.
 
 Response data example:
 
@@ -385,8 +388,9 @@ The global reminder values belong to `reminder_settings`, even though this
 combined preference API returns them with recommendation preferences. Defaults
 are enabled, three days, and the listed core node types, but they only prefill a
 subscription confirmation. Disabling `message_enabled` cancels all pending
-plans while preserving subscriptions and calendar nodes; re-enabling reconciles
-future eligible plans only.
+plans while preserving subscriptions and calendar nodes. Re-enabling changes
+only the global setting: it does not restore cancelled plans or create plans
+from existing subscriptions.
 
 `reminder_settings` is authoritative when a row already exists. The #38
 successor migration creates a missing row from the legacy profile values and
@@ -659,7 +663,7 @@ Cancel favorite.
 
 Requires `student`.
 
-### `POST /competitions/{id}/subscribe`
+### `POST /competitions/{id}/subscription`
 
 Subscribe to a competition and, only after explicit configuration, create
 eligible pending reminders. The first subscription UI must show a confirmation
@@ -695,6 +699,27 @@ switch is disabled, or `no_future_eligible_nodes` when reminders are effectively
 enabled but every matching trigger is non-future. Trigger times already in the
 past are not backfilled as immediate due reminders.
 
+Successful POST and PATCH responses use the normal envelope and expose only the
+student-facing subscription summary:
+
+```json
+{
+  "data": {
+    "competition_id": 1,
+    "status": "active",
+    "is_subscribed": true,
+    "reminder_enabled": true,
+    "remind_days": 3,
+    "node_types": ["registration_deadline"],
+    "reminder_confirmed_at": "2026-07-13T00:00:00+00:00",
+    "scheduled_reminder_count": 1,
+    "next_reminder_at": "2026-08-15T16:00:00+00:00",
+    "unscheduled_reason": null
+  },
+  "error": null
+}
+```
+
 The first POST that creates the edition-bound relation returns `201 Created`.
 POST against an active relation returns `200 OK` without replacing its existing
 consent, even when the repeated payload differs. POST against a cancelled
@@ -703,32 +728,32 @@ fresh complete payload, reuses the relation, replaces its current configuration
 and `reminder_confirmed_at`, and reconciles plans under the rules below. The
 subscription stores only the latest consent, not immutable consent generations.
 
-Re-subscription or explicit PATCH may return an unsent cancelled ordinary plan
-to pending only for `subscription_cancelled`, `reminder_disabled`,
-`node_type_removed`, or `subscription_offset_not_future`. The service must use
-the current published immutable node snapshot, recalculate `due_at` from the new
-offset and one captured `now`, and require `due_at > now`. It never restores a
-sent or failed plan, an old node revision, or a plan cancelled by global
-settings, lifecycle, node deletion, revision supersession, dispatch, or another
-reconciliation workflow. A new current node revision receives its own ordinary
-plan under the complete unique key.
+P1 does not reactivate a cancelled ordinary plan. Re-subscription and PATCH
+retain cancellation evidence, including plans cancelled by a subscription
+choice or the global switch. They can refresh an already-pending matching plan;
+a new immutable node revision may receive a new ordinary plan under the complete
+unique key when its trigger is still future. Sent and failed evidence is never
+restored or rewritten.
 
 ### `PATCH /competitions/{id}/subscription`
 
 Update reminder settings for an existing subscription using the same explicit
 fields as subscription creation. Turning reminders off cancels pending plans but
 does not cancel the subscription or remove its calendar nodes. Turning them on
-reconciles only future eligible plans. Plan creation or restoration requires
-both the confirmed subscription switch and current global reminder switch. The
-edition must still be `published`; historical or offline relations can be
-removed but not reconfigured. Global-switch changes and cross-subscription
-reconciliation remain owned by the reminder reconciliation workflow.
+does not restore previously cancelled plans. New plans require both the
+confirmed subscription switch and the current global reminder switch to be
+enabled. The edition must still be `published`; historical or offline relations
+can be removed but not reconfigured.
 
-### `DELETE /competitions/{id}/subscribe`
+### `DELETE /competitions/{id}/subscription`
 
 Cancel subscription and future pending reminders with
 `cancel_reason=subscription_cancelled`. First and repeated DELETE return
 `200 OK` with the final cancelled state and never alter sent evidence.
+
+Its response data is `{ "competition_id": 1, "status": "cancelled",
+"is_subscribed": false }`; cancellation reasons and reminder internals are not
+public response fields.
 
 Requires `student`.
 

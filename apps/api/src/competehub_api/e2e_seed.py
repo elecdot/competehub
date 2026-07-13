@@ -13,6 +13,7 @@ from competehub_api.models import (
     CompetitionSeries,
     CompetitionStage,
     CompetitionTimeNode,
+    ReminderSetting,
     ReviewRecord,
     StudentProfile,
     User,
@@ -27,6 +28,7 @@ from competehub_api.models.enums import (
     UserStatus,
 )
 from competehub_api.services.auth import hash_password, normalize_identity
+from competehub_api.services.profiles import DEFAULT_REMINDER_NODE_TYPES
 
 
 @dataclass(frozen=True)
@@ -144,16 +146,26 @@ def register_e2e_commands(app: Flask) -> None:
         db.session.add_all(users)
         db.session.flush()
         for actor in SEEDED_E2E_ACTORS:
-            if actor.role == UserRole.STUDENT and actor.profile is not None:
+            if actor.role == UserRole.STUDENT:
+                profile = actor.profile or {}
                 db.session.add(
                     StudentProfile(
                         user_id=actor.id,
-                        interest_tags=actor.profile.get("interest_tags", []),
-                        college=actor.profile.get("college"),
-                        major=actor.profile.get("major"),
-                        grade=actor.profile.get("grade"),
+                        interest_tags=profile.get("interest_tags", []),
+                        college=profile.get("college"),
+                        major=profile.get("major"),
+                        grade=profile.get("grade"),
                         goal_preferences=[],
                         blocked_tags=[],
+                    )
+                )
+                db.session.add(
+                    ReminderSetting(
+                        id=actor.id,
+                        user_id=actor.id,
+                        enabled=True,
+                        default_remind_days=3,
+                        node_types=list(DEFAULT_REMINDER_NODE_TYPES),
                     )
                 )
         _seed_publication_fixture()

@@ -52,6 +52,34 @@ export interface CompetitionDetail extends CompetitionSummary {
   time_nodes: CompetitionTimeNode[]
 }
 
+export type SubscriptionNodeType =
+  | 'registration_deadline'
+  | 'submission_deadline'
+  | 'competition_start'
+
+export interface SubscriptionConsent {
+  reminder_enabled: boolean
+  remind_days: number
+  node_types: SubscriptionNodeType[]
+}
+
+export interface FavoriteState {
+  is_favorited: boolean
+}
+
+export interface SubscriptionSummary extends SubscriptionConsent {
+  is_subscribed: boolean
+  scheduled_reminder_count?: number
+  next_reminder_at?: string | null
+  unscheduled_reason?: string | null
+}
+
+export interface SubscriptionCancellation {
+  competition_id: number
+  status: 'cancelled'
+  is_subscribed: false
+}
+
 export interface Pagination {
   page: number
   page_size: number

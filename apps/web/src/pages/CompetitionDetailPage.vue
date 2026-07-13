@@ -13,11 +13,24 @@ import {
   Tag as ATag,
 } from 'ant-design-vue'
 import { isAxiosError } from 'axios'
-import { onMounted, ref } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
+import { computed, onMounted, ref } from 'vue'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 
-import { fetchCompetitionDetail } from '@/api/client'
-import type { CompetitionDetail } from '@/types/competition'
+import {
+  cancelCompetitionSubscription,
+  createCompetitionSubscription,
+  favoriteCompetition,
+  fetchCompetitionDetail,
+  unfavoriteCompetition,
+  updateCompetitionSubscription,
+} from '@/api/client'
+import { useAuthStore } from '@/stores/auth_store'
+import type {
+  CompetitionDetail,
+  SubscriptionConsent,
+  SubscriptionNodeType,
+  SubscriptionSummary,
+} from '@/types/competition'
 import {
   formatNodeDate,
   formatNodeLabel,
@@ -25,10 +38,42 @@ import {
 } from '@/utils/competition'
 
 const route = useRoute()
+const router = useRouter()
+const auth = useAuthStore()
 const competition = ref<CompetitionDetail | null>(null)
 const loading = ref(false)
 const errorMessage = ref('')
 const notFound = ref(false)
+const favoritePending = ref(false)
+const subscriptionPending = ref(false)
+const engagementError = ref('')
+const showSubscriptionConsent = ref(false)
+const subscriptionSummary = ref<SubscriptionSummary | null>(null)
+const subscriptionForm = ref<SubscriptionConsent>({
+  reminder_enabled: true,
+  remind_days: 3,
+  node_types: [],
+})
+const subscriptionNodeOptions: Array<{ value: SubscriptionNodeType; label: string }> = [
+  { value: 'registration_deadline', label: '报名截止' },
+  { value: 'submission_deadline', label: '作品提交截止' },
+  { value: 'competition_start', label: '比赛开始' },
+]
+const isStudent = computed(() => auth.currentUser?.role === 'student')
+const canStartEngagement = computed(() => auth.currentUser === null || isStudent.value)
+const availableSubscriptionNodeTypes = computed<SubscriptionNodeType[]>(() => {
+  if (!competition.value) return []
+  return subscriptionNodeOptions
+    .map((option) => option.value)
+    .filter((nodeType) => competition.value?.time_nodes.some((node) => node.node_type === nodeType))
+})
+const subscriptionFormIsValid = computed(
+  () =>
+    Number.isInteger(subscriptionForm.value.remind_days) &&
+    subscriptionForm.value.remind_days >= 0 &&
+    subscriptionForm.value.remind_days <= 30 &&
+    subscriptionForm.value.node_types.length > 0,
+)
 
 async function loadCompetition() {
   const routeId = Array.isArray(route.params.id) ? route.params.id[0] : route.params.id
@@ -58,7 +103,91 @@ async function loadCompetition() {
   }
 }
 
+function loginForEngagement() {
+  const target = router.resolve({ name: 'competition-detail', params: { id: route.params.id } })
+  void router.push({ name: 'account-status', query: { returnTo: target.fullPath } })
+}
+
+async function toggleFavorite() {
+  if (!competition.value || favoritePending.value) return
+  if (!auth.currentUser) {
+    loginForEngagement()
+    return
+  }
+  if (!isStudent.value) return
+
+  favoritePending.value = true
+  engagementError.value = ''
+  try {
+    const state = competition.value.is_favorited
+      ? await unfavoriteCompetition(competition.value.id)
+      : await favoriteCompetition(competition.value.id)
+    competition.value.is_favorited = state.is_favorited
+  } catch {
+    engagementError.value = '收藏操作失败，请稍后重试。'
+  } finally {
+    favoritePending.value = false
+  }
+}
+
+function openSubscriptionConsent() {
+  if (!competition.value || subscriptionPending.value) return
+  if (!auth.currentUser) {
+    loginForEngagement()
+    return
+  }
+  if (!isStudent.value) return
+
+  engagementError.value = ''
+  const previous = subscriptionSummary.value
+  subscriptionForm.value = {
+    reminder_enabled: previous?.reminder_enabled ?? true,
+    remind_days: previous?.remind_days ?? 3,
+    node_types:
+      previous?.node_types?.filter((type) => availableSubscriptionNodeTypes.value.includes(type)) ?? [],
+  }
+  showSubscriptionConsent.value = true
+}
+
+async function saveSubscription() {
+  if (!competition.value || subscriptionPending.value || !subscriptionFormIsValid.value) return
+  subscriptionPending.value = true
+  engagementError.value = ''
+  try {
+    const payload: SubscriptionConsent = {
+      reminder_enabled: subscriptionForm.value.reminder_enabled,
+      remind_days: subscriptionForm.value.remind_days,
+      node_types: [...subscriptionForm.value.node_types],
+    }
+    subscriptionSummary.value = competition.value.is_subscribed
+      ? await updateCompetitionSubscription(competition.value.id, payload)
+      : await createCompetitionSubscription(competition.value.id, payload)
+    competition.value.is_subscribed = subscriptionSummary.value.is_subscribed
+    showSubscriptionConsent.value = false
+  } catch {
+    engagementError.value = '订阅设置保存失败，请检查后重试。'
+  } finally {
+    subscriptionPending.value = false
+  }
+}
+
+async function cancelSubscription() {
+  if (!competition.value || subscriptionPending.value || !isStudent.value) return
+  subscriptionPending.value = true
+  engagementError.value = ''
+  try {
+    const cancellation = await cancelCompetitionSubscription(competition.value.id)
+    subscriptionSummary.value = null
+    competition.value.is_subscribed = cancellation.is_subscribed
+  } catch {
+    engagementError.value = '取消订阅失败，请稍后重试。'
+  } finally {
+    subscriptionPending.value = false
+  }
+}
+
 onMounted(() => {
+  void auth.loadCurrentUser()
   void loadCompetition()
 })
 </script>
@@ -211,6 +340,96 @@ onMounted(() => {
       <section v-if="competition.eligibility" class="detail-section detail-section-wide">
         <h2>参赛要求</h2>
         <p class="detail-copy">{{ competition.eligibility }}</p>
+      </section>
+
+      <section
+        v-if="!auth.loading && canStartEngagement"
+        class="detail-section detail-section-wide"
+        aria-labelledby="engagement-heading"
+      >
+        <h2 id="engagement-heading">收藏与订阅</h2>
+        <p v-if="engagementError" role="alert" class="field-error">{{ engagementError }}</p>
+        <div class="filter-actions">
+          <AButton
+            data-testid="favorite-action"
+            :aria-pressed="competition.is_favorited"
+            :loading="favoritePending"
+            :disabled="favoritePending"
+            @click="toggleFavorite"
+          >
+            {{ competition.is_favorited ? '取消收藏' : '收藏' }}
+          </AButton>
+          <AButton
+            data-testid="subscription-action"
+            type="primary"
+            :loading="subscriptionPending"
+            :disabled="subscriptionPending"
+            @click="openSubscriptionConsent"
+          >
+            {{ competition.is_subscribed ? '修改订阅设置' : '订阅赛事' }}
+          </AButton>
+          <AButton
+            v-if="competition.is_subscribed && auth.currentUser"
+            data-testid="subscription-cancel"
+            danger
+            :loading="subscriptionPending"
+            :disabled="subscriptionPending"
+            @click="cancelSubscription"
+          >
+            取消订阅
+          </AButton>
+        </div>
+
+        <p data-testid="subscription-summary">
+          <template v-if="competition.is_subscribed">
+            已订阅
+            <template v-if="subscriptionSummary">
+              ：{{ subscriptionSummary.reminder_enabled ? '已启用提醒' : '提醒已关闭' }}，提前
+              {{ subscriptionSummary.remind_days }} 天
+              <span v-if="subscriptionSummary.scheduled_reminder_count !== undefined">
+                ，已安排 {{ subscriptionSummary.scheduled_reminder_count }} 个提醒
+              </span>
+            </template>
+          </template>
+          <template v-else>未订阅</template>
+        </p>
+
+        <form
+          v-if="showSubscriptionConsent"
+          data-testid="subscription-consent"
+          class="profile-form"
+          @submit.prevent="saveSubscription"
+        >
+          <p>请确认本次订阅的提醒设置。</p>
+          <label>
+            <input v-model="subscriptionForm.reminder_enabled" type="checkbox" />
+            启用提醒
+          </label>
+          <label>
+            提前天数
+            <input v-model.number="subscriptionForm.remind_days" type="number" min="0" max="30" />
+          </label>
+          <fieldset>
+            <legend>提醒节点</legend>
+            <label v-for="option in subscriptionNodeOptions" :key="option.value">
+              <input
+                v-model="subscriptionForm.node_types"
+                type="checkbox"
+                :value="option.value"
+                :disabled="!availableSubscriptionNodeTypes.includes(option.value)"
+              />
+              {{ option.label }}
+            </label>
+          </fieldset>
+          <AButton
+            type="primary"
+            html-type="submit"
+            :loading="subscriptionPending"
+            :disabled="subscriptionPending || !subscriptionFormIsValid"
+          >
+            {{ competition.is_subscribed ? '保存订阅设置' : '确认订阅' }}
+          </AButton>
+        </form>
       </section>
     </article>
   </section>

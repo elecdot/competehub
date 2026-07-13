@@ -403,7 +403,7 @@ Redis 不用于：
 - `GET /api/v1/competitions`
 - `GET /api/v1/competitions/{id}`
 - `POST /api/v1/competitions/{id}/favorite`
-- `POST /api/v1/competitions/{id}/subscribe`
+- `POST /api/v1/competitions/{id}/subscription`
 - `GET /api/v1/me/calendar`
 - `GET /api/v1/me/messages`
 - `POST /api/v1/me/messages/{id}/read`

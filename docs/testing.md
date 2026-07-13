@@ -51,6 +51,12 @@ project conventions.
 | E2E or manual acceptance | Course demo main workflow and cross-role handoff. | Use the shared Playwright Chromium harness through `just web-e2e`. It starts with deterministic student/editor/reviewer Cookie sessions and a nonblank smoke path, then feature issues add distinct editor/reviewer publication, calendar, recommendation, and governance scenarios. Use manual acceptance for exploratory and visual checks. | `just web-e2e` plus an acceptance record with date, actor, environment, result, and linked defects. |
 | Documentation and workflow checks | MkDocs navigation, source-of-truth alignment, PR checklist completeness. | Use `just docs-build`; require issue/PR validation evidence before marking done. | `just docs-build` and PR checklist review. |
 
+Issue #38 adds SQLite-backed API and migration coverage plus a PostgreSQL-only
+concurrency suite. The latter is not interchangeable with SQLite: run
+`just api-migration-test-postgres` and
+`apps/api/tests/test_issue38_postgresql_concurrency.py` against a real
+PostgreSQL environment before claiming the slice or issue complete.
+
 ## TDD Usage
 
 Use TDD when the change affects observable behavior and a reasonable automated

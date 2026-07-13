@@ -703,8 +703,8 @@ Rules:
 - Subscription-level settings are copied from the student's confirmed choice
   and may differ from later global defaults.
 - Disabling global reminders cancels pending plans with a global-disabled
-  reason while preserving subscriptions and calendar nodes. Re-enabling
-  reconciles only future eligible plans.
+  reason while preserving subscriptions and calendar nodes. Re-enabling does
+  not restore cancelled plans or create plans from existing subscriptions.
 
 ### `reminders`
 
@@ -742,14 +742,12 @@ Rules:
   another edition without duplicate delivery inside one node revision.
 - #38 controls the cancellation reasons `subscription_cancelled`,
   `reminder_disabled`, `node_type_removed`, and
-  `subscription_offset_not_future`. Explicit PATCH or re-subscription may
-  reactivate only an unsent row with one of those reasons, after recalculating a
-  future trigger from the current matching immutable snapshot. Sent and failed
-  rows and global-, lifecycle-, deletion-, or supersession-cancelled rows remain
-  terminal for this workflow.
-- Initial plan creation and user-explicit reactivation require both the
-  subscription's confirmed reminder switch and the current global reminder
-  switch. Global-switch changes reconcile existing subscriptions outside #38.
+  `subscription_offset_not_future`, plus `global_reminder_disabled`. Cancellation
+  evidence is terminal for #38: PATCH, re-subscription, and global re-enablement
+  do not reactivate any cancelled row. Sent and failed rows are likewise never
+  rewritten.
+- Initial plan creation requires both the subscription's confirmed reminder
+  switch and the current global reminder switch.
 - Worker tasks must be idempotent.
 - Competition cancellation, offline status, or time node deletion should cancel pending reminders.
 - When a changed node receives a new `node_revision`, reconciliation cancels
@@ -759,7 +757,7 @@ Rules:
   so current public content is used without changing due time or plan identity.
 - Sent reminders are immutable and are never rewritten after a schedule change.
 - Trigger instants already in the past are not backfilled as immediate ordinary
-  reminders after subscription, re-enablement, or reconciliation.
+  reminders after subscription or reconciliation.
 
 ### `messages`
 

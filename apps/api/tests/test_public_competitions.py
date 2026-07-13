@@ -11,9 +11,20 @@ from competehub_api.models import (
     CompetitionTag,
     CompetitionTagLink,
     CompetitionTimeNode,
+    Favorite,
+    Reminder,
+    Subscription,
     User,
 )
-from competehub_api.models.enums import CompetitionRevisionStatus, CompetitionStatus, UserRole
+from competehub_api.models.enums import (
+    CompetitionRevisionStatus,
+    CompetitionStatus,
+    ReminderStatus,
+    SubscriptionStatus,
+    UserRole,
+)
+from competehub_api.services.profiles import provision_student_owned_rows
+from competehub_api.timezones import stored_datetime_as_utc
 
 
 @pytest.fixture(autouse=True)
@@ -178,6 +189,27 @@ def seed_day1_competitions() -> None:
     for competition in (ai_challenge, fallback, no_time):
         attach_approved_revision(competition, publisher.id)
     db.session.commit()
+
+
+def sign_in_as(client, app, *, role: UserRole = UserRole.STUDENT) -> int:
+    with app.app_context():
+        user = User(
+            password_hash="not-used",
+            display_name="Engagement Test User",
+            role=role,
+        )
+        db.session.add(user)
+        db.session.commit()
+        user_id = user.id
+        session_version = user.session_version
+
+    with client.session_transaction() as browser_session:
+        browser_session["user_id"] = user_id
+        browser_session["session_version"] = session_version
+        now = datetime.now(UTC).isoformat()
+        browser_session["issued_at"] = now
+        browser_session["last_activity_at"] = now
+    return user_id
 
 
 def attach_approved_revision(competition: Competition, publisher_id: int) -> CompetitionRevision:
@@ -448,3 +480,684 @@ def test_public_competition_requires_published_revision_pointer(client) -> None:
 
     assert response.status_code == 404
     assert response.get_json()["error"]["code"] == "not_found"
+
+
+def test_favorite_post_creates_reactivates_and_is_owner_scoped(client, app) -> None:
+    student_id = sign_in_as(client, app)
+
+    created = client.post("/api/v1/competitions/101/favorite")
+    repeated = client.post("/api/v1/competitions/101/favorite")
+    with app.app_context():
+        favorite = (
+            db.session.query(Favorite).filter_by(user_id=student_id, competition_id=101).one()
+        )
+        favorite.is_active = False
+        db.session.commit()
+    reactivated = client.post("/api/v1/competitions/101/favorite")
+
+    assert created.status_code == 201
+    assert repeated.status_code == 200
+    assert reactivated.status_code == 200
+    assert created.get_json()["data"] == {"competition_id": 101, "is_favorited": True}
+    assert repeated.get_json()["data"] == {"competition_id": 101, "is_favorited": True}
+    assert reactivated.get_json()["data"] == {"competition_id": 101, "is_favorited": True}
+    with app.app_context():
+        assert db.session.query(Favorite).filter_by(competition_id=101).count() == 1
+        assert (
+            db.session.query(Favorite)
+            .filter_by(user_id=student_id, competition_id=101)
+            .one()
+            .is_active
+            is True
+        )
+
+
+def test_favorite_delete_is_idempotent_and_does_not_create_absent_relation(client, app) -> None:
+    student_id = sign_in_as(client, app)
+
+    absent = client.delete("/api/v1/competitions/101/favorite")
+    assert absent.status_code == 200
+    with app.app_context():
+        assert (
+            db.session.query(Favorite).filter_by(user_id=student_id, competition_id=101).count()
+            == 0
+        )
+
+    assert client.post("/api/v1/competitions/101/favorite").status_code == 201
+    deleted = client.delete("/api/v1/competitions/101/favorite")
+    repeated = client.delete("/api/v1/competitions/101/favorite")
+
+    assert deleted.status_code == 200
+    assert repeated.status_code == 200
+    assert deleted.get_json()["data"] == {"competition_id": 101, "is_favorited": False}
+    assert repeated.get_json()["data"] == {"competition_id": 101, "is_favorited": False}
+    with app.app_context():
+        favorite = (
+            db.session.query(Favorite).filter_by(user_id=student_id, competition_id=101).one()
+        )
+        assert favorite.is_active is False
+
+
+def test_favorite_read_state_is_personalized_for_list_and_detail(client, app) -> None:
+    student_id = sign_in_as(client, app)
+    with app.app_context():
+        db.session.add(Favorite(id=1, user_id=student_id, competition_id=101, is_active=True))
+        db.session.commit()
+
+    list_response = client.get("/api/v1/competitions")
+    detail_response = client.get("/api/v1/competitions/101")
+
+    assert {item["id"]: item["is_favorited"] for item in list_response.get_json()["data"]["items"]}[
+        101
+    ] is True
+    assert detail_response.get_json()["data"]["is_favorited"] is True
+
+    other_client = app.test_client()
+    sign_in_as(other_client, app)
+    assert other_client.get("/api/v1/competitions/101").get_json()["data"]["is_favorited"] is False
+
+
+def test_favorite_mutations_require_an_authenticated_student(client, app) -> None:
+    assert client.post("/api/v1/competitions/101/favorite").status_code == 401
+    assert client.delete("/api/v1/competitions/101/favorite").status_code == 401
+
+    sign_in_as(client, app, role=UserRole.ADMIN)
+    assert client.post("/api/v1/competitions/101/favorite").status_code == 403
+    assert client.delete("/api/v1/competitions/101/favorite").status_code == 403
+
+
+@pytest.mark.parametrize(
+    ("status", "expected_status"),
+    [
+        (CompetitionStatus.CANCELLED, 201),
+        (CompetitionStatus.ARCHIVED, 201),
+        (CompetitionStatus.EXPIRED, 201),
+        (CompetitionStatus.OFFLINE, 409),
+        (CompetitionStatus.UNPUBLISHED, 409),
+    ],
+)
+def test_favorite_lifecycle_alignment(client, app, status, expected_status) -> None:
+    sign_in_as(client, app)
+    with app.app_context():
+        competition = db.session.get(Competition, 101)
+        competition.status = status
+        db.session.commit()
+
+    response = client.post("/api/v1/competitions/101/favorite")
+
+    assert response.status_code == expected_status
+    if expected_status == 409:
+        assert response.get_json()["error"]["code"] == "engagement_unavailable"
+
+
+@pytest.mark.parametrize("competition_id", [130, 999])
+def test_favorite_missing_edition_or_competition_returns_not_found(
+    client, app, competition_id
+) -> None:
+    sign_in_as(client, app)
+
+    response = client.post(f"/api/v1/competitions/{competition_id}/favorite")
+
+    assert response.status_code == 404
+    assert response.get_json()["error"]["code"] == "not_found"
+
+
+def subscription_payload(**overrides) -> dict:
+    payload = {
+        "reminder_enabled": True,
+        "remind_days": 3,
+        "node_types": ["registration_deadline", "submission_deadline"],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_subscription_first_create_records_explicit_consent_and_pending_plans(client, app) -> None:
+    student_id = sign_in_as(client, app)
+
+    response = client.post(
+        "/api/v1/competitions/101/subscription",
+        json=subscription_payload(),
+    )
+
+    assert response.status_code == 201
+    data = response.get_json()["data"]
+    assert data["competition_id"] == 101
+    assert data["status"] == "active"
+    assert data["is_subscribed"] is True
+    assert data["reminder_enabled"] is True
+    assert data["remind_days"] == 3
+    assert data["node_types"] == ["registration_deadline", "submission_deadline"]
+    assert data["reminder_confirmed_at"] is not None
+    assert data["scheduled_reminder_count"] == 2
+    assert data["next_reminder_at"] is not None
+    assert data["unscheduled_reason"] is None
+    with app.app_context():
+        subscription = (
+            db.session.query(Subscription).filter_by(user_id=student_id, competition_id=101).one()
+        )
+        reminders = (
+            db.session.query(Reminder).filter_by(user_id=student_id, competition_id=101).all()
+        )
+        assert subscription.reminder_confirmed_at is not None
+        assert {reminder.node_type for reminder in reminders} == {
+            "registration_deadline",
+            "submission_deadline",
+        }
+        assert all(reminder.status.value == "pending" for reminder in reminders)
+        assert {stored_datetime_as_utc(reminder.due_at) for reminder in reminders} == {
+            datetime(2026, 8, 12, 16, 0, tzinfo=UTC),
+            datetime(2026, 9, 7, 16, 0, tzinfo=UTC),
+        }
+        assert all(reminder.logical_node_key for reminder in reminders)
+        assert {reminder.time_node_revision for reminder in reminders} == {1}
+
+
+def test_subscription_reminders_disabled_retains_confirmation_without_plans(client, app) -> None:
+    student_id = sign_in_as(client, app)
+
+    response = client.post(
+        "/api/v1/competitions/101/subscription",
+        json=subscription_payload(reminder_enabled=False),
+    )
+
+    assert response.status_code == 201
+    data = response.get_json()["data"]
+    assert data["competition_id"] == 101
+    assert data["status"] == "active"
+    assert data["is_subscribed"] is True
+    assert data["reminder_enabled"] is False
+    assert data["remind_days"] == 3
+    assert data["node_types"] == ["registration_deadline", "submission_deadline"]
+    assert data["reminder_confirmed_at"] is not None
+    assert data["scheduled_reminder_count"] == 0
+    assert data["next_reminder_at"] is None
+    assert data["unscheduled_reason"] == "reminder_disabled"
+    with app.app_context():
+        assert db.session.query(Reminder).filter_by(user_id=student_id).count() == 0
+
+
+@pytest.mark.parametrize(
+    ("payload", "field"),
+    [
+        ({"reminder_enabled": True, "remind_days": 3}, "node_types"),
+        ({"reminder_enabled": True, "node_types": ["registration_deadline"]}, "remind_days"),
+        ({"remind_days": 3, "node_types": ["registration_deadline"]}, "reminder_enabled"),
+        (subscription_payload(remind_days=True), "remind_days"),
+        (subscription_payload(remind_days="3"), "remind_days"),
+        (subscription_payload(remind_days=31), "remind_days"),
+        (subscription_payload(node_types=[]), "node_types"),
+        (
+            subscription_payload(node_types=["registration_deadline", "registration_deadline"]),
+            "node_types",
+        ),
+        (subscription_payload(node_types=["registration_start"]), "node_types"),
+        (subscription_payload(user_id=900), "user_id"),
+    ],
+)
+def test_subscription_rejects_invalid_or_untrusted_request_fields(
+    client, app, payload, field
+) -> None:
+    sign_in_as(client, app)
+
+    response = client.post("/api/v1/competitions/101/subscription", json=payload)
+
+    assert response.status_code == 400
+    error = response.get_json()["error"]
+    assert error["code"] == "validation_error"
+    assert error["details"]["field"] == field
+
+
+def test_subscription_requires_selected_types_in_published_revision(client, app) -> None:
+    sign_in_as(client, app)
+
+    response = client.post(
+        "/api/v1/competitions/101/subscription",
+        json=subscription_payload(node_types=["competition_start"]),
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["error"]["details"]["field"] == "node_types"
+
+
+def test_subscription_requires_student_and_currently_published_edition(client, app) -> None:
+    assert (
+        client.post(
+            "/api/v1/competitions/101/subscription",
+            json=subscription_payload(),
+        ).status_code
+        == 401
+    )
+
+    sign_in_as(client, app, role=UserRole.ADMIN)
+    assert (
+        client.post(
+            "/api/v1/competitions/101/subscription",
+            json=subscription_payload(),
+        ).status_code
+        == 403
+    )
+
+
+@pytest.mark.parametrize("competition_id", [130, 999])
+def test_subscription_missing_competition_or_edition_returns_not_found(
+    client, app, competition_id
+) -> None:
+    sign_in_as(client, app)
+
+    response = client.post(
+        f"/api/v1/competitions/{competition_id}/subscription",
+        json=subscription_payload(),
+    )
+
+    assert response.status_code == 404
+    assert response.get_json()["error"]["code"] == "not_found"
+
+
+@pytest.mark.parametrize("status", [CompetitionStatus.CANCELLED, CompetitionStatus.OFFLINE])
+def test_subscription_rejects_unavailable_lifecycle(client, app, status) -> None:
+    sign_in_as(client, app)
+    with app.app_context():
+        db.session.get(Competition, 101).status = status
+        db.session.commit()
+
+    response = client.post("/api/v1/competitions/101/subscription", json=subscription_payload())
+
+    assert response.status_code == 409
+    assert response.get_json()["error"]["code"] == "engagement_unavailable"
+
+
+def test_subscription_rejects_when_no_eligible_nodes_exist(client, app) -> None:
+    sign_in_as(client, app)
+    with app.app_context():
+        competition = db.session.get(Competition, 107)
+        db.session.add(
+            CompetitionTimeNode(
+                id=270,
+                competition=competition,
+                revision=competition.published_revision,
+                node_type="registration_deadline",
+                occurs_at=None,
+            )
+        )
+        db.session.commit()
+
+    response = client.post(
+        "/api/v1/competitions/107/subscription",
+        json=subscription_payload(node_types=["registration_deadline"]),
+    )
+
+    assert response.status_code == 409
+    assert response.get_json()["error"]["code"] == "engagement_unavailable"
+
+
+def test_subscription_no_future_nodes_has_explicit_summary(client, app) -> None:
+    sign_in_as(client, app)
+    with app.app_context():
+        for node in db.session.get(Competition, 101).published_revision.time_nodes:
+            node.occurs_at = datetime.now(UTC) - timedelta(days=1)
+        db.session.commit()
+
+    response = client.post("/api/v1/competitions/101/subscription", json=subscription_payload())
+
+    assert response.status_code == 201
+    data = response.get_json()["data"]
+    assert data["scheduled_reminder_count"] == 0
+    assert data["next_reminder_at"] is None
+    assert data["unscheduled_reason"] == "no_future_eligible_nodes"
+
+
+def test_active_subscription_repeat_is_a_noop_without_edition_validation(client, app) -> None:
+    student_id = sign_in_as(client, app)
+    created = client.post("/api/v1/competitions/101/subscription", json=subscription_payload())
+    assert created.status_code == 201
+    created_data = created.get_json()["data"]
+    with app.app_context():
+        subscription = (
+            db.session.query(Subscription).filter_by(user_id=student_id, competition_id=101).one()
+        )
+        original_confirmation = subscription.reminder_confirmed_at
+        original_reminder_ids = [reminder.id for reminder in db.session.query(Reminder).all()]
+        db.session.get(Competition, 101).status = CompetitionStatus.OFFLINE
+        db.session.commit()
+
+    repeated = client.post(
+        "/api/v1/competitions/101/subscription",
+        json=subscription_payload(node_types=["competition_start"], remind_days=0),
+    )
+
+    assert repeated.status_code == 200
+    assert repeated.get_json()["data"] == created_data
+    with app.app_context():
+        subscription = (
+            db.session.query(Subscription).filter_by(user_id=student_id, competition_id=101).one()
+        )
+        assert subscription.reminder_confirmed_at == original_confirmation
+        assert [
+            reminder.id for reminder in db.session.query(Reminder).all()
+        ] == original_reminder_ids
+
+
+def test_subscription_patch_updates_consent_and_reconciles_pending_plans(client, app) -> None:
+    student_id = sign_in_as(client, app)
+    created = client.post(
+        "/api/v1/competitions/101/subscription",
+        json=subscription_payload(),
+    )
+    assert created.status_code == 201
+
+    disabled = client.patch(
+        "/api/v1/competitions/101/subscription",
+        json=subscription_payload(reminder_enabled=False),
+    )
+
+    assert disabled.status_code == 200
+    assert disabled.get_json()["data"]["unscheduled_reason"] == "reminder_disabled"
+    with app.app_context():
+        reminders = (
+            db.session.query(Reminder).filter_by(user_id=student_id, competition_id=101).all()
+        )
+        assert all(reminder.status == ReminderStatus.CANCELLED for reminder in reminders)
+        assert {reminder.cancel_reason for reminder in reminders} == {"reminder_disabled"}
+
+    enabled = client.patch(
+        "/api/v1/competitions/101/subscription",
+        json=subscription_payload(),
+    )
+
+    assert enabled.status_code == 200
+    assert enabled.get_json()["data"]["scheduled_reminder_count"] == 0
+    with app.app_context():
+        reminders = (
+            db.session.query(Reminder).filter_by(user_id=student_id, competition_id=101).all()
+        )
+        assert all(reminder.status == ReminderStatus.CANCELLED for reminder in reminders)
+        assert {reminder.cancel_reason for reminder in reminders} == {"reminder_disabled"}
+
+
+def test_subscription_respects_global_reminder_disable_and_public_state_is_owner_scoped(
+    client, app
+) -> None:
+    student_id = sign_in_as(client, app)
+    with app.app_context():
+        provision_student_owned_rows(db.session.get(User, student_id))
+        db.session.commit()
+    assert (
+        client.patch("/api/v1/me/preferences", json={"message_enabled": False}).status_code == 200
+    )
+
+    created = client.post("/api/v1/competitions/101/subscription", json=subscription_payload())
+
+    assert created.status_code == 201
+    assert created.get_json()["data"]["scheduled_reminder_count"] == 0
+    assert created.get_json()["data"]["unscheduled_reason"] == "reminder_disabled"
+    detail = client.get("/api/v1/competitions/101")
+    assert detail.status_code == 200
+    assert detail.get_json()["data"]["is_subscribed"] is True
+    with app.app_context():
+        assert (
+            db.session.query(Reminder).filter_by(user_id=student_id, competition_id=101).count()
+            == 0
+        )
+
+    sign_in_as(client, app)
+    other_detail = client.get("/api/v1/competitions/101")
+    assert other_detail.status_code == 200
+    assert other_detail.get_json()["data"]["is_subscribed"] is False
+
+
+def test_subscription_patch_treats_node_order_as_a_semantic_noop(client, app) -> None:
+    student_id = sign_in_as(client, app)
+    created = client.post(
+        "/api/v1/competitions/101/subscription",
+        json=subscription_payload(),
+    )
+    assert created.status_code == 201
+    with app.app_context():
+        subscription = (
+            db.session.query(Subscription).filter_by(user_id=student_id, competition_id=101).one()
+        )
+        confirmed_at = subscription.reminder_confirmed_at
+        reminder_state = [
+            (reminder.id, reminder.status, reminder.due_at, reminder.cancel_reason)
+            for reminder in db.session.query(Reminder).order_by(Reminder.id)
+        ]
+
+    response = client.patch(
+        "/api/v1/competitions/101/subscription",
+        json=subscription_payload(node_types=["submission_deadline", "registration_deadline"]),
+    )
+
+    assert response.status_code == 200
+    with app.app_context():
+        subscription = (
+            db.session.query(Subscription).filter_by(user_id=student_id, competition_id=101).one()
+        )
+        assert subscription.reminder_confirmed_at == confirmed_at
+        assert [
+            (reminder.id, reminder.status, reminder.due_at, reminder.cancel_reason)
+            for reminder in db.session.query(Reminder).order_by(Reminder.id)
+        ] == reminder_state
+
+
+def test_subscription_patch_cancels_deselected_pending_plans(client, app) -> None:
+    student_id = sign_in_as(client, app)
+    created = client.post(
+        "/api/v1/competitions/101/subscription",
+        json=subscription_payload(),
+    )
+    assert created.status_code == 201
+
+    response = client.patch(
+        "/api/v1/competitions/101/subscription",
+        json=subscription_payload(node_types=["registration_deadline"]),
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["data"]["scheduled_reminder_count"] == 1
+    with app.app_context():
+        removed = (
+            db.session.query(Reminder)
+            .filter_by(
+                user_id=student_id,
+                competition_id=101,
+                node_type="submission_deadline",
+            )
+            .one()
+        )
+        assert removed.status == ReminderStatus.CANCELLED
+        assert removed.cancel_reason == "node_type_removed"
+
+
+def test_subscription_patch_does_not_restore_cancelled_offset_ineligible_plans(client, app) -> None:
+    student_id = sign_in_as(client, app)
+    created = client.post(
+        "/api/v1/competitions/101/subscription",
+        json=subscription_payload(),
+    )
+    assert created.status_code == 201
+    with app.app_context():
+        for node in db.session.get(Competition, 101).published_revision.time_nodes:
+            node.occurs_at = datetime.now(UTC) + timedelta(days=10)
+        db.session.commit()
+
+    no_longer_future = client.patch(
+        "/api/v1/competitions/101/subscription",
+        json=subscription_payload(remind_days=30),
+    )
+
+    assert no_longer_future.status_code == 200
+    assert no_longer_future.get_json()["data"]["unscheduled_reason"] == "no_future_eligible_nodes"
+    with app.app_context():
+        reminders = (
+            db.session.query(Reminder).filter_by(user_id=student_id, competition_id=101).all()
+        )
+        assert all(reminder.status == ReminderStatus.CANCELLED for reminder in reminders)
+        assert {reminder.cancel_reason for reminder in reminders} == {
+            "subscription_offset_not_future"
+        }
+
+    still_cancelled = client.patch(
+        "/api/v1/competitions/101/subscription",
+        json=subscription_payload(),
+    )
+
+    assert still_cancelled.status_code == 200
+    assert still_cancelled.get_json()["data"]["scheduled_reminder_count"] == 0
+    with app.app_context():
+        reminders = (
+            db.session.query(Reminder).filter_by(user_id=student_id, competition_id=101).all()
+        )
+        assert all(reminder.status == ReminderStatus.CANCELLED for reminder in reminders)
+        assert {reminder.cancel_reason for reminder in reminders} == {
+            "subscription_offset_not_future"
+        }
+
+
+def test_subscription_patch_requires_active_owned_subscription_and_valid_consent(
+    client, app
+) -> None:
+    unauthenticated = client.patch(
+        "/api/v1/competitions/101/subscription",
+        json=subscription_payload(),
+    )
+    assert unauthenticated.status_code == 401
+
+    sign_in_as(client, app, role=UserRole.ADMIN)
+    forbidden = client.patch(
+        "/api/v1/competitions/101/subscription",
+        json=subscription_payload(),
+    )
+    assert forbidden.status_code == 403
+
+    sign_in_as(client, app)
+    missing = client.patch(
+        "/api/v1/competitions/101/subscription",
+        json={"reminder_enabled": True, "remind_days": 3},
+    )
+    assert missing.status_code == 400
+    assert missing.get_json()["error"]["details"]["field"] == "node_types"
+    absent = client.patch(
+        "/api/v1/competitions/101/subscription",
+        json=subscription_payload(),
+    )
+    assert absent.status_code == 404
+    invalid = client.patch(
+        "/api/v1/competitions/101/subscription",
+        json=subscription_payload(user_id=900),
+    )
+    assert invalid.status_code == 400
+    assert invalid.get_json()["error"]["details"]["field"] == "user_id"
+
+    created = client.post(
+        "/api/v1/competitions/101/subscription",
+        json=subscription_payload(),
+    )
+    assert created.status_code == 201
+    assert client.delete("/api/v1/competitions/101/subscription").status_code == 200
+    cancelled = client.patch(
+        "/api/v1/competitions/101/subscription",
+        json=subscription_payload(),
+    )
+    assert cancelled.status_code == 409
+
+
+def test_subscription_delete_is_idempotent_and_cancels_only_pending_plans(client, app) -> None:
+    student_id = sign_in_as(client, app)
+    absent = client.delete("/api/v1/competitions/101/subscription")
+    assert absent.status_code == 200
+    with app.app_context():
+        assert (
+            db.session.query(Subscription).filter_by(user_id=student_id, competition_id=101).count()
+            == 0
+        )
+
+    created = client.post(
+        "/api/v1/competitions/101/subscription",
+        json=subscription_payload(),
+    )
+    assert created.status_code == 201
+    with app.app_context():
+        sent = (
+            db.session.query(Reminder)
+            .filter_by(user_id=student_id, competition_id=101, node_type="registration_deadline")
+            .one()
+        )
+        sent.status = ReminderStatus.SENT
+        db.session.commit()
+
+    deleted = client.delete("/api/v1/competitions/101/subscription")
+    repeated = client.delete("/api/v1/competitions/101/subscription")
+
+    assert deleted.status_code == repeated.status_code == 200
+    assert deleted.get_json()["data"] == {
+        "competition_id": 101,
+        "status": "cancelled",
+        "is_subscribed": False,
+    }
+    with app.app_context():
+        subscription = (
+            db.session.query(Subscription).filter_by(user_id=student_id, competition_id=101).one()
+        )
+        assert subscription.status == SubscriptionStatus.CANCELLED
+        sent = (
+            db.session.query(Reminder)
+            .filter_by(user_id=student_id, competition_id=101, node_type="registration_deadline")
+            .one()
+        )
+        cancelled = (
+            db.session.query(Reminder)
+            .filter_by(user_id=student_id, competition_id=101, node_type="submission_deadline")
+            .one()
+        )
+        assert sent.status == ReminderStatus.SENT
+        assert cancelled.status == ReminderStatus.CANCELLED
+        assert cancelled.cancel_reason == "subscription_cancelled"
+
+
+def test_subscription_post_reactivates_relation_without_restoring_cancelled_plans(
+    client, app
+) -> None:
+    student_id = sign_in_as(client, app)
+    created = client.post(
+        "/api/v1/competitions/101/subscription",
+        json=subscription_payload(),
+    )
+    assert created.status_code == 201
+    assert client.delete("/api/v1/competitions/101/subscription").status_code == 200
+    with app.app_context():
+        blocked = (
+            db.session.query(Reminder)
+            .filter_by(user_id=student_id, competition_id=101, node_type="submission_deadline")
+            .one()
+        )
+        blocked.cancel_reason = "global_reminder_disabled"
+        db.session.commit()
+
+    response = client.post(
+        "/api/v1/competitions/101/subscription",
+        json=subscription_payload(remind_days=0),
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["data"]["status"] == "active"
+    assert response.get_json()["data"]["scheduled_reminder_count"] == 0
+    with app.app_context():
+        assert (
+            db.session.query(Subscription).filter_by(user_id=student_id, competition_id=101).count()
+            == 1
+        )
+        cancelled = (
+            db.session.query(Reminder)
+            .filter_by(user_id=student_id, competition_id=101, node_type="registration_deadline")
+            .one()
+        )
+        blocked = (
+            db.session.query(Reminder)
+            .filter_by(user_id=student_id, competition_id=101, node_type="submission_deadline")
+            .one()
+        )
+        assert cancelled.status == ReminderStatus.CANCELLED
+        assert cancelled.cancel_reason == "subscription_cancelled"
+        assert blocked.status == ReminderStatus.CANCELLED
+        assert blocked.cancel_reason == "global_reminder_disabled"

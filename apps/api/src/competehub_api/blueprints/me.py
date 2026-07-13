@@ -17,7 +17,12 @@ from competehub_api.schemas.profile import (
     profile_update_schema,
 )
 from competehub_api.services.auth import current_user
-from competehub_api.services.profiles import allowed_profile_options, update_student_profile
+from competehub_api.services.profiles import (
+    allowed_profile_options,
+    student_profile_view,
+    update_student_preferences,
+    update_student_profile,
+)
 
 me_bp = Blueprint("me", __name__)
 
@@ -35,14 +40,7 @@ def get_profile():
     user, response = _require_student()
     if response is not None:
         return response
-    profile = user.profile
-    if profile is None:
-        return error_response(
-            HTTPStatus.NOT_FOUND,
-            "profile_not_found",
-            "学生画像尚未开通",
-        )
-    return success_response(profile_schema.dump(profile))
+    return success_response(profile_schema.dump(student_profile_view(user)))
 
 
 @me_bp.get("/me/profile/options")
@@ -55,15 +53,15 @@ def get_profile_options():
 
 @me_bp.patch("/me/profile")
 def update_profile():
-    return _update_profile(profile_update_schema)
+    return _update_profile(profile_update_schema, update_student_profile)
 
 
 @me_bp.patch("/me/preferences")
 def update_preferences():
-    return _update_profile(preference_update_schema)
+    return _update_profile(preference_update_schema, update_student_preferences)
 
 
-def _update_profile(schema):
+def _update_profile(schema, update):
     user, response = _require_student()
     if response is not None:
         return response
@@ -73,8 +71,7 @@ def _update_profile(schema):
     except ValidationError as error:
         return validation_error_response(error, "profile field is invalid")
 
-    profile = update_student_profile(user, updates)
-    return success_response(profile_schema.dump(profile))
+    return success_response(profile_schema.dump(update(user, updates)))
 
 
 def _require_student() -> tuple[User | None, object | None]:
