@@ -749,8 +749,8 @@ def _seed_predecessor_pending_review() -> None:
     users = metadata.tables["users"]
     competitions = metadata.tables["competitions"]
     reviews = metadata.tables["review_records"]
-    created_at = datetime(2026, 7, 12, 8, 0)
-    submitted_at = datetime(2026, 7, 12, 9, 0)
+    created_at = product_datetime_as_utc(datetime(2026, 7, 12, 8, 0))
+    submitted_at = product_datetime_as_utc(datetime(2026, 7, 12, 9, 0))
 
     db.session.execute(
         users.insert(),
@@ -833,7 +833,7 @@ def _seed_predecessor_publication() -> None:
             "review_records",
         ],
     )
-    now = datetime(2026, 7, 12, 8, 0)
+    now = product_datetime_as_utc(datetime(2026, 7, 12, 8, 0))
     users = metadata.tables["users"]
     competitions = metadata.tables["competitions"]
     time_nodes = metadata.tables["competition_time_nodes"]
@@ -907,7 +907,7 @@ def _seed_predecessor_publication() -> None:
             id=1,
             competition_id=1,
             node_type="registration_deadline",
-            due_at=datetime(2099, 7, 20, 15, 59),
+            due_at=product_datetime_as_utc(datetime(2099, 7, 20, 15, 59)),
             description="Existing deadline",
             created_at=now,
             updated_at=now,
@@ -941,8 +941,8 @@ def _seed_predecessor_publication() -> None:
             reviewed_by_id=3,
             status="approved",
             comment="Legacy approval evidence",
-            created_at=datetime(2026, 7, 12, 8, 30),
-            updated_at=datetime(2026, 7, 12, 9, 0),
+            created_at=product_datetime_as_utc(datetime(2026, 7, 12, 8, 30)),
+            updated_at=product_datetime_as_utc(datetime(2026, 7, 12, 9, 0)),
         )
     )
     db.session.commit()
@@ -1131,6 +1131,4 @@ def _migrated_legacy_instant(value):
 
 
 def _expected_legacy_instant(value: datetime) -> datetime:
-    if db.engine.dialect.name == "postgresql":
-        return product_datetime_as_utc(value)
-    return stored_datetime_as_utc(value)
+    return product_datetime_as_utc(value)
