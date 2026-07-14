@@ -13,9 +13,11 @@ from competehub_api.models import (
     CompetitionSeries,
     CompetitionStage,
     CompetitionTimeNode,
+    Favorite,
     ReminderSetting,
     ReviewRecord,
     StudentProfile,
+    Subscription,
     User,
     UserIdentity,
 )
@@ -24,6 +26,7 @@ from competehub_api.models.enums import (
     CompetitionStatus,
     IdentityVerificationStatus,
     ReviewStatus,
+    SubscriptionStatus,
     UserRole,
     UserStatus,
 )
@@ -169,6 +172,7 @@ def register_e2e_commands(app: Flask) -> None:
                     )
                 )
         _seed_publication_fixture()
+        _seed_owned_lifecycle_engagement()
         db.session.commit()
 
         click.echo(f"Provisioned {len(SEEDED_E2E_ACTORS)} deterministic E2E actors.")
@@ -271,6 +275,75 @@ def _seed_publication_fixture() -> None:
                 impact={"public_visibility": "publish", "active_subscriptions": 0},
                 submitted_at=decided_at,
                 decided_at=decided_at,
+            ),
+        ]
+    )
+
+
+def _seed_owned_lifecycle_engagement() -> None:
+    series = db.session.get(CompetitionSeries, 2001)
+    if series is None:
+        raise RuntimeError("The E2E publication fixture must exist before lifecycle engagement")
+    student_id = 1001
+    offline = Competition(
+        id=2002,
+        series=series,
+        edition_label="2024-offline",
+        title="Seeded Offline Engagement Edition",
+        source_name="Example University Notice",
+        source_url="https://example.edu/notices/seeded-offline",
+        status=CompetitionStatus.OFFLINE,
+        created_by_id=1002,
+    )
+    offline_revision = CompetitionRevision(
+        id=2002,
+        competition=offline,
+        revision_number=1,
+        revision_status=CompetitionRevisionStatus.APPROVED,
+        title=offline.title,
+        source_name=offline.source_name,
+        source_url=offline.source_url,
+        created_by_id=1002,
+    )
+    offline.published_revision = offline_revision
+    unpublished = Competition(
+        id=2003,
+        series=series,
+        edition_label="2027-unpublished",
+        title="Seeded Unpublished Engagement Edition",
+        source_name="Example University Notice",
+        source_url="https://example.edu/notices/seeded-unpublished",
+        status=CompetitionStatus.UNPUBLISHED,
+        created_by_id=1002,
+    )
+    CompetitionRevision(
+        id=2003,
+        competition=unpublished,
+        revision_number=1,
+        revision_status=CompetitionRevisionStatus.DRAFT,
+        title=unpublished.title,
+        source_name=unpublished.source_name,
+        source_url=unpublished.source_url,
+        created_by_id=1002,
+    )
+    db.session.add_all([offline, unpublished])
+    db.session.flush()
+    db.session.add_all(
+        [
+            Favorite(
+                id=2002,
+                user_id=student_id,
+                competition_id=offline.id,
+                is_active=True,
+            ),
+            Subscription(
+                id=2003,
+                user_id=student_id,
+                competition_id=unpublished.id,
+                status=SubscriptionStatus.ACTIVE,
+                reminder_enabled=False,
+                remind_days=3,
+                node_types=["registration_deadline"],
             ),
         ]
     )

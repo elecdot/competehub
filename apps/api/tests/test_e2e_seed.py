@@ -7,12 +7,19 @@ from competehub_api.models import (
     Competition,
     CompetitionRevision,
     CompetitionSeries,
+    Favorite,
     ReminderSetting,
     StudentProfile,
+    Subscription,
     User,
     UserIdentity,
 )
-from competehub_api.models.enums import CompetitionRevisionStatus, UserRole
+from competehub_api.models.enums import (
+    CompetitionRevisionStatus,
+    CompetitionStatus,
+    SubscriptionStatus,
+    UserRole,
+)
 from competehub_api.services.profiles import DEFAULT_REMINDER_NODE_TYPES
 
 
@@ -97,6 +104,16 @@ def test_e2e_seed_rebuilds_the_expected_actor_set() -> None:
         assert revision.stages[0].time_nodes[0].occurs_at is not None
         assert revision.stages[0].time_nodes[0].starts_at is None
         assert revision.stages[0].time_nodes[0].due_at is None
+        offline = db.session.get(Competition, 2002)
+        unpublished = db.session.get(Competition, 2003)
+        assert offline.status == CompetitionStatus.OFFLINE
+        assert unpublished.status == CompetitionStatus.UNPUBLISHED
+        offline_favorite = db.session.get(Favorite, 2002)
+        unpublished_subscription = db.session.get(Subscription, 2003)
+        assert offline_favorite.user_id == E2E_ACTORS[0].id
+        assert offline_favorite.is_active is True
+        assert unpublished_subscription.user_id == E2E_ACTORS[0].id
+        assert unpublished_subscription.status == SubscriptionStatus.ACTIVE
 
     login_response = app.test_client().post(
         "/api/v1/auth/login",
