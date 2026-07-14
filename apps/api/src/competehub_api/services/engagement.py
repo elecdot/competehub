@@ -169,6 +169,8 @@ def update_subscription(user: User, competition_id: int, payload: dict) -> Subsc
 
 
 def cancel_subscription(user: User, competition_id: int) -> None:
+    if repository.get_competition(competition_id) is None:
+        raise ServiceError(HTTPStatus.NOT_FOUND, "not_found", "competition not found")
     subscription = repository.get_subscription_for_update(user.id, competition_id)
     if subscription is not None and subscription.status == SubscriptionStatus.ACTIVE:
         subscription.status = SubscriptionStatus.CANCELLED

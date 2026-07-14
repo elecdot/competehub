@@ -1224,6 +1224,13 @@ def test_subscription_delete_is_idempotent_and_cancels_only_pending_plans(client
         db.session.commit()
 
     deleted = client.delete("/api/v1/competitions/101/subscription")
+    with app.app_context():
+        reminder_state_after_first_delete = [
+            (reminder.id, reminder.status, reminder.cancel_reason)
+            for reminder in db.session.query(Reminder)
+            .filter_by(user_id=student_id, competition_id=101)
+            .order_by(Reminder.id)
+        ]
     repeated = client.delete("/api/v1/competitions/101/subscription")
 
     assert deleted.status_code == repeated.status_code == 200
@@ -1250,6 +1257,33 @@ def test_subscription_delete_is_idempotent_and_cancels_only_pending_plans(client
         assert sent.status == ReminderStatus.SENT
         assert cancelled.status == ReminderStatus.CANCELLED
         assert cancelled.cancel_reason == "subscription_cancelled"
+        assert reminder_state_after_first_delete == [
+            (reminder.id, reminder.status, reminder.cancel_reason)
+            for reminder in db.session.query(Reminder)
+            .filter_by(user_id=student_id, competition_id=101)
+            .order_by(Reminder.id)
+        ]
+
+
+def test_subscription_delete_for_missing_competition_returns_not_found_without_mutation(
+    client, app
+) -> None:
+    student_id = sign_in_as(client, app)
+
+    response = client.delete("/api/v1/competitions/999/subscription")
+
+    assert response.status_code == 404
+    assert response.get_json() == {
+        "data": None,
+        "error": {
+            "code": "not_found",
+            "message": "competition not found",
+            "details": {},
+        },
+    }
+    with app.app_context():
+        assert db.session.query(Subscription).filter_by(user_id=student_id).count() == 0
+        assert db.session.query(Reminder).filter_by(user_id=student_id).count() == 0
 
 
 def test_subscription_post_reactivates_relation_and_restores_controlled_cancelled_plans(

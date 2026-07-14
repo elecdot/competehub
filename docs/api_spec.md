@@ -760,6 +760,8 @@ offline relations can be removed but not reconfigured.
 Cancel subscription and future pending reminders with
 `cancel_reason=subscription_cancelled`. First and repeated DELETE return
 `200 OK` with the final cancelled state and never alter sent evidence.
+Deleting a nonexistent edition returns `404 not_found` with `competition not found`;
+an existing edition without an owned relation remains idempotent.
 
 Its response data is `{ "competition_id": 1, "status": "cancelled",
 "is_subscribed": false }`; cancellation reasons and reminder internals are not

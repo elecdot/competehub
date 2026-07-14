@@ -24,6 +24,7 @@ from competehub_api.models.enums import (
 )
 from competehub_api.services.engagement import (
     _reconcile_subscription_reminders,
+    cancel_subscription,
     subscribe_to_competition,
     subscription_summary,
     update_subscription,
@@ -344,6 +345,26 @@ def test_subscription_summary_canonicalizes_stored_node_types(app, engagement_fi
             "registration_deadline",
             "competition_start",
         ]
+
+
+def test_cancelling_subscription_for_missing_competition_rejects_without_mutation(
+    app, engagement_fixture
+) -> None:
+    student, competition, subscription, _ = engagement_fixture
+    with app.app_context():
+        with pytest.raises(ServiceError, match="competition not found") as error:
+            cancel_subscription(student, competition.id + 1)
+
+        assert error.value.status_code == 404
+        assert error.value.code == "not_found"
+        persisted = db.session.get(Subscription, subscription.id)
+        assert persisted.status == SubscriptionStatus.ACTIVE
+        assert (
+            db.session.query(Reminder)
+            .filter_by(user_id=student.id, competition_id=competition.id)
+            .count()
+            == 0
+        )
 
 
 def test_initial_subscription_with_missing_reminder_settings_rolls_back(

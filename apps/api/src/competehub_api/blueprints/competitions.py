@@ -154,7 +154,10 @@ def cancel_competition_subscription(competition_id: int):
     if response is not None:
         return response
 
-    cancel_subscription(user, competition_id)
+    try:
+        cancel_subscription(user, competition_id)
+    except ServiceError as error:
+        return _service_error_response(error)
     return success_response(
         {
             "competition_id": competition_id,
