@@ -72,6 +72,10 @@ api-worker-beat:
 api-db-upgrade:
     ./scripts/agent-env.sh uv run --project apps/api flask --app competehub_api.app:create_app db --directory apps/api/migrations upgrade
 
+# Seed the reproducible initial active recommendation rule-set v1.
+seed-recommendation-rules:
+    ./scripts/agent-env.sh uv run --project apps/api flask --app competehub_api.app:create_app seed-recommendation-rules
+
 # Run backend tests.
 api-test:
     ./scripts/agent-env.sh uv run --project apps/api pytest

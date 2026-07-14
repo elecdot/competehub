@@ -34,8 +34,10 @@ def upgrade():
     )
     if existing_rule_count:
         raise RuntimeError(
-            "recommendation rule-set governance requires the legacy mutable "
-            "recommendation_rules table to be empty"
+            "refusing recommendation rule-set governance migration because the legacy mutable "
+            "recommendation_rules table is populated; no legacy rule may be discarded or "
+            "promoted automatically. Back up the database and make an explicit, reviewed data "
+            "migration decision before retrying"
         )
     op.drop_table("recommendation_rules")
 

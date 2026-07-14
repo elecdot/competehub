@@ -90,6 +90,25 @@ def test_unowned_predecessor_competition_blocks_before_schema_mutation(tmp_path)
         )
 
 
+def test_empty_recommendation_rule_predecessor_upgrades(tmp_path) -> None:
+    app = _migration_app(tmp_path / "empty-recommendation-predecessor.db")
+    with app.app_context():
+        upgrade(directory=str(MIGRATIONS_DIR), revision="13eb10903bd7")
+        assert (
+            db.session.execute(text("SELECT COUNT(*) FROM recommendation_rules")).scalar_one() == 0
+        )
+
+        upgrade(directory=str(MIGRATIONS_DIR))
+
+        assert "recommendation_rule_sets" in _tables()
+        assert "rule_set_id" in _columns("recommendation_rules")
+
+
+def test_populated_recommendation_rule_predecessor_fails_closed(tmp_path) -> None:
+    app = _migration_app(tmp_path / "populated-recommendation-predecessor.db")
+    _assert_populated_recommendation_rule_predecessor_fails_closed(app)
+
+
 def test_postgresql_fresh_upgrade_downgrade_and_reupgrade(postgresql_database_uri) -> None:
     app = _migration_app(database_uri=postgresql_database_uri)
     _assert_fresh_upgrade_and_downgrade(app)
@@ -112,6 +131,13 @@ def test_postgresql_predecessor_upgrade_preserves_submitter_and_removes_pending_
 ) -> None:
     app = _migration_app(database_uri=postgresql_database_uri)
     _assert_predecessor_review_actor_upgrade(app)
+
+
+def test_postgresql_populated_recommendation_rule_predecessor_fails_closed(
+    postgresql_database_uri,
+) -> None:
+    app = _migration_app(database_uri=postgresql_database_uri)
+    _assert_populated_recommendation_rule_predecessor_fails_closed(app)
 
 
 def _assert_fresh_upgrade_and_downgrade(app) -> None:
@@ -154,6 +180,49 @@ def _assert_fresh_upgrade_and_downgrade(app) -> None:
         assert "competition_revisions" in _tables()
         check(directory=str(MIGRATIONS_DIR))
         downgrade(directory=str(MIGRATIONS_DIR), revision="base")
+
+
+def _assert_populated_recommendation_rule_predecessor_fails_closed(app) -> None:
+    with app.app_context():
+        upgrade(directory=str(MIGRATIONS_DIR), revision="13eb10903bd7")
+        rules = sa.Table("recommendation_rules", sa.MetaData(), autoload_with=db.engine)
+        now = datetime(2026, 7, 14, 8, 0)
+        db.session.execute(
+            rules.insert().values(
+                id=991,
+                code="legacy-major-match",
+                name="Legacy mutable rule",
+                weight=30,
+                conditions={"operator": "overlap"},
+                reason_template="Legacy reason",
+                enabled=True,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        db.session.commit()
+
+        with pytest.raises(SystemExit) as error:
+            upgrade(directory=str(MIGRATIONS_DIR))
+
+        assert error.value.code == 1
+        assert "recommendation_rule_sets" not in _tables()
+        assert "rule_set_id" not in _columns("recommendation_rules")
+        persisted = (
+            db.session.execute(
+                text("SELECT code, name, weight FROM recommendation_rules WHERE id = 991")
+            )
+            .mappings()
+            .one()
+        )
+        assert persisted == {
+            "code": "legacy-major-match",
+            "name": "Legacy mutable rule",
+            "weight": 30,
+        }
+        assert db.session.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == (
+            "13eb10903bd7"
+        )
 
 
 def _assert_populated_predecessor_upgrade(app) -> None:
