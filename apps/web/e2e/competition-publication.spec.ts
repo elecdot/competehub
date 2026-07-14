@@ -2,18 +2,74 @@ import type { Page } from '@playwright/test'
 
 import { expect, test } from './fixtures/actors'
 
-const competitionTitle = 'Browser AI Innovation Challenge 2026'
-const alternateCompetitionTitle = 'Browser AI Innovation Challenge 2027'
-
 test.use({ actorName: 'editor' })
 
 test('editor submits, distinct reviewer publishes, and student sees the edition', async ({
   actorPage,
-}) => {
+}, testInfo) => {
+  const retrySuffix = `retry-${testInfo.retry}`
+  const seriesName = `Browser AI Innovation Challenge ${retrySuffix}`
+  const competitionTitle = `Browser AI Innovation Challenge 2026 ${retrySuffix}`
+  const alternateCompetitionTitle = `Browser AI Innovation Challenge 2027 ${retrySuffix}`
+  const sourceUrl = `https://example.edu/notices/browser-ai-2026-${retrySuffix}`
+  const alternateSourceUrl = `https://example.edu/notices/browser-ai-2027-${retrySuffix}`
+  const officialUrl = `https://example.org/browser-ai-2026-${retrySuffix}`
+  const tagCode = `browser-ai-${retrySuffix}`
+
   await actorPage.goto('/admin')
 
-  await actorPage.getByTestId('series-name').fill('Browser AI Innovation Challenge')
+  await actorPage.getByTestId('series-name').fill(seriesName)
+  const seriesResponsePromise = actorPage.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      response.url().endsWith('/api/v1/admin/competition_series'),
+  )
   await actorPage.getByTestId('create-series').click()
+  const createdSeries = await (await seriesResponsePromise).json()
+  const seriesId = createdSeries.data.id as number
+
+  const initialWorkspaceResponse = await actorPage.request.post('/api/v1/admin/competitions', {
+    data: {
+      series_id: seriesId,
+      edition_label: '2026',
+      title: competitionTitle,
+      source_name: 'Example University Notice',
+      source_url: sourceUrl,
+      participant_forms: ['individual'],
+      stages: [
+        {
+          stage_key: 'registration',
+          stage_type: 'registration',
+          label: 'Registration',
+          order: 1,
+          time_nodes: [
+            {
+              logical_node_key: 'registration-open',
+              node_type: 'registration_start',
+              occurs_at: '2026-08-01T08:00:00Z',
+              description: 'Registration opens',
+              prominence: 'secondary',
+            },
+            {
+              logical_node_key: 'registration-deadline',
+              node_type: 'registration_deadline',
+              occurs_at: '2026-08-15T23:59:00Z',
+              description: 'Registration deadline',
+              prominence: 'primary',
+            },
+          ],
+        },
+      ],
+    },
+  })
+  expect(initialWorkspaceResponse).toBeOK()
+  const createdWorkspace = await initialWorkspaceResponse.json()
+  const editionId = createdWorkspace.data.id as number
+  const revisionId = createdWorkspace.data.revision.id as number
+
+  await actorPage.reload()
+  await expect(actorPage.getByTestId('edition-select')).toBeVisible()
+  await selectEdition(actorPage, `2026 · ${competitionTitle}`)
 
   await actorPage.getByTestId('edition-label').fill('2026')
   await actorPage.getByTestId('edition-title').fill(competitionTitle)
@@ -22,15 +78,19 @@ test('editor submits, distinct reviewer publishes, and student sees the edition'
   await actorPage.getByTestId('source-name').fill('Example University Notice')
   await actorPage
     .getByTestId('source-url')
-    .fill('https://example.edu/notices/browser-ai-2026')
-  await actorPage.getByTestId('official-url').fill('https://example.org/browser-ai-2026')
+    .fill(sourceUrl)
+  await actorPage.getByTestId('official-url').fill(officialUrl)
   await actorPage.getByTestId('participant-forms').click()
   await actorPage
     .locator('.ant-select-dropdown:visible')
     .getByText('团队', { exact: true })
     .click()
   await actorPage.getByTestId('team-size').fill('2-5')
+  await selectScope(actorPage, 'major-scope')
+  await expect(actorPage.getByTestId('majors')).toBeEnabled()
   await actorPage.getByTestId('majors').fill('Computer Science')
+  await selectScope(actorPage, 'grade-scope')
+  await expect(actorPage.getByTestId('grades')).toBeEnabled()
   await actorPage.getByTestId('grades').fill('Year 2, Year 3')
   await actorPage.getByTestId('node-time-0-0').fill('2026-08-01T08:00')
   await actorPage.getByTestId('node-time-0-1').fill('2026-08-15T23:59')
@@ -39,19 +99,16 @@ test('editor submits, distinct reviewer publishes, and student sees the edition'
     .fill('A complete source-backed browser publication candidate.')
   await actorPage.getByTestId('eligibility').fill('Enrolled undergraduate students.')
   await actorPage.getByTestId('add-tag').click()
-  await actorPage.getByTestId('tag-code-0').fill('browser-ai')
+  await actorPage.getByTestId('tag-code-0').fill(tagCode)
   await actorPage.getByTestId('tag-name-0').fill('Browser AI')
 
   const createResponsePromise = actorPage.waitForResponse(
     (response) =>
-      response.request().method() === 'POST' &&
-      response.url().endsWith('/api/v1/admin/competitions'),
+      response.request().method() === 'PATCH' &&
+      response.url().endsWith(`/api/v1/admin/competition_revisions/${revisionId}`),
   )
   await actorPage.getByTestId('save-revision').click()
-  const createdWorkspace = await (await createResponsePromise).json()
-  const editionId = createdWorkspace.data.id as number
-  const revisionId = createdWorkspace.data.revision.id as number
-  const seriesId = createdWorkspace.data.series_id as number
+  await createResponsePromise
   await expect(actorPage.getByText('draft · r1')).toBeVisible()
   await expect(actorPage.getByTestId('revision-completeness')).toContainText('发布完整度已满足')
 
@@ -63,7 +120,7 @@ test('editor submits, distinct reviewer publishes, and student sees the edition'
         edition_label: '2027',
         title: alternateCompetitionTitle,
         source_name: 'Example University Notice',
-        source_url: 'https://example.edu/notices/browser-ai-2027',
+        source_url: alternateSourceUrl,
         participant_forms: ['individual'],
       },
     },
@@ -106,7 +163,7 @@ test('editor submits, distinct reviewer publishes, and student sees the edition'
     participant_forms: ['individual'],
     team_size: null,
   })
-  await expect(actorPage.getByText('候选修订已更新')).toBeVisible()
+  await expect(actorPage.getByText('候选修订已更新').last()).toBeVisible()
   await expect(actorPage.getByTestId('stage-editor-1')).toBeVisible()
 
   await actorPage.reload()
@@ -128,7 +185,7 @@ test('editor submits, distinct reviewer publishes, and student sees the edition'
   )
   await actorPage.getByTestId('save-revision').click()
   await reloadedUpdateResponsePromise
-  await expect(actorPage.getByText('候选修订已更新')).toBeVisible()
+  await expect(actorPage.getByText('候选修订已更新').last()).toBeVisible()
 
   await actorPage.getByTestId('submit-revision').click()
   await expect(actorPage.getByText('pending_review · r1')).toBeVisible()
@@ -191,4 +248,11 @@ async function switchActor(page: Page, account: string, password: string) {
 async function selectEdition(page: Page, label: string) {
   await page.getByTestId('edition-select').click()
   await page.locator('.ant-select-dropdown:visible').getByText(label, { exact: true }).click()
+}
+
+async function selectScope(page: Page, testId: 'major-scope' | 'grade-scope') {
+  await page.getByTestId(testId).click()
+  await page.keyboard.press('End')
+  await page.keyboard.press('ArrowUp')
+  await page.keyboard.press('Enter')
 }
