@@ -188,6 +188,33 @@ function addTag() {
   draft.tags.push({ code: '', name: '', tag_type: 'topic' })
 }
 
+function startNewEdition() {
+  if (selectedSeriesId.value == null) return
+  selectedEditionId.value = undefined
+  createdRevision.value = undefined
+  Object.assign(draft, {
+    editionLabel: '',
+    title: '',
+    category: '',
+    organizer: '',
+    sourceName: '',
+    sourceUrl: '',
+    officialUrl: '',
+    summary: '',
+    eligibility: '',
+    registrationApplicability: 'applicable' as const,
+    participantForms: ['individual'],
+    teamSize: '',
+    majorScope: 'selected' as const,
+    gradeScope: 'selected' as const,
+    majors: '',
+    grades: '',
+    tags: [],
+    stages: [initialRegistrationStage()],
+  })
+  message.destroy()
+}
+
 async function loadSeries() {
   series.value = await fetchCompetitionSeries()
   if (selectedSeriesId.value == null && series.value[0] != null) {
@@ -474,6 +501,14 @@ function displayValue(value: unknown) {
                 <Tag v-if="createdRevision" color="blue">
                   {{ createdRevision.revision_status }} · r{{ createdRevision.revision_number }}
                 </Tag>
+                <Button
+                  data-testid="new-edition"
+                  :disabled="selectedSeriesId == null"
+                  @click="startNewEdition"
+                >
+                  <template #icon><PlusOutlined /></template>
+                  新建届次
+                </Button>
               </div>
 
               <Select
