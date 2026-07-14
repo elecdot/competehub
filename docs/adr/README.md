@@ -52,7 +52,7 @@ Use numbered lowercase filenames:
 - [0034 Measure Recommendation Impressions and Clicks without User Tracking](./0034-measure-recommendation-impressions-and-clicks-without-user-tracking.md)
 - [0035 Require Complementary Review Audit and Statistics Evidence](./0035-require-complementary-review-audit-and-statistics-evidence.md)
 - [0036 Reactivate Edition Subscriptions without Duplicating Reminder Plans](./0036-reactivate-edition-subscriptions-without-duplicating-reminder-plans.md)
-- [0037 Preserve Cancelled Reminder Plans through Preference Changes](./0037-preserve-cancelled-reminder-plans-through-preference-changes.md)
+- [0037 Preserve Cancelled Reminder Plans through Preference Changes (withdrawn; see ADR 0036)](./0037-preserve-cancelled-reminder-plans-through-preference-changes.md)
 
 ## Template
 
@@ -62,7 +62,9 @@ reverse it casually.
 
 Add structured sections only when they add useful clarity:
 
-- Status: proposed, accepted, superseded, or deprecated.
+- Status: proposed, accepted, superseded, deprecated, or withdrawn. A withdrawn
+  ADR records a decision that must not be used; it should name the authoritative
+  replacement when one exists.
 - Context: what problem or constraint forced the decision.
 - Decision: what was chosen.
 - Consequences: expected benefits, tradeoffs, and follow-up work.

@@ -169,10 +169,10 @@ deferred.
   only prefill the choice. Reminder-disabled subscriptions create no reminder
   plans but retain the confirmed node selection for follow lists and calendars.
 - FR-021: Disabling global reminders cancels all pending plans without deleting
-  subscriptions or calendar nodes. Re-enabling does not restore cancelled plans
-  or create plans from existing subscriptions. P1 creates one ordinary reminder
-  per selected node and never backfills a trigger that already passed as an
-  immediate due reminder.
+  subscriptions or calendar nodes. Global `message_enabled` false-to-true
+  restoration is Issue #40 scope and is not expanded by P1. P1 creates one
+  ordinary reminder per selected node and never backfills a trigger that already
+  passed as an immediate due reminder.
 - FR-022: Delivered messages are immutable 365-day snapshots with independent
   unread/read state. P1 types are `reminder_due`,
   `competition_time_changed`, `competition_cancelled`, and
@@ -195,9 +195,15 @@ deferred.
   are cancelled, no new plan is eligible, and no archival/expiry message is
   created.
 - FR-026: Explicit re-subscription reuses the cancelled edition-bound relation
-  and records a fresh reminder confirmation. It never creates a second relation,
-  restores cancelled, sent, or failed reminder evidence, or carries engagement
-  to another edition.
+  and records a fresh reminder confirmation. It never creates a second relation
+  or carries engagement to another edition. Explicit re-subscription or a
+  semantic PATCH may restore only unsent, still-future plans using that newly
+  confirmed consent and current eligible nodes when they were cancelled as
+  `subscription_cancelled`, `reminder_disabled`, `node_type_removed`, or
+  `subscription_offset_not_future`. Sent, failed, elapsed, prior-revision,
+  offline, deletion, lifecycle, supersession, and other system-owned evidence,
+  including delivered messages, remains terminal and is never restored or
+  replayed.
 
 ## Non-Functional Requirements
 
@@ -297,11 +303,13 @@ deferred.
       removed or cancelled.
 - [ ] Given that student explicitly re-subscribes to the same currently
       published edition, when fresh complete reminder consent is submitted, then
-      the existing relation becomes active with the latest confirmation without
-      restoring cancelled, sent, or failed reminder evidence.
+      the existing relation becomes active with the latest confirmation and
+      restores only eligible unsent future plans cancelled for controlled
+      subscription-level reasons, never terminal evidence or delivered messages.
 - [ ] Given global reminders are disabled and later re-enabled, then
       subscriptions and calendar nodes remain, old pending plans stay cancelled,
-      and no existing-subscription plan is recreated.
+      and #38 does not recreate an existing-subscription plan; false-to-true
+      restoration remains Issue #40 scope.
 - [ ] Given due reminders exist, when reminder dispatch runs more than once,
       then the student receives no duplicate message for the same reminder.
 - [ ] Given reminder delivery fails transiently, when its retry time arrives,

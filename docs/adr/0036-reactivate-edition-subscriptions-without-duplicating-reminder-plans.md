@@ -2,7 +2,7 @@
 
 ## Status
 
-Superseded by ADR 0037.
+Accepted. ADR 0037 is withdrawn and does not supersede this decision.
 
 ## Context
 
@@ -29,8 +29,8 @@ or a plan from an old node revision.
 Initial relation creation returns `201`; idempotent active POST and explicit
 re-subscription return `200`. Plan creation and restoration require both the
 subscription's confirmed reminder choice and the current global reminder switch
-to be enabled. Changes to the global switch and their cross-subscription
-reconciliation remain a separate workflow.
+to be enabled. Global `message_enabled` false-to-true reconciliation remains
+Issue #40 scope; it does not restore plans in Issue #38.
 
 ## Consequences
 

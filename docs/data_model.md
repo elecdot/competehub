@@ -703,8 +703,8 @@ Rules:
 - Subscription-level settings are copied from the student's confirmed choice
   and may differ from later global defaults.
 - Disabling global reminders cancels pending plans with a global-disabled
-  reason while preserving subscriptions and calendar nodes. Re-enabling does
-  not restore cancelled plans or create plans from existing subscriptions.
+  reason while preserving subscriptions and calendar nodes. Global
+  `message_enabled` false-to-true restoration remains Issue #40 scope.
 
 ### `reminders`
 
@@ -743,9 +743,13 @@ Rules:
 - #38 controls the cancellation reasons `subscription_cancelled`,
   `reminder_disabled`, `node_type_removed`, and
   `subscription_offset_not_future`, plus `global_reminder_disabled`. Cancellation
-  evidence is terminal for #38: PATCH, re-subscription, and global re-enablement
-  do not reactivate any cancelled row. Sent and failed rows are likewise never
-  rewritten.
+  evidence for the first four reasons may be restored only by explicit
+  re-subscription or semantic PATCH, with newly confirmed consent and current
+  eligible future nodes, when the plan is unsent. Sent, failed, elapsed,
+  prior-revision, offline, deletion, lifecycle, supersession, global-setting,
+  and other system-owned evidence is terminal; it and the delivered message are
+  never restored, rewritten, or replayed. Global `message_enabled` false-to-true
+  restoration remains Issue #40 scope.
 - Initial plan creation requires both the subscription's confirmed reminder
   switch and the current global reminder switch.
 - Worker tasks must be idempotent.

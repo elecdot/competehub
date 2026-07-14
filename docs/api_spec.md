@@ -389,8 +389,8 @@ combined preference API returns them with recommendation preferences. Defaults
 are enabled, three days, and the listed core node types, but they only prefill a
 subscription confirmation. Disabling `message_enabled` cancels all pending
 plans while preserving subscriptions and calendar nodes. Re-enabling changes
-only the global setting: it does not restore cancelled plans or create plans
-from existing subscriptions.
+only the global setting in #38. Its false-to-true restoration behavior remains
+Issue #40 scope.
 
 `reminder_settings` is authoritative when a row already exists. The #38
 successor migration creates a missing row from the legacy profile values and
@@ -728,22 +728,26 @@ fresh complete payload, reuses the relation, replaces its current configuration
 and `reminder_confirmed_at`, and reconciles plans under the rules below. The
 subscription stores only the latest consent, not immutable consent generations.
 
-P1 does not reactivate a cancelled ordinary plan. Re-subscription and PATCH
-retain cancellation evidence, including plans cancelled by a subscription
-choice or the global switch. They can refresh an already-pending matching plan;
-a new immutable node revision may receive a new ordinary plan under the complete
-unique key when its trigger is still future. Sent and failed evidence is never
-restored or rewritten.
+With newly confirmed consent and current eligible future nodes, explicit
+re-subscription and a semantic PATCH may restore an unsent cancelled ordinary
+plan only when its reason is `subscription_cancelled`, `reminder_disabled`,
+`node_type_removed`, or `subscription_offset_not_future`. They retain all other
+cancellation evidence. Sent, failed, elapsed, prior-revision, offline, deletion,
+lifecycle, supersession, global-setting, and other system-owned evidence, plus
+delivered messages, are terminal: they are never restored, rewritten, or
+replayed. Global `message_enabled` false-to-true restoration remains Issue #40
+scope.
 
 ### `PATCH /competitions/{id}/subscription`
 
 Update reminder settings for an existing subscription using the same explicit
 fields as subscription creation. Turning reminders off cancels pending plans but
-does not cancel the subscription or remove its calendar nodes. Turning them on
-does not restore previously cancelled plans. New plans require both the
-confirmed subscription switch and the current global reminder switch to be
-enabled. The edition must still be `published`; historical or offline relations
-can be removed but not reconfigured.
+does not cancel the subscription or remove its calendar nodes. A semantic change
+that turns reminders on, restores a node type, or makes the offset future may
+restore only the controlled eligible plans listed above. New and restored plans
+require both the confirmed subscription switch and the current global reminder
+switch to be enabled. The edition must still be `published`; historical or
+offline relations can be removed but not reconfigured.
 
 ### `DELETE /competitions/{id}/subscription`
 

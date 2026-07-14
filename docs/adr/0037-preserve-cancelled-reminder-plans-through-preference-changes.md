@@ -2,25 +2,27 @@
 
 ## Status
 
-Accepted
+Withdrawn. This ADR does not supersede ADR 0036.
 
 ## Context
 
-Issue #38 uses one ordinary reminder-plan key per student, edition, logical
-node, and node revision. Restoring a cancelled row after a false-to-true
-subscription or global setting transition would blur the cancellation audit
-trail and make a later consent change silently revive previously stopped work.
+This record proposed treating every cancelled reminder plan as permanently
+terminal. The owner confirmed that this conflicts with ADR 0036: a fresh,
+explicit subscription confirmation or semantic PATCH may restore only eligible
+future plans cancelled for controlled subscription-level reasons.
 
 ## Decision
 
-Subscription PATCH, explicit re-subscription, and global reminder re-enablement
-never reactivate a cancelled reminder plan. They may refresh a matching pending
-plan; a new immutable node revision may create its own still-future plan. A
-cancelled plan remains inspectable, while subscription reactivation still
-reuses the single edition-bound subscription relation and records fresh consent.
+Withdraw this decision. ADR 0036 is authoritative: using the newly confirmed
+consent and current eligible future nodes, explicit re-subscription or semantic
+PATCH may restore only unsent plans cancelled as `subscription_cancelled`,
+`reminder_disabled`, `node_type_removed`, or
+`subscription_offset_not_future`. Delivered messages and sent, failed, elapsed,
+prior-revision, offline, deletion, lifecycle, supersession, global-setting, and
+other system-owned evidence remain terminal and are never restored or replayed.
+Global `message_enabled` false-to-true restoration remains Issue #40 scope.
 
 ## Consequences
 
-The current P1 behavior favors explicit, one-way cancellation evidence over
-automatic restoration. Future restoration requires a separately reviewed model
-and migration strategy; it is not implied by a preference switch.
+The rejected one-way rule must not be used to interpret Issue #38. Implementers
+must follow ADR 0036 and keep all excluded terminal evidence inspectable.
