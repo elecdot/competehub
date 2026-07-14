@@ -1,7 +1,9 @@
 import { defineConfig, devices } from '@playwright/test'
 
 const apiServerCommand =
-  '../../scripts/agent-env.sh uv run --project ../api flask --app competehub_api.app:create_e2e_app run --host 127.0.0.1 --port 5000'
+  '../../scripts/agent-env.sh uv run --project ../api flask --app competehub_api.app:create_e2e_app run --no-reload --host 127.0.0.1 --port 5000'
+const reuseExistingServer = process.env.PLAYWRIGHT_REUSE_SERVERS === 'true'
+const useSystemChrome = process.env.PLAYWRIGHT_USE_SYSTEM_CHROME === 'true'
 
 function runWithBashOnWindows(command: string) {
   if (process.platform !== 'win32') {
@@ -31,20 +33,23 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: {
+        ...devices['Desktop Chrome'],
+        ...(useSystemChrome ? { channel: 'chrome' } : {}),
+      },
     },
   ],
   webServer: [
     {
       command: runWithBashOnWindows(apiServerCommand),
       url: 'http://127.0.0.1:5000/api/v1/health',
-      reuseExistingServer: false,
+      reuseExistingServer,
       timeout: 120_000,
     },
     {
       command: 'npm run dev -- --host 127.0.0.1 --port 5173',
       url: 'http://127.0.0.1:5173',
-      reuseExistingServer: false,
+      reuseExistingServer,
       timeout: 120_000,
     },
   ],

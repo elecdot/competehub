@@ -6,6 +6,7 @@ import {
   Empty,
   Input,
   InputNumber,
+  Result,
   Select,
   Switch,
   Tag,
@@ -13,6 +14,7 @@ import {
   message,
 } from "ant-design-vue"
 
+import { fetchCurrentUser } from "@/api/client"
 import {
   createRecommendationRuleSet,
   fetchRecommendationRuleSets,
@@ -21,6 +23,7 @@ import {
   submitRecommendationRuleSet,
   updateRecommendationRuleSet,
 } from "@/api/recommendation_rule_sets"
+import type { CurrentUserResponse } from "@/types/auth"
 import type {
   RecommendationPreviewPayload,
   RecommendationRule,
@@ -62,19 +65,49 @@ const previewPayload = reactive({
   interest_tags: "人工智能",
 })
 const previewResult = ref<RecommendationPreviewPayload | null>(null)
+const currentUser = ref<CurrentUserResponse | null>(null)
+
+const hasEditorCapability = computed(() =>
+  currentUser.value?.capabilities.includes("recommendation_editor") ?? false,
+)
+const hasReviewerCapability = computed(() =>
+  currentUser.value?.capabilities.includes("recommendation_reviewer") ?? false,
+)
+const canAccessWorkbench = computed(
+  () => hasEditorCapability.value || hasReviewerCapability.value,
+)
 
 const selectedRuleSet = computed(
   () => ruleSets.value.find((item) => item.rule_set_id === selectedRuleSetId.value) ?? null,
 )
 const activeRuleSet = computed(() => ruleSets.value.find((item) => item.status === "active") ?? null)
 const canCloneSelected = computed(
-  () => selectedRuleSet.value !== null && cloneableStatuses.has(selectedRuleSet.value.status),
+  () =>
+    hasEditorCapability.value &&
+    selectedRuleSet.value !== null &&
+    cloneableStatuses.has(selectedRuleSet.value.status),
 )
-const canEditSelected = computed(() => selectedRuleSet.value?.status === "draft")
-const canReviewSelected = computed(() => selectedRuleSet.value?.status === "pending_review")
+const canEditSelected = computed(
+  () =>
+    hasEditorCapability.value &&
+    selectedRuleSet.value?.status === "draft" &&
+    selectedRuleSet.value.created_by?.id === currentUser.value?.id,
+)
+const isSelfReview = computed(
+  () =>
+    selectedRuleSet.value?.status === "pending_review" &&
+    selectedRuleSet.value.submitted_by?.id === currentUser.value?.id,
+)
+const canReviewSelected = computed(
+  () =>
+    hasReviewerCapability.value &&
+    selectedRuleSet.value?.status === "pending_review" &&
+    !isSelfReview.value,
+)
 const selectedImpactEntries = computed(() =>
   selectedRuleSet.value?.impact_summary ? Object.entries(selectedRuleSet.value.impact_summary) : [],
 )
+const selectedDifference = computed(() => selectedRuleSet.value?.difference_snapshot ?? null)
 
 watch(selectedRuleSet, (ruleSet) => {
   editableRules.value = ruleSet ? ruleSet.rules.map((rule) => ({ ...rule })) : []
@@ -82,8 +115,23 @@ watch(selectedRuleSet, (ruleSet) => {
 })
 
 onMounted(() => {
-  void loadRuleSets()
+  void initializeWorkbench()
 })
+
+async function initializeWorkbench() {
+  loading.value = true
+  errorMessage.value = ""
+  try {
+    currentUser.value = await fetchCurrentUser()
+    if (canAccessWorkbench.value) {
+      await loadRuleSets()
+    }
+  } catch (error) {
+    errorMessage.value = errorToMessage(error)
+  } finally {
+    loading.value = false
+  }
+}
 
 async function loadRuleSets() {
   loading.value = true
@@ -219,6 +267,24 @@ function conditionLabel(rule: RecommendationRule) {
   return rule.conditions.operator
 }
 
+function actorLabel(actor: { id: number; display_name: string | null } | null) {
+  return actor ? `${actor.display_name ?? "未命名用户"} (#${actor.id})` : "—"
+}
+
+function formatDate(value: string | null) {
+  return value ? new Date(value).toLocaleString("zh-CN") : "—"
+}
+
+function impactLabel(key: string) {
+  const labels: Record<string, string> = {
+    enabled_rule_count_delta: "启用规则数变化",
+    changed_rule_codes: "变更规则代码",
+    active_version_at_submission: "提交时 active 版本",
+    candidate_version: "候选版本",
+  }
+  return labels[key] ?? key
+}
+
 function errorToMessage(error: unknown) {
   if (typeof error === "object" && error !== null && "response" in error) {
     const response = (error as { response?: { data?: { error?: { message?: string } } } }).response
@@ -237,16 +303,26 @@ function errorToMessage(error: unknown) {
           查看版本历史、克隆候选、编辑受控规则、运行 synthetic preview，并完成独立审核。
         </p>
       </div>
-      <Button :loading="loading" @click="loadRuleSets">刷新</Button>
+      <Button data-testid="governance-refresh" :loading="loading" @click="initializeWorkbench">
+        刷新
+      </Button>
     </header>
 
     <Alert v-if="errorMessage" type="error" show-icon :message="errorMessage" />
 
-    <div class="rule-workbench">
+    <Result
+      v-if="currentUser && !canAccessWorkbench"
+      status="403"
+      title="无权访问推荐规则治理"
+      sub-title="当前账号缺少 recommendation_editor 或 recommendation_reviewer capability。"
+    />
+
+    <div v-else-if="canAccessWorkbench" class="rule-workbench">
       <aside class="version-panel">
         <div class="panel-heading">
           <h2>版本历史</h2>
           <Button
+            data-testid="clone-rule-set"
             type="primary"
             :disabled="!canCloneSelected"
             :loading="saving"
@@ -261,6 +337,7 @@ function errorToMessage(error: unknown) {
           :key="ruleSet.rule_set_id"
           class="version-row"
           :class="{ 'version-row-active': ruleSet.rule_set_id === selectedRuleSetId }"
+          :data-testid="`rule-set-v${ruleSet.version}`"
           type="button"
           @click="selectedRuleSetId = ruleSet.rule_set_id"
         >
@@ -284,12 +361,56 @@ function errorToMessage(error: unknown) {
           <Tag v-else color="green">基线一致</Tag>
         </section>
 
+        <section class="governance-evidence" data-testid="governance-evidence">
+          <h2>治理证据</h2>
+          <dl>
+            <div><dt>状态</dt><dd>{{ statusLabels[selectedRuleSet.status] }}</dd></div>
+            <div><dt>创建者</dt><dd>{{ actorLabel(selectedRuleSet.created_by) }}</dd></div>
+            <div><dt>提交者</dt><dd>{{ actorLabel(selectedRuleSet.submitted_by) }}</dd></div>
+            <div><dt>审核者</dt><dd>{{ actorLabel(selectedRuleSet.reviewed_by) }}</dd></div>
+            <div><dt>创建时间</dt><dd>{{ formatDate(selectedRuleSet.created_at) }}</dd></div>
+            <div><dt>提交时间</dt><dd>{{ formatDate(selectedRuleSet.submitted_at) }}</dd></div>
+            <div><dt>决定时间</dt><dd>{{ formatDate(selectedRuleSet.decided_at) }}</dd></div>
+            <div><dt>激活时间</dt><dd>{{ formatDate(selectedRuleSet.activated_at) }}</dd></div>
+            <div><dt>退役时间</dt><dd>{{ formatDate(selectedRuleSet.retired_at) }}</dd></div>
+            <div><dt>审核状态</dt><dd>{{ selectedRuleSet.terminal_review_status ?? "—" }}</dd></div>
+            <div><dt>审核意见</dt><dd>{{ selectedRuleSet.review_comment ?? "—" }}</dd></div>
+            <div><dt>来源版本</dt><dd>v{{ selectedRuleSet.cloned_from_version ?? "—" }}</dd></div>
+            <div><dt>基线版本</dt><dd>v{{ selectedRuleSet.base_version ?? "—" }}</dd></div>
+            <div><dt>当前 active</dt><dd>v{{ selectedRuleSet.active_version ?? "—" }}</dd></div>
+          </dl>
+        </section>
+
+        <Alert
+          v-if="selectedRuleSet.status === 'draft' && !canEditSelected"
+          type="info"
+          show-icon
+          message="只有此草稿的创建者可保存或提交。"
+        />
+        <Alert
+          v-if="isSelfReview"
+          type="warning"
+          show-icon
+          message="提交者不能审核自己的候选版本，请使用独立 reviewer 账号。"
+        />
+
         <section class="rules-section">
           <div class="panel-heading">
             <h2>规则配置</h2>
             <div class="button-row">
-              <Button :disabled="!canEditSelected" :loading="saving" @click="saveDraft">保存草稿</Button>
-              <Button type="primary" :disabled="!canEditSelected" :loading="saving" @click="submitDraft">
+              <Button
+                data-testid="save-rule-set"
+                :disabled="!canEditSelected"
+                :loading="saving"
+                @click="saveDraft"
+              >保存草稿</Button>
+              <Button
+                data-testid="submit-rule-set"
+                type="primary"
+                :disabled="!canEditSelected"
+                :loading="saving"
+                @click="submitDraft"
+              >
                 提交审核
               </Button>
             </div>
@@ -303,13 +424,25 @@ function errorToMessage(error: unknown) {
               <span>条件</span>
               <span>理由模板</span>
             </div>
-            <div v-for="rule in editableRules" :key="rule.code" class="rule-table-row" role="row">
+            <div
+              v-for="rule in editableRules"
+              :key="rule.code"
+              class="rule-table-row"
+              role="row"
+              :data-testid="`rule-${rule.code}`"
+            >
               <label>
                 <span>{{ ruleLabels[rule.code] }}</span>
                 <Input v-model:value="rule.name" :disabled="!canEditSelected" />
               </label>
               <Switch v-model:checked="rule.enabled" :disabled="!canEditSelected" />
-              <InputNumber v-model:value="rule.weight" :disabled="!canEditSelected" :min="1" :max="100" />
+              <InputNumber
+                v-model:value="rule.weight"
+                :data-testid="`rule-weight-${rule.code}`"
+                :disabled="!canEditSelected"
+                :min="1"
+                :max="100"
+              />
               <div>
                 <InputNumber
                   v-if="rule.code === 'deadline_urgency'"
@@ -328,13 +461,27 @@ function errorToMessage(error: unknown) {
         <section class="review-grid">
           <div class="governance-box">
             <h2>差异</h2>
+            <dl v-if="selectedDifference">
+              <div><dt>基线版本</dt><dd>v{{ selectedDifference.base_version }}</dd></div>
+              <div><dt>候选版本</dt><dd>v{{ selectedDifference.candidate_version }}</dd></div>
+              <div>
+                <dt>变更规则</dt>
+                <dd>{{ selectedDifference.changed_rules.map((item) => item.code).join(", ") || "无" }}</dd>
+              </div>
+              <div><dt>新增规则</dt><dd>{{ selectedDifference.added_rules.length }}</dd></div>
+              <div><dt>移除规则</dt><dd>{{ selectedDifference.removed_rules.length }}</dd></div>
+            </dl>
+            <p v-else>当前状态没有差异快照。</p>
+            <details v-if="selectedDifference">
+              <summary>技术 JSON 详情</summary>
             <pre>{{ JSON.stringify(selectedRuleSet.difference_snapshot, null, 2) }}</pre>
+            </details>
           </div>
           <div class="governance-box">
             <h2>影响</h2>
             <dl>
               <div v-for="[key, value] in selectedImpactEntries" :key="key">
-                <dt>{{ key }}</dt>
+                <dt>{{ impactLabel(key) }}</dt>
                 <dd>{{ value }}</dd>
               </div>
             </dl>
@@ -343,13 +490,25 @@ function errorToMessage(error: unknown) {
 
         <section class="action-panel">
           <h2>审核决定</h2>
-          <Textarea v-model:value="reviewComment" :rows="2" placeholder="填写审核意见" />
+          <Textarea
+            v-model:value="reviewComment"
+            data-testid="review-comment"
+            :disabled="!canReviewSelected"
+            :rows="2"
+            placeholder="填写审核意见"
+          />
           <div class="button-row">
             <Button :disabled="!canReviewSelected" :loading="saving" @click="decide('return')">退回</Button>
             <Button danger :disabled="!canReviewSelected" :loading="saving" @click="decide('reject')">
               驳回
             </Button>
-            <Button type="primary" :disabled="!canReviewSelected" :loading="saving" @click="decide('approve')">
+            <Button
+              data-testid="approve-rule-set"
+              type="primary"
+              :disabled="!canReviewSelected"
+              :loading="saving"
+              @click="decide('approve')"
+            >
               通过并激活
             </Button>
           </div>
@@ -370,34 +529,46 @@ function errorToMessage(error: unknown) {
             </label>
             <label>
               赛事 ID
-              <Input v-model:value="previewCompetitionIds" placeholder="例如 201,305" />
+              <Input
+                v-model:value="previewCompetitionIds"
+                data-testid="preview-competition-ids"
+                placeholder="例如 201,305"
+              />
             </label>
             <template v-if="previewPayload.scenario === 'personalized'">
               <label>
                 学院
-                <Input v-model:value="previewPayload.college" />
+                <Input v-model:value="previewPayload.college" data-testid="preview-college" />
               </label>
               <label>
                 专业
-                <Input v-model:value="previewPayload.major" />
+                <Input v-model:value="previewPayload.major" data-testid="preview-major" />
               </label>
               <label>
                 年级
-                <Input v-model:value="previewPayload.grade" />
+                <Input v-model:value="previewPayload.grade" data-testid="preview-grade" />
               </label>
               <label>
                 兴趣标签
-                <Input v-model:value="previewPayload.interest_tags" placeholder="逗号分隔" />
+                <Input
+                  v-model:value="previewPayload.interest_tags"
+                  data-testid="preview-interest-tags"
+                  placeholder="逗号分隔"
+                />
               </label>
             </template>
           </div>
-          <Button type="primary" :loading="saving" @click="runPreview">运行 preview</Button>
-          <div v-if="previewResult" class="preview-results">
+          <Button data-testid="run-preview" type="primary" :loading="saving" @click="runPreview">
+            运行 preview
+          </Button>
+          <div v-if="previewResult" class="preview-results" data-testid="preview-results">
             <h3>v{{ previewResult.version }} / {{ previewResult.scenario }}</h3>
             <ol>
               <li v-for="item in previewResult.results" :key="item.competition_id">
-                #{{ item.position }} 赛事 {{ item.competition_id }}：
-                {{ item.reason_codes.join(", ") }} / {{ item.reasons.join("；") }}
+                #{{ item.position }} {{ item.competition.title }}
+                <span v-if="item.competition.edition_label">（{{ item.competition.edition_label }}）</span>
+                · ID {{ item.competition.id }} · reason codes：{{ item.reason_codes.join(", ") }}
+                · {{ item.reasons.join("；") }}
               </li>
             </ol>
           </div>
@@ -412,7 +583,8 @@ function errorToMessage(error: unknown) {
 .rule-detail-panel,
 .rules-section,
 .action-panel,
-.governance-box {
+.governance-box,
+.governance-evidence {
   display: grid;
   gap: 16px;
 }
@@ -428,7 +600,8 @@ function errorToMessage(error: unknown) {
 .rule-detail-panel,
 .rules-section,
 .action-panel,
-.governance-box {
+.governance-box,
+.governance-evidence {
   background: #ffffff;
   border: 1px solid #dde2e7;
   border-radius: 8px;
@@ -447,6 +620,7 @@ function errorToMessage(error: unknown) {
 
 .panel-heading h2,
 .governance-box h2,
+.governance-evidence h2,
 .action-panel h2 {
   font-size: 16px;
   margin: 0;
@@ -523,6 +697,7 @@ function errorToMessage(error: unknown) {
 }
 
 .governance-box dl,
+.governance-evidence dl,
 .preview-results ol {
   display: grid;
   gap: 8px;
@@ -533,6 +708,28 @@ function errorToMessage(error: unknown) {
   display: grid;
   gap: 4px;
   grid-template-columns: minmax(160px, 1fr) minmax(0, 1fr);
+}
+
+.governance-evidence dl {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.governance-evidence dl div {
+  border-bottom: 1px solid #edf0f3;
+  display: grid;
+  gap: 6px;
+  grid-template-columns: minmax(90px, 120px) minmax(0, 1fr);
+  padding: 8px 0;
+}
+
+.governance-evidence dt {
+  color: #52606d;
+  font-weight: 700;
+}
+
+.governance-evidence dd {
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .governance-box dt {
@@ -565,6 +762,7 @@ function errorToMessage(error: unknown) {
 @media (max-width: 920px) {
   .rule-workbench,
   .review-grid,
+  .governance-evidence dl,
   .preview-form {
     grid-template-columns: 1fr;
   }

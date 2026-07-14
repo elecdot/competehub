@@ -7,6 +7,7 @@ from competehub_api.models import (
     Competition,
     CompetitionRevision,
     CompetitionSeries,
+    RecommendationRuleSet,
     StudentProfile,
     User,
     UserIdentity,
@@ -35,7 +36,7 @@ def test_e2e_seed_rebuilds_the_expected_actor_set() -> None:
     result = runner.invoke(args=["seed-e2e", "--reset"])
 
     assert result.exit_code == 0
-    assert "Provisioned 5 deterministic E2E actors." in result.output
+    assert "Provisioned 6 deterministic E2E actors." in result.output
 
     with app.app_context():
         db.session.add(
@@ -86,6 +87,10 @@ def test_e2e_seed_rebuilds_the_expected_actor_set() -> None:
         assert revision.stages[0].time_nodes[0].occurs_at is not None
         assert revision.stages[0].time_nodes[0].starts_at is None
         assert revision.stages[0].time_nodes[0].due_at is None
+        assert [link.tag.name for link in revision.tag_links] == ["人工智能"]
+        recommendation_rule_set = db.session.query(RecommendationRuleSet).one()
+        assert recommendation_rule_set.version == 1
+        assert recommendation_rule_set.status.value == "active"
 
     login_response = app.test_client().post(
         "/api/v1/auth/login",

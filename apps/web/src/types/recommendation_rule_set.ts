@@ -33,7 +33,16 @@ export interface RecommendationRuleSetSummary {
   rule_set_id: number
   version: number
   status: RecommendationRuleSetStatus
-  created_by: { id: number; display_name: string | null } | null
+  created_by: GovernanceActor | null
+  submitted_by: GovernanceActor | null
+  reviewed_by: GovernanceActor | null
+  created_at: string
+  submitted_at: string | null
+  decided_at: string | null
+  activated_at: string | null
+  retired_at: string | null
+  review_comment: string | null
+  terminal_review_status: "approved" | "rejected" | "returned" | null
   cloned_from_rule_set_id: number | null
   cloned_from_version: number | null
   base_rule_set_id: number | null
@@ -41,9 +50,47 @@ export interface RecommendationRuleSetSummary {
   active_rule_set_id: number | null
   active_version: number | null
   is_stale: boolean
-  difference_snapshot: Record<string, unknown> | null
-  impact_summary: Record<string, unknown> | null
+  difference_snapshot: RecommendationDifferenceSnapshot | null
+  impact_summary: RecommendationImpactSummary | null
   rules: RecommendationRule[]
+}
+
+export interface RecommendationRuleChange {
+  code: RecommendationRuleCode
+  changes: Record<string, { before: unknown; after: unknown }>
+}
+
+export interface RecommendationDifferenceSnapshot {
+  base_rule_set_id: number
+  base_version: number
+  candidate_rule_set_id: number
+  candidate_version: number
+  added_rules: RecommendationRule[]
+  removed_rules: RecommendationRule[]
+  changed_rules: RecommendationRuleChange[]
+  unchanged_rule_count: number
+}
+
+export interface RecommendationImpactSummary {
+  activation_effect: string
+  base_version: number
+  current_active_version: number | null
+  candidate_version: number
+  is_stale: boolean
+  enabled_rule_count_before: number
+  enabled_rule_count_after: number
+  added_rule_count: number
+  removed_rule_count: number
+  changed_rule_count: number
+  ordering_may_change: boolean
+  reasons_may_change: boolean
+  active_behavior_unchanged_until_activation: boolean
+  real_profile_evaluation_performed: false
+}
+
+export interface GovernanceActor {
+  id: number
+  display_name: string | null
 }
 
 export interface RecommendationRuleSetListPayload {
@@ -66,6 +113,11 @@ export interface RecommendationPreviewRequest {
 export interface RecommendationPreviewResult {
   position: number
   competition_id: number
+  competition: {
+    id: number
+    title: string
+    edition_label: string | null
+  }
   matched_rule_codes: RecommendationRuleCode[]
   reason_codes: RecommendationRuleCode[]
   reasons: string[]
