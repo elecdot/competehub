@@ -572,6 +572,132 @@ def test_successor_revision_keeps_public_snapshot_until_approval_and_reconciles_
         assert messages[0].user_id == student_id
 
 
+def test_presentation_only_revision_moves_pending_reminder_without_schedule_message(
+    client, app
+) -> None:
+    with app.app_context():
+        editor_id = create_user(
+            34, UserRole.ADMIN, "presentation-editor@example.edu", ["competition_editor"]
+        )
+        reviewer_id = create_user(
+            35, UserRole.ADMIN, "presentation-reviewer@example.edu", ["competition_reviewer"]
+        )
+        student_id = create_user(36, UserRole.STUDENT, "presentation-student@example.edu")
+    login(client, editor_id)
+    created = create_edition(client, create_series(client))
+    edition_id = created["id"]
+    initial_revision_id = created["revision"]["id"]
+    assert (
+        client.post(
+            f"/api/v1/admin/competition_revisions/{initial_revision_id}/submit_review"
+        ).status_code
+        == 200
+    )
+
+    with app.app_context():
+        initial = db.session.get(CompetitionRevision, initial_revision_id)
+        assert initial is not None
+        deadline = next(
+            node for node in initial.time_nodes if node.logical_node_key == "registration-deadline"
+        )
+        old_deadline_id = deadline.id
+        old_node_revision = deadline.node_revision
+        db.session.add(
+            Subscription(
+                id=3,
+                user_id=student_id,
+                competition_id=edition_id,
+                reminder_enabled=True,
+                remind_days=3,
+                node_types=["registration_deadline"],
+            )
+        )
+        db.session.add(
+            Reminder(
+                id=3,
+                user_id=student_id,
+                competition_id=edition_id,
+                time_node_id=deadline.id,
+                node_type="registration_deadline",
+                due_at=datetime(2026, 8, 12, 16, tzinfo=UTC),
+                title="Original registration reminder",
+                status=ReminderStatus.PENDING,
+            )
+        )
+        db.session.commit()
+
+    login(client, reviewer_id)
+    assert (
+        client.post(
+            f"/api/v1/admin/competition_revisions/{initial_revision_id}/review",
+            json={"action": "approve", "comment": "Initial source verified."},
+        ).status_code
+        == 200
+    )
+    login(client, editor_id)
+    successor = client.post(
+        f"/api/v1/admin/competitions/{edition_id}/revisions",
+        json={"reason": "Clarify the registration stage presentation."},
+    ).get_json()["data"]
+    successor_id = successor["id"]
+    stages = successor["stages"]
+    stages[0]["stage_key"] = "main-registration"
+    deadline_payload = next(
+        node
+        for stage in stages
+        for node in stage["time_nodes"]
+        if node["logical_node_key"] == "registration-deadline"
+    )
+    deadline_payload["description"] = "Registration closes at the published instant"
+    for stage in stages:
+        stage.pop("id", None)
+        for node in stage["time_nodes"]:
+            node.pop("id", None)
+            node.pop("node_revision", None)
+
+    assert (
+        client.patch(
+            f"/api/v1/admin/competition_revisions/{successor_id}",
+            json={"stages": stages},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(f"/api/v1/admin/competition_revisions/{successor_id}/submit_review").status_code
+        == 200
+    )
+    login(client, reviewer_id)
+    assert (
+        client.post(
+            f"/api/v1/admin/competition_revisions/{successor_id}/review",
+            json={"action": "approve", "comment": "Presentation clarification verified."},
+        ).status_code
+        == 200
+    )
+
+    with app.app_context():
+        successor_revision = db.session.get(CompetitionRevision, successor_id)
+        assert successor_revision is not None
+        new_deadline = next(
+            node
+            for node in successor_revision.time_nodes
+            if node.logical_node_key == "registration-deadline"
+        )
+        assert new_deadline.id != old_deadline_id
+        assert new_deadline.node_revision == old_node_revision
+        reminder = db.session.get(Reminder, 3)
+        assert reminder is not None
+        assert reminder.status == ReminderStatus.PENDING
+        assert reminder.time_node_id == new_deadline.id
+        assert (
+            Message.query.filter_by(
+                competition_id=edition_id,
+                message_type="competition_time_changed",
+            ).count()
+            == 0
+        )
+
+
 def test_historical_lifecycle_detail_keeps_warning_while_offline_returns_404(client, app) -> None:
     with app.app_context():
         editor_id = create_user(

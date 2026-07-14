@@ -703,11 +703,8 @@ def _freeze_node_revisions(revision: CompetitionRevision) -> None:
 
 def _node_behavior_facts(node: CompetitionTimeNode) -> tuple:
     return (
-        node.stage.stage_key if node.stage is not None else None,
         node.node_type,
         node.occurs_at,
-        node.prominence,
-        node.description,
     )
 
 
@@ -794,30 +791,48 @@ def _reconcile_subscriber_state(
     now: datetime,
 ) -> None:
     schedule_changes = _schedule_changes(comparison)
-    if not schedule_changes:
-        return
     changed_keys = {change["logical_node_key"] for change in schedule_changes}
     base = db.session.get(CompetitionRevision, revision.base_revision_id)
-    base_nodes = {
-        node.id: node
-        for node in (base.time_nodes if base is not None else [])
-        if node.logical_node_key in changed_keys
+    base_nodes_by_key = {
+        node.logical_node_key: node for node in (base.time_nodes if base is not None else [])
+    }
+    new_nodes_by_key = {node.logical_node_key: node for node in revision.time_nodes}
+    presentation_only_keys = (base_nodes_by_key.keys() & new_nodes_by_key.keys()) - changed_keys
+    presentation_only_base_ids = {base_nodes_by_key[key].id for key in presentation_only_keys}
+    presentation_only_base_nodes = {
+        base_nodes_by_key[key].id: base_nodes_by_key[key] for key in presentation_only_keys
+    }
+    if presentation_only_base_ids:
+        for reminder in db.session.scalars(
+            select(Reminder).where(
+                Reminder.competition_id == revision.competition_id,
+                Reminder.status == ReminderStatus.PENDING,
+                Reminder.time_node_id.in_(presentation_only_base_ids),
+            )
+        ):
+            base_node = presentation_only_base_nodes[reminder.time_node_id]
+            new_node = new_nodes_by_key[base_node.logical_node_key]
+            reminder.time_node_id = new_node.id
+            reminder.node_type = new_node.node_type
+            reminder.title = f"{revision.title}: {new_node.node_type}"
+            reminder.body = f"Current schedule: {new_node.occurs_at.isoformat()}"
+
+    if not schedule_changes:
+        return
+    changed_base_nodes = {
+        node.id: node for key, node in base_nodes_by_key.items() if key in changed_keys
     }
     for reminder in db.session.scalars(
         select(Reminder).where(
             Reminder.competition_id == revision.competition_id,
             Reminder.status == ReminderStatus.PENDING,
-            Reminder.time_node_id.in_(base_nodes),
+            Reminder.time_node_id.in_(changed_base_nodes),
         )
     ):
         reminder.status = ReminderStatus.CANCELLED
         reminder.cancel_reason = "competition_revision_superseded"
 
-    new_nodes = {
-        node.logical_node_key: node
-        for node in revision.time_nodes
-        if node.logical_node_key in changed_keys
-    }
+    changed_new_nodes = {key: node for key, node in new_nodes_by_key.items() if key in changed_keys}
     subscriptions = list(
         db.session.scalars(
             select(Subscription).where(
@@ -830,7 +845,7 @@ def _reconcile_subscriber_state(
         if not _subscription_affected(subscription, schedule_changes):
             continue
         if subscription.reminder_enabled:
-            for node in new_nodes.values():
+            for node in changed_new_nodes.values():
                 if node.node_type not in (subscription.node_types or []) or node.occurs_at is None:
                     continue
                 due_at = _aware_utc(node.occurs_at) - timedelta(days=subscription.remind_days)
