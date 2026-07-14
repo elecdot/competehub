@@ -93,6 +93,7 @@ Create or upgrade the application schema before starting the API:
 
 ```bash
 just api-db-upgrade
+just seed-recommendation-rules
 ```
 
 This runs the committed Alembic revisions against `DATABASE_URL`. Do not use
@@ -105,6 +106,15 @@ disposable database; use a reviewed data-preserving bridge for shared data.
 The committed `61f2c8e4a9bd` predecessor is a known shape and is bridged
 automatically when every existing competition has `created_by_id`; assign an
 owner before upgrade if the migration reports unattributed competition ids.
+
+The recommendation-governance migration is deliberately fail-closed when the
+legacy mutable `recommendation_rules` predecessor contains rows. It checks
+before destructive DDL, leaves the legacy table and data intact, and does not
+promote unaudited mutable rules into active v1. Back up that database and make
+an explicit, reviewed data-migration decision before retrying. After a fresh or
+empty-predecessor upgrade, `just seed-recommendation-rules` invokes the standard
+Flask CLI seed. Re-running it is idempotent only when persisted active v1 exactly
+matches the reproducible snapshot; a conflicting v1 fails without overwrite.
 
 Stop them when finished:
 

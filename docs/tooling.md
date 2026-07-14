@@ -46,6 +46,9 @@ Current project recipes include:
 - `api-worker`: start the Celery worker.
 - `api-worker-beat`: schedule periodic Celery tasks, including verification outbox delivery.
 - `api-db-upgrade`: apply committed Alembic revisions to the configured database.
+- `seed-recommendation-rules`: invoke the standard Flask CLI command that
+  idempotently provisions the reproducible initial active v1; see
+  [Setup](setup.md#start-local-services) for conflict and legacy-data handling.
 - `api-test`: run backend tests.
 - `api-lint`: run backend Ruff checks.
 - `api-format`: format backend Python files.

@@ -919,6 +919,11 @@ Rules:
   `ordering_may_change` and `reasons_may_change` flags, stale state, and that
   no real profile evaluation was performed. It does not store affected-student,
   quality, conversion, score, or cache-state claims.
+- History read models expose immutable lineage and review evidence through
+  creator, submitter, reviewer, submission/decision/activation/retirement
+  timestamps, review comment, terminal status, source/base/active versions,
+  stale state, and the applicable difference/impact snapshots. Terminal
+  evidence comes from `review_records`, not mutable reconstruction.
 
 ### `recommendation_rules`
 
@@ -958,7 +963,17 @@ Rules:
 - Internal ranking score and rule weights are not public competition value
   scores, probabilities, percentages, or "quality" scores.
 - Preview uses a synthetic profile and selected public competition fixtures; it
-  does not read an arbitrary real student's profile or persist recommendations.
+  validates the same controlled college-major, grade, and interest dictionaries
+  as real profiles but does not read an arbitrary real student's profile or
+  persist recommendations.
+- Preview recommendation facts are an atomic projection of the one immutable
+  `competition_revisions` row referenced by `competitions.published_revision_id`.
+  Flattened predecessor fields and historical non-current revisions never
+  contribute majors, grades, tags, deadlines, time nodes, or reasons.
+- The governance migration may replace an empty legacy mutable
+  `recommendation_rules` table. A populated predecessor fails before destructive
+  DDL and requires an explicit reviewed data migration; its rows are never
+  silently discarded or promoted to active v1.
 
 ### `system_configs`
 

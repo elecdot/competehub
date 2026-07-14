@@ -82,7 +82,12 @@ Start local PostgreSQL and Redis:
 ```bash
 just infra-up
 just api-db-upgrade
+just seed-recommendation-rules
 ```
+
+The seed is safe to repeat only for an exact reproducible v1 and never
+overwrites a conflicting version. See [setup](./docs/setup.md#start-local-services)
+for the fail-closed legacy-rule migration procedure.
 
 Start the backend and frontend in separate terminals:
 

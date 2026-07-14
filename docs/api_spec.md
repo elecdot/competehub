@@ -1202,7 +1202,12 @@ single active version. Items include `cloned_from_rule_set_id`,
 `cloned_from_version`, `base_rule_set_id`, `base_version`,
 `active_rule_set_id`, `active_version`, `is_stale`, rules, and frozen or
 deterministically generated `difference_snapshot` and `impact_summary` when
-applicable.
+applicable. Every item also returns labeled governance evidence:
+`created_by`, `submitted_by`, `reviewed_by`, `created_at`, `submitted_at`,
+`decided_at`, `activated_at`, `retired_at`, `review_comment`, and
+`terminal_review_status`. Pending candidates derive difference and impact from
+their immutable base; terminal candidates read the frozen snapshots and actors
+from their immutable `review_record`.
 
 Requires `recommendation_editor` or `recommendation_reviewer`.
 
@@ -1272,14 +1277,21 @@ Request:
 complete synthetic profile; general preview must omit it. The synthetic profile
 accepts only `college`, `major`, `grade`, and 1 to 10 unique controlled
 `interest_tags`; user ids, profile ids, arbitrary field paths, expressions, and
-scripts are rejected. `competition_ids` contains 1 to 20 unique public
+scripts are rejected. The same profile dictionary and college-major relation
+used by real profile update/readiness validation govern these values; preview
+never loads a real student's profile. `competition_ids` contains 1 to 20 unique public
 competition fixture ids. Any duplicate, missing, or non-recommendable fixture
 returns one `400 validation_error` with stable `duplicate`, `not_found`, and
 `not_recommendable` id lists.
 
 The response returns `rule_set_id`, integer `version`, `scenario`, fixture ids,
 and deterministic results with server-assigned `position`, `competition_id`,
-`matched_rule_codes`, `reason_codes`, and rendered plain-text reasons. It does
+current-revision competition identity, `matched_rule_codes`, `reason_codes`,
+and rendered plain-text reasons. Every recommendation fact—major and grade
+scope/values, tags, registration deadline, and time nodes—comes only from the
+immutable `CompetitionRevision` referenced by `competition.published_revision_id`.
+Legacy flattened fields and non-current historical revisions are never fallback
+facts. It does
 not return internal score, probability, percentage, weight contribution, or
 competition value rating. Preview is read-only: it writes no review record,
 recommendation event, analytics row, production recommendation snapshot, or
