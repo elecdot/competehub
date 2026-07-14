@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from marshmallow import ValidationError
@@ -11,6 +11,9 @@ from competehub_api.models import (
     AuditLog,
     Competition,
     CompetitionRevision,
+    CompetitionTag,
+    CompetitionTagLink,
+    CompetitionTimeNode,
     RecommendationRule,
     RecommendationRuleSet,
     ReviewRecord,
@@ -20,6 +23,7 @@ from competehub_api.models.enums import (
     CompetitionRevisionStatus,
     CompetitionStatus,
     RecommendationRuleSetStatus,
+    ReviewStatus,
     UserRole,
 )
 from competehub_api.schemas.recommendation_rule_sets import recommendation_rule_input_schema
@@ -30,6 +34,9 @@ from competehub_api.seeds.recommendation_rules import (
 )
 from competehub_api.services.auth import start_session
 from competehub_api.services.errors import ServiceError
+from competehub_api.services.recommendation_rule_set_views import (
+    recommendation_rule_set_history,
+)
 from competehub_api.services.recommendation_rule_sets import (
     clone_recommendation_rule_set,
     review_recommendation_rule_set,
@@ -426,8 +433,69 @@ def test_api_editor_reviewer_workflow_blocks_self_review_and_activates(
     )
     assert pending_item["difference_snapshot"]["changed_rules"]
     assert pending_item["impact_summary"]["is_stale"] is False
+    assert pending_item["created_by"] == {"id": editor_id, "display_name": "Workflow Editor"}
+    assert pending_item["submitted_by"] == {
+        "id": editor_id,
+        "display_name": "Workflow Editor",
+    }
+    assert pending_item["reviewed_by"] is None
+    assert pending_item["submitted_at"] is not None
+    assert pending_item["terminal_review_status"] is None
     assert approved.status_code == 200
-    assert approved.get_json()["data"]["status"] == "active"
+    approved_data = approved.get_json()["data"]
+    assert approved_data["status"] == "active"
+    assert approved_data["reviewed_by"] == {
+        "id": reviewer_id,
+        "display_name": "Workflow Reviewer",
+    }
+    assert approved_data["review_comment"] == "independent review"
+    assert approved_data["terminal_review_status"] == "approved"
+    assert approved_data["decided_at"] is not None
+    assert approved_data["activated_at"] is not None
+
+
+def test_history_service_uses_frozen_terminal_review_evidence(app) -> None:
+    with app.app_context():
+        active = seed_initial_recommendation_rule_set()
+        editor = _create_admin("history-editor@example.edu", "History Editor")
+        reviewer = _create_admin("history-reviewer@example.edu", "History Reviewer")
+        candidate = _changed_submitted_candidate(active, editor)
+        review_recommendation_rule_set(candidate.id, reviewer, "approve", "frozen evidence")
+        decision = ReviewRecord.query.filter_by(target_id=candidate.id).one()
+        frozen_difference = decision.difference_snapshot
+        frozen_impact = decision.impact_summary
+        db.session.add(
+            ReviewRecord(
+                target_type="recommendation_rule_set",
+                target_id=candidate.id,
+                target_revision=candidate.version + 100,
+                submitted_by_id=reviewer.id,
+                reviewed_by_id=editor.id,
+                status=ReviewStatus.REJECTED,
+                comment="wrong revision evidence",
+                difference_snapshot={"wrong": True},
+                impact_summary={"wrong": True},
+                submitted_at=datetime.now(UTC),
+                decided_at=datetime.now(UTC),
+            )
+        )
+        db.session.commit()
+
+        history = recommendation_rule_set_history()["items"]
+        candidate_item = next(item for item in history if item["rule_set_id"] == candidate.id)
+        retired_item = next(item for item in history if item["rule_set_id"] == active.id)
+
+        assert candidate_item["difference_snapshot"] == frozen_difference
+        assert candidate_item["impact_summary"] == frozen_impact
+        assert candidate_item["submitted_by"]["id"] == editor.id
+        assert candidate_item["reviewed_by"]["id"] == reviewer.id
+        assert candidate_item["terminal_review_status"] == "approved"
+        assert candidate_item["review_comment"] == "frozen evidence"
+        assert candidate_item["cloned_from_version"] == 1
+        assert candidate_item["base_version"] == 1
+        assert candidate_item["active_version"] == candidate.version
+        assert retired_item["status"] == "retired"
+        assert retired_item["retired_at"] is not None
 
 
 def test_preview_uses_synthetic_profile_and_validates_all_fixtures(
@@ -438,14 +506,18 @@ def test_preview_uses_synthetic_profile_and_validates_all_fixtures(
     with app.app_context():
         active = seed_initial_recommendation_rule_set()
         reviewer = _create_admin("preview-reviewer@example.edu", "Preview Reviewer")
+        college, majors = next(iter(app.config["PROFILE_ALLOWED_MAJORS_BY_COLLEGE"].items()))
+        major = majors[0]
+        grade = app.config["PROFILE_ALLOWED_GRADES"][0]
+        interest_tag = app.config["PROFILE_ALLOWED_INTEREST_TAGS"][0]
         public = Competition(
             id=201,
             title="Published AI Challenge",
             source_name="School Notice",
             source_url="https://example.edu/ai",
             status=CompetitionStatus.PUBLISHED,
-            suitable_majors=["软件工程"],
-            suitable_grades=["大二"],
+            suitable_majors=[major],
+            suitable_grades=[grade],
         )
         draft = Competition(
             id=202,
@@ -467,14 +539,20 @@ def test_preview_uses_synthetic_profile_and_validates_all_fixtures(
             participant_forms=[],
             major_scope="selected",
             grade_scope="selected",
-            suitable_majors=public.suitable_majors,
-            suitable_grades=public.suitable_grades,
+            suitable_majors=[major],
+            suitable_grades=[grade],
             created_by_id=reviewer.id,
             published_at=datetime(2026, 7, 12, 1, 0, tzinfo=UTC),
         )
         db.session.add(published_revision)
         db.session.flush()
         public.published_revision_id = published_revision.id
+        tag = CompetitionTag(code="preview-interest", name=interest_tag, tag_type="topic")
+        db.session.add(tag)
+        db.session.flush()
+        db.session.add(
+            CompetitionTagLink(competition_revision_id=published_revision.id, tag_id=tag.id)
+        )
         db.session.commit()
         active_id = active.id
         reviewer_id = reviewer.id
@@ -486,10 +564,10 @@ def test_preview_uses_synthetic_profile_and_validates_all_fixtures(
     payload = {
         "scenario": "personalized",
         "synthetic_profile": {
-            "college": "计算机学院",
-            "major": "软件工程",
-            "grade": "大二",
-            "interest_tags": ["人工智能"],
+            "college": college,
+            "major": major,
+            "grade": grade,
+            "interest_tags": [interest_tag],
         },
         "competition_ids": [201],
     }
@@ -506,9 +584,14 @@ def test_preview_uses_synthetic_profile_and_validates_all_fixtures(
     assert preview.status_code == 200
     item = preview.get_json()["data"]["results"][0]
     assert item["competition_id"] == 201
+    assert item["competition"] == {
+        "id": 201,
+        "title": "Published AI Challenge",
+        "edition_label": None,
+    }
     assert item["position"] == 1
-    assert item["matched_rule_codes"] == ["major_match", "grade_match"]
-    assert item["reason_codes"] == ["major_match", "grade_match"]
+    assert item["matched_rule_codes"] == ["major_match", "grade_match", "interest_match"]
+    assert item["reason_codes"] == ["major_match", "grade_match", "interest_match"]
     assert "score" not in item
     assert invalid.status_code == 400
     assert invalid.get_json()["error"]["details"] == {
@@ -516,6 +599,328 @@ def test_preview_uses_synthetic_profile_and_validates_all_fixtures(
         "not_found": [999],
         "not_recommendable": [202],
     }
+
+
+@pytest.mark.parametrize(
+    ("stale_fact", "expected_current_code"),
+    [
+        ("major", "grade_match"),
+        ("grade", "major_match"),
+        ("deadline", "major_match"),
+        ("tag", "major_match"),
+    ],
+)
+def test_preview_never_falls_back_to_legacy_competition_facts(
+    client,
+    app,
+    monkeypatch,
+    stale_fact: str,
+    expected_current_code: str,
+) -> None:
+    with app.app_context():
+        active = seed_initial_recommendation_rule_set()
+        reviewer = _create_admin(f"legacy-{stale_fact}@example.edu", "Preview Reviewer")
+        profile = _controlled_profile(app)
+        competition = _public_competition_with_revision(
+            300 + len(stale_fact),
+            reviewer,
+            current_majors=[profile["major"]] if stale_fact != "major" else ["not-current"],
+            current_grades=[profile["grade"]] if stale_fact != "grade" else ["not-current"],
+            current_tags=(
+                [profile["interest_tags"][0]] if stale_fact != "tag" else ["not-current"]
+            ),
+            current_deadline=(
+                datetime.now(UTC) + timedelta(days=5) if stale_fact != "deadline" else None
+            ),
+            legacy_profile=profile,
+            legacy_deadline=datetime.now(UTC) + timedelta(days=5),
+        )
+        active_id = active.id
+        reviewer_id = reviewer.id
+        competition_id = competition.id
+    monkeypatch.setattr(
+        "competehub_api.blueprints.recommendation_rule_sets.user_has_capability",
+        lambda user, capability: user.id == reviewer_id and capability == "recommendation_reviewer",
+    )
+    _login(client, reviewer_id)
+
+    response = client.post(
+        f"/api/v1/admin/recommendation_rule_sets/{active_id}/preview",
+        json={
+            "scenario": "personalized",
+            "synthetic_profile": profile,
+            "competition_ids": [competition_id],
+        },
+    )
+
+    assert response.status_code == 200
+    codes = response.get_json()["data"]["results"][0]["reason_codes"]
+    stale_code = {
+        "major": "major_match",
+        "grade": "grade_match",
+        "deadline": "deadline_urgency",
+        "tag": "interest_match",
+    }[stale_fact]
+    assert expected_current_code in codes
+    assert stale_code not in codes
+
+
+def test_preview_switches_atomically_to_replacement_revision_facts(
+    client,
+    app,
+    monkeypatch,
+) -> None:
+    with app.app_context():
+        active = seed_initial_recommendation_rule_set()
+        reviewer = _create_admin("replacement-preview@example.edu", "Preview Reviewer")
+        profile = _controlled_profile(app)
+        competition = _public_competition_with_revision(
+            401,
+            reviewer,
+            current_majors=[profile["major"]],
+            current_grades=["not-current"],
+            current_tags=[],
+            current_deadline=None,
+        )
+        historical_revision_id = competition.published_revision_id
+        replacement = CompetitionRevision(
+            competition=competition,
+            revision_number=2,
+            revision_status=CompetitionRevisionStatus.APPROVED,
+            title="Replacement facts",
+            source_name="School Notice",
+            source_url="https://example.edu/replacement",
+            participant_forms=["individual"],
+            major_scope="selected",
+            grade_scope="selected",
+            suitable_majors=["not-current"],
+            suitable_grades=[profile["grade"]],
+            created_by_id=reviewer.id,
+            published_at=datetime.now(UTC),
+        )
+        db.session.add(replacement)
+        db.session.flush()
+        active_id = active.id
+        reviewer_id = reviewer.id
+        competition_id = competition.id
+        replacement_id = replacement.id
+        db.session.commit()
+    monkeypatch.setattr(
+        "competehub_api.blueprints.recommendation_rule_sets.user_has_capability",
+        lambda user, capability: user.id == reviewer_id and capability == "recommendation_reviewer",
+    )
+    _login(client, reviewer_id)
+
+    before = client.post(
+        f"/api/v1/admin/recommendation_rule_sets/{active_id}/preview",
+        json={
+            "scenario": "personalized",
+            "synthetic_profile": profile,
+            "competition_ids": [competition_id],
+        },
+    )
+    with app.app_context():
+        competition = db.session.get(Competition, competition_id)
+        assert competition.published_revision_id == historical_revision_id
+        competition.published_revision_id = replacement_id
+        db.session.commit()
+    after = client.post(
+        f"/api/v1/admin/recommendation_rule_sets/{active_id}/preview",
+        json={
+            "scenario": "personalized",
+            "synthetic_profile": profile,
+            "competition_ids": [competition_id],
+        },
+    )
+
+    assert before.get_json()["data"]["results"][0]["reason_codes"] == ["major_match"]
+    assert after.get_json()["data"]["results"][0]["reason_codes"] == ["grade_match"]
+
+
+def test_preview_reports_published_competition_without_current_revision_as_not_recommendable(
+    client,
+    app,
+    monkeypatch,
+) -> None:
+    with app.app_context():
+        active = seed_initial_recommendation_rule_set()
+        reviewer = _create_admin("missing-pointer@example.edu", "Preview Reviewer")
+        profile = _controlled_profile(app)
+        competition = Competition(
+            id=450,
+            title="Broken public pointer",
+            source_name="School Notice",
+            source_url="https://example.edu/broken",
+            status=CompetitionStatus.PUBLISHED,
+        )
+        db.session.add(competition)
+        db.session.commit()
+        active_id = active.id
+        reviewer_id = reviewer.id
+    monkeypatch.setattr(
+        "competehub_api.blueprints.recommendation_rule_sets.user_has_capability",
+        lambda user, capability: user.id == reviewer_id and capability == "recommendation_reviewer",
+    )
+    _login(client, reviewer_id)
+
+    response = client.post(
+        f"/api/v1/admin/recommendation_rule_sets/{active_id}/preview",
+        json={"scenario": "personalized", "synthetic_profile": profile, "competition_ids": [450]},
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["error"]["details"]["not_recommendable"] == [450]
+
+
+@pytest.mark.parametrize(
+    "profile_mutation",
+    [
+        {"college": "unknown-college"},
+        {"major": "major-from-another-college"},
+        {"grade": "unknown-grade"},
+        {"interest_tags": ["unknown-interest"]},
+        {"interest_tags": ["duplicate", "duplicate"]},
+        {"interest_tags": [f"tag-{index}" for index in range(11)]},
+        {"user_id": 999},
+    ],
+)
+def test_preview_rejects_synthetic_profiles_outside_the_shared_controlled_dictionary(
+    client,
+    app,
+    monkeypatch,
+    profile_mutation: dict,
+) -> None:
+    with app.app_context():
+        active = seed_initial_recommendation_rule_set()
+        reviewer = _create_admin("profile-validation@example.edu", "Preview Reviewer")
+        profile = _controlled_profile(app)
+        if profile_mutation.get("major") == "major-from-another-college":
+            colleges = list(app.config["PROFILE_ALLOWED_MAJORS_BY_COLLEGE"].items())
+            if len(colleges) < 2:
+                pytest.skip("profile dictionary needs two colleges for mismatch coverage")
+            profile_mutation = {"major": colleges[1][1][0]}
+        competition = _public_competition_with_revision(
+            460,
+            reviewer,
+            current_majors=[profile["major"]],
+            current_grades=[profile["grade"]],
+            current_tags=[profile["interest_tags"][0]],
+            current_deadline=None,
+        )
+        profile.update(profile_mutation)
+        active_id = active.id
+        reviewer_id = reviewer.id
+        competition_id = competition.id
+    monkeypatch.setattr(
+        "competehub_api.blueprints.recommendation_rule_sets.user_has_capability",
+        lambda user, capability: user.id == reviewer_id and capability == "recommendation_reviewer",
+    )
+    _login(client, reviewer_id)
+
+    response = client.post(
+        f"/api/v1/admin/recommendation_rule_sets/{active_id}/preview",
+        json={
+            "scenario": "personalized",
+            "synthetic_profile": profile,
+            "competition_ids": [competition_id],
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["error"]["code"] == "validation_error"
+
+
+def _controlled_profile(app) -> dict:
+    college, majors = next(iter(app.config["PROFILE_ALLOWED_MAJORS_BY_COLLEGE"].items()))
+    return {
+        "college": college,
+        "major": majors[0],
+        "grade": app.config["PROFILE_ALLOWED_GRADES"][0],
+        "interest_tags": [app.config["PROFILE_ALLOWED_INTEREST_TAGS"][0]],
+    }
+
+
+def _public_competition_with_revision(
+    competition_id: int,
+    creator: User,
+    *,
+    current_majors: list[str],
+    current_grades: list[str],
+    current_tags: list[str],
+    current_deadline: datetime | None,
+    legacy_profile: dict | None = None,
+    legacy_deadline: datetime | None = None,
+) -> Competition:
+    competition = Competition(
+        id=competition_id,
+        title=f"Preview fixture {competition_id}",
+        source_name="School Notice",
+        source_url=f"https://example.edu/{competition_id}",
+        status=CompetitionStatus.PUBLISHED,
+        suitable_majors=[legacy_profile["major"]] if legacy_profile else [],
+        suitable_grades=[legacy_profile["grade"]] if legacy_profile else [],
+    )
+    db.session.add(competition)
+    db.session.flush()
+    if legacy_deadline is not None:
+        db.session.add(
+            CompetitionTimeNode(
+                competition=competition,
+                node_type="registration_deadline",
+                due_at=legacy_deadline,
+                occurs_at=legacy_deadline,
+                prominence="primary",
+            )
+        )
+    if legacy_profile is not None:
+        legacy_tag = CompetitionTag(
+            code=f"legacy-{competition_id}",
+            name=legacy_profile["interest_tags"][0],
+            tag_type="topic",
+        )
+        db.session.add(legacy_tag)
+        db.session.flush()
+        db.session.add(CompetitionTagLink(competition=competition, tag_id=legacy_tag.id))
+    revision = CompetitionRevision(
+        competition=competition,
+        revision_number=1,
+        revision_status=CompetitionRevisionStatus.APPROVED,
+        title=competition.title,
+        source_name=competition.source_name,
+        source_url=competition.source_url,
+        participant_forms=["individual"],
+        major_scope="selected",
+        grade_scope="selected",
+        suitable_majors=current_majors,
+        suitable_grades=current_grades,
+        created_by_id=creator.id,
+        published_at=datetime.now(UTC),
+    )
+    db.session.add(revision)
+    db.session.flush()
+    if current_deadline is not None:
+        db.session.add(
+            CompetitionTimeNode(
+                revision=revision,
+                node_type="registration_deadline",
+                logical_node_key=f"deadline-{competition_id}",
+                due_at=current_deadline,
+                occurs_at=current_deadline,
+                prominence="primary",
+            )
+        )
+    for index, tag_name in enumerate(current_tags):
+        tag = CompetitionTag(
+            code=f"current-{competition_id}-{index}",
+            name=tag_name,
+            tag_type="topic",
+        )
+        db.session.add(tag)
+        db.session.flush()
+        db.session.add(CompetitionTagLink(revision=revision, tag_id=tag.id))
+    competition.published_revision_id = revision.id
+    db.session.commit()
+    return competition
 
 
 def _create_admin(email: str, display_name: str) -> User:

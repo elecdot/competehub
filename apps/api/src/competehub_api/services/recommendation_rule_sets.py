@@ -23,9 +23,12 @@ from competehub_api.models.enums import (
     ReviewStatus,
 )
 from competehub_api.models.mixins import utc_now
+from competehub_api.repositories.competitions import (
+    list_competitions_with_current_published_revision,
+)
 from competehub_api.schemas.recommendation_rule_sets import recommendation_rule_input_schema
-from competehub_api.services.competition_discovery import competition_tag_names
 from competehub_api.services.errors import ServiceError
+from competehub_api.services.profiles import validate_controlled_profile_fields
 from competehub_api.timezones import PRODUCT_TIMEZONE, stored_datetime_as_utc
 
 CLONEABLE_RULE_SET_STATUSES = {
@@ -351,15 +354,15 @@ def preview_recommendation_rule_set(
         }
     )
     unique_ids = sorted(set(competition_ids))
-    competitions = Competition.query.filter(Competition.id.in_(unique_ids)).all()
+    competitions = list_competitions_with_current_published_revision(unique_ids)
     by_id = {competition.id: competition for competition in competitions}
     not_found = sorted(set(unique_ids) - set(by_id))
-    has_revision_pointer = hasattr(Competition, "published_revision_id")
     not_recommendable = sorted(
         competition.id
         for competition in competitions
         if competition.status != CompetitionStatus.PUBLISHED
-        or (has_revision_pointer and competition.published_revision_id is None)
+        or competition.published_revision_id is None
+        or competition.published_revision is None
     )
     if duplicates or not_found or not_recommendable:
         raise ServiceError(
@@ -375,6 +378,8 @@ def preview_recommendation_rule_set(
 
     evaluated_at = evaluation_time or utc_now()
     profile = payload.get("synthetic_profile")
+    if scenario == "personalized":
+        validate_controlled_profile_fields(profile, require_complete=True)
     scored = []
     for competition in sorted(competitions, key=lambda item: item.id):
         matches = _matching_preview_rules(
@@ -393,6 +398,11 @@ def preview_recommendation_rule_set(
                 competition.id,
                 {
                     "competition_id": competition.id,
+                    "competition": {
+                        "id": competition.id,
+                        "title": competition.published_revision.title,
+                        "edition_label": competition.edition_label,
+                    },
                     "matched_rule_codes": [rule.code for rule, _ in ordered_matches],
                     "reason_codes": [rule.code for rule, _ in ordered_matches],
                     "reasons": [reason for _, reason in ordered_matches],
@@ -589,16 +599,24 @@ def _matching_preview_rules(
         fallback = rules_by_code.get("general_fallback")
         return [(fallback, fallback.reason_template)] if fallback is not None else []
 
+    revision = competition.published_revision
+    if revision is None:
+        return []
     matches = []
     major_rule = rules_by_code.get("major_match")
-    if major_rule is not None and profile["major"] in (competition.suitable_majors or []):
+    if major_rule is not None and _scope_matches(
+        revision.major_scope, revision.suitable_majors, profile["major"]
+    ):
         matches.append((major_rule, _render_reason(major_rule, {"major": profile["major"]})))
     grade_rule = rules_by_code.get("grade_match")
-    if grade_rule is not None and profile["grade"] in (competition.suitable_grades or []):
+    if grade_rule is not None and _scope_matches(
+        revision.grade_scope, revision.suitable_grades, profile["grade"]
+    ):
         matches.append((grade_rule, _render_reason(grade_rule, {"grade": profile["grade"]})))
     interest_rule = rules_by_code.get("interest_match")
     matched_interests = sorted(
-        set(profile["interest_tags"]) & set(competition_tag_names(competition))
+        set(profile["interest_tags"])
+        & {link.tag.name for link in revision.tag_links if link.tag is not None}
     )
     if interest_rule is not None and matched_interests:
         matches.append(
@@ -608,7 +626,7 @@ def _matching_preview_rules(
             )
         )
     deadline_rule = rules_by_code.get("deadline_urgency")
-    deadline_match = _deadline_match(deadline_rule, competition, evaluation_time)
+    deadline_match = _deadline_match(deadline_rule, revision.time_nodes, evaluation_time)
     if deadline_match is not None:
         matches.append((deadline_rule, deadline_match))
     return matches
@@ -616,16 +634,16 @@ def _matching_preview_rules(
 
 def _deadline_match(
     rule: RecommendationRule | None,
-    competition: Competition,
+    time_nodes: list,
     evaluation_time: datetime,
 ) -> str | None:
     if rule is None:
         return None
     evaluation_date = stored_datetime_as_utc(evaluation_time).astimezone(PRODUCT_TIMEZONE).date()
     deadlines = sorted(
-        stored_datetime_as_utc(node.due_at).astimezone(PRODUCT_TIMEZONE)
-        for node in competition.time_nodes
-        if node.node_type == "registration_deadline" and node.due_at is not None
+        stored_datetime_as_utc(node.occurs_at).astimezone(PRODUCT_TIMEZONE)
+        for node in time_nodes
+        if node.node_type == "registration_deadline" and node.occurs_at is not None
     )
     for deadline in deadlines:
         days_remaining = (deadline.date() - evaluation_date).days
@@ -638,6 +656,12 @@ def _deadline_match(
                 },
             )
     return None
+
+
+def _scope_matches(scope: str | None, values: list | None, profile_value: str) -> bool:
+    if scope == "all":
+        return True
+    return scope == "selected" and profile_value in (values or [])
 
 
 def _render_reason(rule: RecommendationRule, values: dict[str, str]) -> str:

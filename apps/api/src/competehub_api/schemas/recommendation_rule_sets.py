@@ -5,7 +5,7 @@ import unicodedata
 
 from marshmallow import RAISE, Schema, ValidationError, fields, validate, validates_schema
 
-from competehub_api.schemas.common import NonBlankString, StrictBoolean
+from competehub_api.schemas.common import NonBlankString, StrictBoolean, UtcDateTime
 from competehub_api.seeds.recommendation_rules import CONTROLLED_RECOMMENDATION_RULE_CODES
 
 RULE_TEMPLATE_FIELDS = {
@@ -127,6 +127,37 @@ class RecommendationRuleSetPreviewSchema(Schema):
             )
 
 
+class GovernanceActorSchema(Schema):
+    id = fields.Integer(required=True)
+    display_name = fields.String(allow_none=True)
+
+
+class RecommendationRuleSetReadSchema(Schema):
+    rule_set_id = fields.Integer(required=True)
+    version = fields.Integer(required=True)
+    status = fields.String(required=True)
+    created_by = fields.Nested(GovernanceActorSchema(), allow_none=True)
+    submitted_by = fields.Nested(GovernanceActorSchema(), allow_none=True)
+    reviewed_by = fields.Nested(GovernanceActorSchema(), allow_none=True)
+    created_at = UtcDateTime(allow_none=True)
+    submitted_at = UtcDateTime(allow_none=True)
+    decided_at = UtcDateTime(allow_none=True)
+    activated_at = UtcDateTime(allow_none=True)
+    retired_at = UtcDateTime(allow_none=True)
+    review_comment = fields.String(allow_none=True)
+    terminal_review_status = fields.String(allow_none=True)
+    cloned_from_rule_set_id = fields.Integer(allow_none=True)
+    cloned_from_version = fields.Integer(allow_none=True)
+    base_rule_set_id = fields.Integer(allow_none=True)
+    base_version = fields.Integer(allow_none=True)
+    active_rule_set_id = fields.Integer(allow_none=True)
+    active_version = fields.Integer(allow_none=True)
+    is_stale = fields.Boolean(required=True)
+    difference_snapshot = fields.Dict(allow_none=True)
+    impact_summary = fields.Dict(allow_none=True)
+    rules = fields.List(fields.Nested(RecommendationRuleInputSchema()), required=True)
+
+
 def _validate_conditions(code: str, conditions: dict) -> None:
     if code in OVERLAP_RULE_CODES:
         if conditions != {"operator": "overlap"}:
@@ -177,3 +208,4 @@ recommendation_rule_set_create_schema = RecommendationRuleSetCreateSchema()
 recommendation_rule_set_update_schema = RecommendationRuleSetUpdateSchema()
 recommendation_rule_set_review_schema = RecommendationRuleSetReviewSchema()
 recommendation_rule_set_preview_schema = RecommendationRuleSetPreviewSchema()
+recommendation_rule_set_read_schema = RecommendationRuleSetReadSchema()

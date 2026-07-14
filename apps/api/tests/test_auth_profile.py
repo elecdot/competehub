@@ -1162,6 +1162,10 @@ def test_profile_readiness_is_derived_with_stable_missing_field_order(client, ap
             "grade": "大二",
         },
     )
+    cleared_tags = client.patch(
+        "/api/v1/me/profile",
+        json={"interest_tags": []},
+    )
 
     assert incomplete.status_code == 200
     assert incomplete.get_json()["data"]["profile_status"] == "incomplete"
@@ -1169,6 +1173,9 @@ def test_profile_readiness_is_derived_with_stable_missing_field_order(client, ap
     assert ready.status_code == 200
     assert ready.get_json()["data"]["profile_status"] == "recommendation_ready"
     assert ready.get_json()["data"]["missing_fields"] == []
+    assert cleared_tags.status_code == 200
+    assert cleared_tags.get_json()["data"]["profile_status"] == "incomplete"
+    assert cleared_tags.get_json()["data"]["missing_fields"] == ["interest_tags"]
 
 
 def test_phone_identity_normalizes_to_e164_for_login(client, app) -> None:
