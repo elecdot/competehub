@@ -16,9 +16,10 @@ from werkzeug.security import generate_password_hash
 
 from competehub_api import create_app
 from competehub_api.extensions import db
-from competehub_api.models import CompetitionRevision, User
+from competehub_api.models import CompetitionRevision, ReminderSetting, StudentProfile, User
 from competehub_api.services.competition_revisions import review_revision
 from competehub_api.services.errors import ServiceError
+from competehub_api.services.profiles import provision_student_owned_rows
 from competehub_api.timezones import product_datetime_as_utc, stored_datetime_as_utc
 
 MIGRATIONS_DIR = Path(__file__).resolve().parents[1] / "migrations"
@@ -248,6 +249,33 @@ def _assert_issue38_settings_upgrade_and_round_trip(app) -> None:
                 ],
             },
         ]
+
+        provisioned_student = User(
+            id=5,
+            email="post-migration-provisioned@example.edu",
+            password_hash=generate_password_hash("test-password"),
+            role="student",
+            status="active",
+        )
+        db.session.add(provisioned_student)
+        db.session.add(
+            StudentProfile(
+                id=3,
+                user=provisioned_student,
+                interest_tags=[],
+                goal_preferences=[],
+                blocked_tags=[],
+            )
+        )
+        db.session.flush()
+
+        provision_student_owned_rows(provisioned_student)
+        db.session.flush()
+        provisioned_settings = db.session.scalar(
+            sa.select(ReminderSetting).where(ReminderSetting.user_id == provisioned_student.id)
+        )
+        assert provisioned_settings is not None
+        assert provisioned_settings.id == 4
 
         db.session.remove()
         downgrade(directory=str(MIGRATIONS_DIR), revision="13eb10903bd7")

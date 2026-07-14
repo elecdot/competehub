@@ -35,6 +35,7 @@ def upgrade():
 
     _refuse_nonempty_engagement("upgrade")
     _backfill_reminder_settings()
+    _synchronize_reminder_settings_sequence()
     _upgrade_engagement_schema()
     _drop_profile_reminder_columns()
 
@@ -111,6 +112,25 @@ def _backfill_reminder_settings() -> None:
         next_setting_id += 1
     if rows:
         bind.execute(settings.insert(), rows)
+
+
+def _synchronize_reminder_settings_sequence() -> None:
+    """Advance PostgreSQL's generated-id sequence after explicit backfill ids."""
+    bind = op.get_bind()
+    if bind.dialect.name != "postgresql":
+        return
+
+    bind.execute(
+        sa.text(
+            """
+            SELECT setval(
+                pg_get_serial_sequence('reminder_settings', 'id'),
+                COALESCE((SELECT max(id) FROM reminder_settings), 1),
+                (SELECT count(*) > 0 FROM reminder_settings)
+            )
+            """
+        )
+    )
 
 
 def _upgrade_engagement_schema() -> None:
