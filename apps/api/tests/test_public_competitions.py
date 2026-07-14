@@ -838,7 +838,7 @@ def test_active_subscription_repeat_is_a_noop_without_edition_validation(client,
         ] == original_reminder_ids
 
 
-def test_subscription_patch_updates_consent_and_reconciles_pending_plans(client, app) -> None:
+def test_subscription_patch_reenables_and_restores_controlled_cancelled_plans(client, app) -> None:
     student_id = sign_in_as(client, app)
     created = client.post(
         "/api/v1/competitions/101/subscription",
@@ -866,13 +866,13 @@ def test_subscription_patch_updates_consent_and_reconciles_pending_plans(client,
     )
 
     assert enabled.status_code == 200
-    assert enabled.get_json()["data"]["scheduled_reminder_count"] == 0
+    assert enabled.get_json()["data"]["scheduled_reminder_count"] == 2
     with app.app_context():
         reminders = (
             db.session.query(Reminder).filter_by(user_id=student_id, competition_id=101).all()
         )
-        assert all(reminder.status == ReminderStatus.CANCELLED for reminder in reminders)
-        assert {reminder.cancel_reason for reminder in reminders} == {"reminder_disabled"}
+        assert all(reminder.status == ReminderStatus.PENDING for reminder in reminders)
+        assert all(reminder.cancel_reason is None for reminder in reminders)
 
 
 def test_subscription_respects_global_reminder_disable_and_public_state_is_owner_scoped(
@@ -969,7 +969,7 @@ def test_subscription_patch_cancels_deselected_pending_plans(client, app) -> Non
         assert removed.cancel_reason == "node_type_removed"
 
 
-def test_subscription_patch_does_not_restore_cancelled_offset_ineligible_plans(client, app) -> None:
+def test_subscription_patch_restores_cancelled_offset_plans_when_future_again(client, app) -> None:
     student_id = sign_in_as(client, app)
     created = client.post(
         "/api/v1/competitions/101/subscription",
@@ -997,21 +997,19 @@ def test_subscription_patch_does_not_restore_cancelled_offset_ineligible_plans(c
             "subscription_offset_not_future"
         }
 
-    still_cancelled = client.patch(
+    restored = client.patch(
         "/api/v1/competitions/101/subscription",
         json=subscription_payload(),
     )
 
-    assert still_cancelled.status_code == 200
-    assert still_cancelled.get_json()["data"]["scheduled_reminder_count"] == 0
+    assert restored.status_code == 200
+    assert restored.get_json()["data"]["scheduled_reminder_count"] == 2
     with app.app_context():
         reminders = (
             db.session.query(Reminder).filter_by(user_id=student_id, competition_id=101).all()
         )
-        assert all(reminder.status == ReminderStatus.CANCELLED for reminder in reminders)
-        assert {reminder.cancel_reason for reminder in reminders} == {
-            "subscription_offset_not_future"
-        }
+        assert all(reminder.status == ReminderStatus.PENDING for reminder in reminders)
+        assert all(reminder.cancel_reason is None for reminder in reminders)
 
 
 def test_subscription_patch_requires_active_owned_subscription_and_valid_consent(
@@ -1115,7 +1113,7 @@ def test_subscription_delete_is_idempotent_and_cancels_only_pending_plans(client
         assert cancelled.cancel_reason == "subscription_cancelled"
 
 
-def test_subscription_post_reactivates_relation_without_restoring_cancelled_plans(
+def test_subscription_post_reactivates_relation_and_restores_controlled_cancelled_plans(
     client, app
 ) -> None:
     student_id = sign_in_as(client, app)
@@ -1141,7 +1139,7 @@ def test_subscription_post_reactivates_relation_without_restoring_cancelled_plan
 
     assert response.status_code == 200
     assert response.get_json()["data"]["status"] == "active"
-    assert response.get_json()["data"]["scheduled_reminder_count"] == 0
+    assert response.get_json()["data"]["scheduled_reminder_count"] == 1
     with app.app_context():
         assert (
             db.session.query(Subscription).filter_by(user_id=student_id, competition_id=101).count()
@@ -1157,7 +1155,7 @@ def test_subscription_post_reactivates_relation_without_restoring_cancelled_plan
             .filter_by(user_id=student_id, competition_id=101, node_type="submission_deadline")
             .one()
         )
-        assert cancelled.status == ReminderStatus.CANCELLED
-        assert cancelled.cancel_reason == "subscription_cancelled"
+        assert cancelled.status == ReminderStatus.PENDING
+        assert cancelled.cancel_reason is None
         assert blocked.status == ReminderStatus.CANCELLED
         assert blocked.cancel_reason == "global_reminder_disabled"
