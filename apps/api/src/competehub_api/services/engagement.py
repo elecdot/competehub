@@ -12,6 +12,7 @@ from competehub_api.models import (
     CompetitionTimeNode,
     Favorite,
     Reminder,
+    ReminderSetting,
     Subscription,
     User,
 )
@@ -93,35 +94,36 @@ def unfavorite_competition(user: User, competition_id: int) -> None:
 def subscribe_to_competition(
     user: User, competition_id: int, payload: dict
 ) -> SubscriptionMutation:
-    payload = _canonical_payload(payload)
-    subscription = repository.get_subscription_for_update(user.id, competition_id)
-    if subscription is not None and subscription.status == SubscriptionStatus.ACTIVE:
-        db.session.commit()
-        return SubscriptionMutation(subscription=subscription, created=False)
-
-    competition = _published_competition(competition_id)
-    nodes = _selected_nodes(competition, payload)
-    now = datetime.now(UTC)
-    created = subscription is None
-    if subscription is None:
-        subscription = Subscription(
-            id=repository.next_sqlite_id(Subscription),
-            user_id=user.id,
-            competition_id=competition_id,
-            status=SubscriptionStatus.ACTIVE,
-            reminder_enabled=payload["reminder_enabled"],
-            remind_days=payload["remind_days"],
-            node_types=payload["node_types"],
-            reminder_confirmed_at=now,
-        )
-        db.session.add(subscription)
-    else:
-        _apply_consent(subscription, payload, now)
-        subscription.status = SubscriptionStatus.ACTIVE
-
     try:
+        payload = _canonical_payload(payload)
+        subscription = repository.get_subscription_for_update(user.id, competition_id)
+        setting = _required_reminder_setting_for_update(user.id)
+        if subscription is not None and subscription.status == SubscriptionStatus.ACTIVE:
+            db.session.commit()
+            return SubscriptionMutation(subscription=subscription, created=False)
+
+        competition = _published_competition(competition_id)
+        nodes = _selected_nodes(competition, payload)
+        now = datetime.now(UTC)
+        created = subscription is None
+        if subscription is None:
+            subscription = Subscription(
+                id=repository.next_sqlite_id(Subscription),
+                user_id=user.id,
+                competition_id=competition_id,
+                status=SubscriptionStatus.ACTIVE,
+                reminder_enabled=payload["reminder_enabled"],
+                remind_days=payload["remind_days"],
+                node_types=payload["node_types"],
+                reminder_confirmed_at=now,
+            )
+            db.session.add(subscription)
+        else:
+            _apply_consent(subscription, payload, now)
+            subscription.status = SubscriptionStatus.ACTIVE
+
         db.session.flush()
-        _reconcile_subscription_reminders(subscription, competition, nodes, now)
+        _reconcile_subscription_reminders(subscription, competition, nodes, now, setting)
         db.session.commit()
     except IntegrityError as error:
         db.session.rollback()
@@ -130,32 +132,40 @@ def subscribe_to_competition(
             if existing is not None:
                 return SubscriptionMutation(subscription=existing, created=False)
         raise
+    except Exception:
+        db.session.rollback()
+        raise
     return SubscriptionMutation(subscription=subscription, created=created)
 
 
 def update_subscription(user: User, competition_id: int, payload: dict) -> Subscription:
-    payload = _canonical_payload(payload)
-    subscription = repository.get_subscription_for_update(user.id, competition_id)
-    if subscription is None:
-        raise ServiceError(HTTPStatus.NOT_FOUND, "not_found", "subscription not found")
-    if subscription.status == SubscriptionStatus.CANCELLED:
-        raise ServiceError(
-            HTTPStatus.CONFLICT, "engagement_unavailable", "subscription is cancelled"
-        )
-    competition = _published_competition(competition_id)
-    nodes = _selected_nodes(competition, payload)
-    stored_node_types = canonical_subscription_node_types(subscription.node_types or [])
-    if subscription.node_types != stored_node_types:
-        subscription.node_types = stored_node_types
-    if _same_consent(subscription, payload):
+    try:
+        payload = _canonical_payload(payload)
+        subscription = repository.get_subscription_for_update(user.id, competition_id)
+        if subscription is None:
+            raise ServiceError(HTTPStatus.NOT_FOUND, "not_found", "subscription not found")
+        if subscription.status == SubscriptionStatus.CANCELLED:
+            raise ServiceError(
+                HTTPStatus.CONFLICT, "engagement_unavailable", "subscription is cancelled"
+            )
+        setting = _required_reminder_setting_for_update(user.id)
+        competition = _published_competition(competition_id)
+        nodes = _selected_nodes(competition, payload)
+        stored_node_types = canonical_subscription_node_types(subscription.node_types or [])
+        if subscription.node_types != stored_node_types:
+            subscription.node_types = stored_node_types
+        if _same_consent(subscription, payload):
+            db.session.commit()
+            return subscription
+
+        now = datetime.now(UTC)
+        _apply_consent(subscription, payload, now)
+        _reconcile_subscription_reminders(subscription, competition, nodes, now, setting)
         db.session.commit()
         return subscription
-
-    now = datetime.now(UTC)
-    _apply_consent(subscription, payload, now)
-    _reconcile_subscription_reminders(subscription, competition, nodes, now)
-    db.session.commit()
-    return subscription
+    except Exception:
+        db.session.rollback()
+        raise
 
 
 def cancel_subscription(user: User, competition_id: int) -> None:
@@ -176,10 +186,10 @@ def subscription_summary(subscription: Subscription) -> dict:
         if reminder.status == ReminderStatus.PENDING
     ]
     pending.sort(key=lambda reminder: (reminder.due_at, reminder.id))
-    setting = repository.get_reminder_setting(subscription.user_id)
+    setting = _required_reminder_setting(subscription.user_id)
     if pending:
         unscheduled_reason = None
-    elif not subscription.reminder_enabled or (setting is not None and not setting.enabled):
+    elif not subscription.reminder_enabled or not setting.enabled:
         unscheduled_reason = "reminder_disabled"
     else:
         unscheduled_reason = "no_future_eligible_nodes"
@@ -257,17 +267,41 @@ def _canonical_payload(payload: dict) -> dict:
     return {**payload, "node_types": canonical_subscription_node_types(payload["node_types"])}
 
 
+def _required_reminder_setting_for_update(user_id: int) -> ReminderSetting:
+    setting = repository.get_reminder_setting_for_update(user_id)
+    if setting is None:
+        raise _missing_student_owned_data_error()
+    return setting
+
+
+def _required_reminder_setting(user_id: int) -> ReminderSetting:
+    setting = repository.get_reminder_setting(user_id)
+    if setting is None:
+        raise _missing_student_owned_data_error()
+    return setting
+
+
+def _missing_student_owned_data_error() -> ServiceError:
+    return ServiceError(
+        HTTPStatus.INTERNAL_SERVER_ERROR,
+        "internal_server_error",
+        "student-owned profile data is missing",
+    )
+
+
 def _reconcile_subscription_reminders(
     subscription: Subscription,
     competition: Competition,
     nodes: list[CompetitionTimeNode],
     now: datetime,
+    setting: ReminderSetting | None = None,
 ) -> None:
+    if setting is None:
+        setting = _required_reminder_setting_for_update(subscription.user_id)
     reminders = repository.list_reminders_for_update(
         subscription.user_id, subscription.competition_id
     )
-    setting = repository.get_reminder_setting_for_update(subscription.user_id)
-    if not subscription.reminder_enabled or (setting is not None and not setting.enabled):
+    if not subscription.reminder_enabled or not setting.enabled:
         for reminder in reminders:
             if reminder.status == ReminderStatus.PENDING:
                 reminder.status = ReminderStatus.CANCELLED

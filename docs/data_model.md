@@ -693,6 +693,10 @@ Rules:
 
 - This table is the single source of truth for global reminder settings; profile
   rows do not duplicate them.
+- A missing row for an existing student is data corruption, not an enabled
+  default. Subscription creation, re-subscription, semantic preference updates,
+  reminder reconciliation, and subscription summary reads fail without changing
+  the subscription or any reminder plan.
 - A successor migration preserves an existing setting row. When none exists, it
   backfills `enabled` and `default_remind_days` from the legacy profile fields
   and supplies the controlled default node types, then removes the duplicate

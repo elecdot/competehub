@@ -13,6 +13,7 @@ from competehub_api.models import (
     CompetitionTimeNode,
     Favorite,
     Reminder,
+    ReminderSetting,
     Subscription,
     User,
 )
@@ -199,6 +200,9 @@ def sign_in_as(client, app, *, role: UserRole = UserRole.STUDENT) -> int:
             role=role,
         )
         db.session.add(user)
+        db.session.flush()
+        if role == UserRole.STUDENT:
+            provision_student_owned_rows(user)
         db.session.commit()
         user_id = user.id
         session_version = user.session_version
@@ -698,6 +702,83 @@ def test_subscription_reminders_disabled_retains_confirmation_without_plans(clie
     assert data["unscheduled_reason"] == "reminder_disabled"
     with app.app_context():
         assert db.session.query(Reminder).filter_by(user_id=student_id).count() == 0
+
+
+def test_subscription_post_with_missing_reminder_settings_returns_integrity_error(
+    client, app
+) -> None:
+    student_id = sign_in_as(client, app)
+    with app.app_context():
+        db.session.delete(db.session.query(ReminderSetting).filter_by(user_id=student_id).one())
+        db.session.commit()
+
+    response = client.post("/api/v1/competitions/101/subscription", json=subscription_payload())
+
+    assert response.status_code == 500
+    assert response.get_json() == {
+        "data": None,
+        "error": {
+            "code": "internal_server_error",
+            "message": "student-owned profile data is missing",
+            "details": {},
+        },
+    }
+    with app.app_context():
+        assert (
+            db.session.query(Subscription).filter_by(user_id=student_id, competition_id=101).count()
+            == 0
+        )
+        assert (
+            db.session.query(Reminder).filter_by(user_id=student_id, competition_id=101).count()
+            == 0
+        )
+
+
+def test_subscription_patch_with_missing_reminder_settings_returns_integrity_error(
+    client, app
+) -> None:
+    student_id = sign_in_as(client, app)
+    created = client.post("/api/v1/competitions/101/subscription", json=subscription_payload())
+    assert created.status_code == 201
+    with app.app_context():
+        subscription = (
+            db.session.query(Subscription).filter_by(user_id=student_id, competition_id=101).one()
+        )
+        original_confirmation = subscription.reminder_confirmed_at
+        reminder_state = [
+            (reminder.id, reminder.status, reminder.due_at, reminder.cancel_reason)
+            for reminder in db.session.query(Reminder)
+            .filter_by(user_id=student_id, competition_id=101)
+            .order_by(Reminder.id)
+        ]
+        db.session.delete(db.session.query(ReminderSetting).filter_by(user_id=student_id).one())
+        db.session.commit()
+
+    response = client.patch(
+        "/api/v1/competitions/101/subscription", json=subscription_payload(remind_days=2)
+    )
+
+    assert response.status_code == 500
+    assert response.get_json() == {
+        "data": None,
+        "error": {
+            "code": "internal_server_error",
+            "message": "student-owned profile data is missing",
+            "details": {},
+        },
+    }
+    with app.app_context():
+        subscription = (
+            db.session.query(Subscription).filter_by(user_id=student_id, competition_id=101).one()
+        )
+        assert subscription.remind_days == 3
+        assert subscription.reminder_confirmed_at == original_confirmation
+        assert [
+            (reminder.id, reminder.status, reminder.due_at, reminder.cancel_reason)
+            for reminder in db.session.query(Reminder)
+            .filter_by(user_id=student_id, competition_id=101)
+            .order_by(Reminder.id)
+        ] == reminder_state
 
 
 @pytest.mark.parametrize(

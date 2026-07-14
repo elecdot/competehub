@@ -670,6 +670,12 @@ eligible pending reminders. The first subscription UI must show a confirmation
 surface. User defaults may prefill it, but the API does not infer consent from
 omitted fields.
 
+`reminder_settings` is required authoritative student-owned data for subscription
+creation, re-subscription, semantic updates, plan reconciliation, and summary
+reads. If it is missing, the request returns `500 internal_server_error` in the
+normal error envelope and rolls back without creating or changing a subscription
+or reminder plan.
+
 Requires `student`.
 
 Request:

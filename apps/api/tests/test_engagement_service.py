@@ -23,10 +23,12 @@ from competehub_api.models.enums import (
     UserRole,
 )
 from competehub_api.services.engagement import (
+    _reconcile_subscription_reminders,
     subscribe_to_competition,
     subscription_summary,
     update_subscription,
 )
+from competehub_api.services.errors import ServiceError
 
 
 def _payload(**overrides) -> dict:
@@ -342,3 +344,151 @@ def test_subscription_summary_canonicalizes_stored_node_types(app, engagement_fi
             "registration_deadline",
             "competition_start",
         ]
+
+
+def test_initial_subscription_with_missing_reminder_settings_rolls_back(
+    app, engagement_fixture
+) -> None:
+    student, competition, subscription, _ = engagement_fixture
+    with app.app_context():
+        student = db.session.get(User, student.id)
+        competition = db.session.get(Competition, competition.id)
+        subscription = db.session.get(Subscription, subscription.id)
+        db.session.delete(subscription)
+        db.session.delete(db.session.get(ReminderSetting, 50))
+        db.session.commit()
+
+        with pytest.raises(ServiceError, match="student-owned profile data is missing") as error:
+            subscribe_to_competition(student, competition.id, _payload())
+
+        assert error.value.status_code == 500
+        assert error.value.code == "internal_server_error"
+        assert (
+            db.session.query(Subscription)
+            .filter_by(user_id=student.id, competition_id=competition.id)
+            .count()
+            == 0
+        )
+        assert (
+            db.session.query(Reminder)
+            .filter_by(user_id=student.id, competition_id=competition.id)
+            .count()
+            == 0
+        )
+
+
+def test_resubscription_with_missing_reminder_settings_rolls_back(app, engagement_fixture) -> None:
+    student, competition, subscription, node = engagement_fixture
+    with app.app_context():
+        student = db.session.get(User, student.id)
+        competition = db.session.get(Competition, competition.id)
+        subscription = db.session.get(Subscription, subscription.id)
+        node = db.session.get(CompetitionTimeNode, node.id)
+        subscription.status = SubscriptionStatus.CANCELLED
+        reminder = Reminder(
+            id=60,
+            user_id=student.id,
+            competition_id=competition.id,
+            time_node_snapshot_id=node.id,
+            logical_node_key=node.logical_node_key,
+            time_node_revision=node.node_revision,
+            node_type=node.node_type,
+            due_at=datetime.now(UTC) + timedelta(days=1),
+            title="cancelled",
+            status=ReminderStatus.CANCELLED,
+            cancel_reason="subscription_cancelled",
+        )
+        db.session.add(reminder)
+        db.session.delete(db.session.get(ReminderSetting, 50))
+        db.session.commit()
+
+        with pytest.raises(ServiceError, match="student-owned profile data is missing"):
+            subscribe_to_competition(student, competition.id, _payload(remind_days=2))
+
+        persisted = db.session.get(Subscription, subscription.id)
+        preserved = db.session.get(Reminder, reminder.id)
+        assert persisted.status == SubscriptionStatus.CANCELLED
+        assert persisted.remind_days == 3
+        assert preserved.status == ReminderStatus.CANCELLED
+        assert preserved.cancel_reason == "subscription_cancelled"
+        assert preserved.due_at == reminder.due_at
+
+
+def test_semantic_subscription_patch_with_missing_reminder_settings_rolls_back(
+    app, engagement_fixture
+) -> None:
+    student, competition, subscription, node = engagement_fixture
+    with app.app_context():
+        student = db.session.get(User, student.id)
+        competition = db.session.get(Competition, competition.id)
+        subscription = db.session.get(Subscription, subscription.id)
+        node = db.session.get(CompetitionTimeNode, node.id)
+        reminder = Reminder(
+            id=60,
+            user_id=student.id,
+            competition_id=competition.id,
+            time_node_snapshot_id=node.id,
+            logical_node_key=node.logical_node_key,
+            time_node_revision=node.node_revision,
+            node_type=node.node_type,
+            due_at=datetime.now(UTC) + timedelta(days=1),
+            title="existing",
+            status=ReminderStatus.PENDING,
+        )
+        db.session.add(reminder)
+        db.session.delete(db.session.get(ReminderSetting, 50))
+        db.session.commit()
+
+        with pytest.raises(ServiceError, match="student-owned profile data is missing"):
+            update_subscription(student, competition.id, _payload(remind_days=2))
+
+        persisted = db.session.get(Subscription, subscription.id)
+        preserved = db.session.get(Reminder, reminder.id)
+        assert persisted.remind_days == 3
+        assert persisted.node_types == ["registration_deadline"]
+        assert preserved.status == ReminderStatus.PENDING
+        assert preserved.due_at == reminder.due_at
+
+
+def test_subscription_summary_rejects_missing_authoritative_reminder_settings(
+    app, engagement_fixture
+) -> None:
+    _, _, subscription, _ = engagement_fixture
+    with app.app_context():
+        subscription = db.session.get(Subscription, subscription.id)
+        db.session.delete(db.session.get(ReminderSetting, 50))
+        db.session.commit()
+
+        with pytest.raises(ServiceError, match="student-owned profile data is missing") as error:
+            subscription_summary(subscription)
+
+        assert error.value.status_code == 500
+        assert error.value.code == "internal_server_error"
+
+
+def test_reminder_reconciliation_with_missing_reminder_settings_rejects_before_planning(
+    app, engagement_fixture
+) -> None:
+    student, competition, subscription, node = engagement_fixture
+    with app.app_context():
+        student = db.session.get(User, student.id)
+        competition = db.session.get(Competition, competition.id)
+        subscription = db.session.get(Subscription, subscription.id)
+        node = db.session.get(CompetitionTimeNode, node.id)
+        db.session.delete(db.session.get(ReminderSetting, 50))
+        db.session.commit()
+
+        with pytest.raises(ServiceError, match="student-owned profile data is missing"):
+            _reconcile_subscription_reminders(
+                subscription,
+                competition,
+                [node],
+                datetime.now(UTC),
+            )
+
+        assert (
+            db.session.query(Reminder)
+            .filter_by(user_id=student.id, competition_id=competition.id)
+            .count()
+            == 0
+        )

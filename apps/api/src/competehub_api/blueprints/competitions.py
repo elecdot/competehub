@@ -120,10 +120,11 @@ def subscribe_to_competition(competition_id: int):
 
     try:
         mutation = subscribe_to_competition_service(user, competition_id, payload)
+        summary = subscription_summary(mutation.subscription)
     except ServiceError as error:
         return _service_error_response(error)
     return success_response(
-        subscription_summary(mutation.subscription),
+        summary,
         HTTPStatus.CREATED if mutation.created else HTTPStatus.OK,
     )
 
@@ -141,9 +142,10 @@ def update_competition_subscription(competition_id: int):
 
     try:
         subscription = update_subscription_service(user, competition_id, payload)
+        summary = subscription_summary(subscription)
     except ServiceError as error:
         return _service_error_response(error)
-    return success_response(subscription_summary(subscription))
+    return success_response(summary)
 
 
 @competitions_bp.delete("/competitions/<int:competition_id>/subscription")
