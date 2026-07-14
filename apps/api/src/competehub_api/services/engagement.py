@@ -18,6 +18,7 @@ from competehub_api.models import (
 from competehub_api.models.enums import CompetitionStatus, ReminderStatus, SubscriptionStatus
 from competehub_api.repositories import engagement as repository
 from competehub_api.services.errors import ServiceError
+from competehub_api.subscription_node_types import canonical_subscription_node_types
 from competehub_api.timezones import stored_datetime_as_utc
 
 RESTORABLE_CANCEL_REASONS = frozenset(
@@ -92,6 +93,7 @@ def unfavorite_competition(user: User, competition_id: int) -> None:
 def subscribe_to_competition(
     user: User, competition_id: int, payload: dict
 ) -> SubscriptionMutation:
+    payload = _canonical_payload(payload)
     subscription = repository.get_subscription_for_update(user.id, competition_id)
     if subscription is not None and subscription.status == SubscriptionStatus.ACTIVE:
         db.session.commit()
@@ -132,6 +134,7 @@ def subscribe_to_competition(
 
 
 def update_subscription(user: User, competition_id: int, payload: dict) -> Subscription:
+    payload = _canonical_payload(payload)
     subscription = repository.get_subscription_for_update(user.id, competition_id)
     if subscription is None:
         raise ServiceError(HTTPStatus.NOT_FOUND, "not_found", "subscription not found")
@@ -141,6 +144,9 @@ def update_subscription(user: User, competition_id: int, payload: dict) -> Subsc
         )
     competition = _published_competition(competition_id)
     nodes = _selected_nodes(competition, payload)
+    stored_node_types = canonical_subscription_node_types(subscription.node_types or [])
+    if subscription.node_types != stored_node_types:
+        subscription.node_types = stored_node_types
     if _same_consent(subscription, payload):
         db.session.commit()
         return subscription
@@ -184,7 +190,7 @@ def subscription_summary(subscription: Subscription) -> dict:
         "is_subscribed": subscription.status == SubscriptionStatus.ACTIVE,
         "reminder_enabled": subscription.reminder_enabled,
         "remind_days": subscription.remind_days,
-        "node_types": subscription.node_types or [],
+        "node_types": canonical_subscription_node_types(subscription.node_types or []),
         "reminder_confirmed_at": (
             stored_datetime_as_utc(subscription.reminder_confirmed_at).isoformat()
             if subscription.reminder_confirmed_at is not None
@@ -235,7 +241,8 @@ def _same_consent(subscription: Subscription, payload: dict) -> bool:
     return (
         subscription.reminder_enabled == payload["reminder_enabled"]
         and subscription.remind_days == payload["remind_days"]
-        and set(subscription.node_types or []) == set(payload["node_types"])
+        and canonical_subscription_node_types(subscription.node_types or [])
+        == payload["node_types"]
     )
 
 
@@ -244,6 +251,10 @@ def _apply_consent(subscription: Subscription, payload: dict, now: datetime) -> 
     subscription.remind_days = payload["remind_days"]
     subscription.node_types = payload["node_types"]
     subscription.reminder_confirmed_at = now
+
+
+def _canonical_payload(payload: dict) -> dict:
+    return {**payload, "node_types": canonical_subscription_node_types(payload["node_types"])}
 
 
 def _reconcile_subscription_reminders(

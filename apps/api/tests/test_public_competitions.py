@@ -653,6 +653,29 @@ def test_subscription_first_create_records_explicit_consent_and_pending_plans(cl
         assert {reminder.time_node_revision for reminder in reminders} == {1}
 
 
+def test_subscription_post_canonicalizes_reversed_node_types_before_persistence(
+    client, app
+) -> None:
+    student_id = sign_in_as(client, app)
+
+    response = client.post(
+        "/api/v1/competitions/101/subscription",
+        json=subscription_payload(node_types=["submission_deadline", "registration_deadline"]),
+    )
+
+    assert response.status_code == 201
+    assert response.get_json()["data"]["node_types"] == [
+        "registration_deadline",
+        "submission_deadline",
+    ]
+    with app.app_context():
+        db.session.remove()
+        subscription = (
+            db.session.query(Subscription).filter_by(user_id=student_id, competition_id=101).one()
+        )
+        assert subscription.node_types == ["registration_deadline", "submission_deadline"]
+
+
 def test_subscription_reminders_disabled_retains_confirmation_without_plans(client, app) -> None:
     student_id = sign_in_as(client, app)
 
@@ -929,15 +952,50 @@ def test_subscription_patch_treats_node_order_as_a_semantic_noop(client, app) ->
     )
 
     assert response.status_code == 200
+    assert response.get_json()["data"]["node_types"] == [
+        "registration_deadline",
+        "submission_deadline",
+    ]
     with app.app_context():
         subscription = (
             db.session.query(Subscription).filter_by(user_id=student_id, competition_id=101).one()
         )
         assert subscription.reminder_confirmed_at == confirmed_at
+        assert subscription.node_types == ["registration_deadline", "submission_deadline"]
         assert [
             (reminder.id, reminder.status, reminder.due_at, reminder.cancel_reason)
             for reminder in db.session.query(Reminder).order_by(Reminder.id)
         ] == reminder_state
+
+
+def test_subscription_patch_canonicalizes_reversed_semantic_change(client, app) -> None:
+    student_id = sign_in_as(client, app)
+    assert (
+        client.post(
+            "/api/v1/competitions/101/subscription", json=subscription_payload()
+        ).status_code
+        == 201
+    )
+
+    response = client.patch(
+        "/api/v1/competitions/101/subscription",
+        json=subscription_payload(
+            remind_days=2,
+            node_types=["submission_deadline", "registration_deadline"],
+        ),
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["data"]["node_types"] == [
+        "registration_deadline",
+        "submission_deadline",
+    ]
+    with app.app_context():
+        subscription = (
+            db.session.query(Subscription).filter_by(user_id=student_id, competition_id=101).one()
+        )
+        assert subscription.node_types == ["registration_deadline", "submission_deadline"]
+        assert subscription.remind_days == 2
 
 
 def test_subscription_patch_cancels_deselected_pending_plans(client, app) -> None:

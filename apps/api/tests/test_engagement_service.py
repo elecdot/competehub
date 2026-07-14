@@ -22,7 +22,11 @@ from competehub_api.models.enums import (
     SubscriptionStatus,
     UserRole,
 )
-from competehub_api.services.engagement import subscribe_to_competition, update_subscription
+from competehub_api.services.engagement import (
+    subscribe_to_competition,
+    subscription_summary,
+    update_subscription,
+)
 
 
 def _payload(**overrides) -> dict:
@@ -281,3 +285,60 @@ def test_controlled_cancelled_plan_for_an_unselected_node_is_not_restored(
         assert protected.status == ReminderStatus.CANCELLED
         assert protected.cancel_reason == "node_type_removed"
         assert protected.time_node_snapshot_id == unselected.id
+
+
+def test_semantic_patch_normalizes_existing_stored_order_without_renewing_consent(
+    app, engagement_fixture
+) -> None:
+    student, competition, subscription, node = engagement_fixture
+    with app.app_context():
+        db.session.add(
+            CompetitionTimeNode(
+                id=31,
+                competition_id=competition.id,
+                competition_revision_id=competition.published_revision_id,
+                logical_node_key="submission-deadline",
+                node_revision=1,
+                node_type="submission_deadline",
+                occurs_at=datetime.now(UTC) + timedelta(days=20),
+            )
+        )
+        subscription.node_types = ["submission_deadline", "registration_deadline"]
+        subscription.reminder_confirmed_at = datetime(2026, 7, 1, tzinfo=UTC)
+        reminder = Reminder(
+            id=60,
+            user_id=student.id,
+            competition_id=competition.id,
+            time_node_snapshot_id=node.id,
+            logical_node_key=node.logical_node_key,
+            time_node_revision=node.node_revision,
+            node_type=node.node_type,
+            due_at=datetime.now(UTC) + timedelta(days=1),
+            title="existing",
+            status=ReminderStatus.PENDING,
+        )
+        db.session.add(reminder)
+        db.session.commit()
+
+        updated = update_subscription(
+            student,
+            competition.id,
+            _payload(node_types=["submission_deadline", "registration_deadline"]),
+        )
+
+        assert updated.reminder_confirmed_at == datetime(2026, 7, 1)
+        assert updated.node_types == ["registration_deadline", "submission_deadline"]
+        assert db.session.get(Reminder, reminder.id).id == reminder.id
+        assert db.session.get(Reminder, reminder.id).status == ReminderStatus.PENDING
+
+
+def test_subscription_summary_canonicalizes_stored_node_types(app, engagement_fixture) -> None:
+    _, _, subscription, _ = engagement_fixture
+    with app.app_context():
+        subscription.node_types = ["competition_start", "registration_deadline"]
+        db.session.commit()
+
+        assert subscription_summary(subscription)["node_types"] == [
+            "registration_deadline",
+            "competition_start",
+        ]

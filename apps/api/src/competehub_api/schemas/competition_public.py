@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from marshmallow import Schema, ValidationError, fields, validate, validates_schema
+from marshmallow import Schema, ValidationError, fields, post_load, validate, validates_schema
 
 from competehub_api.models.enums import ParticipantForm
 from competehub_api.schemas.common import NonBlankString, StrictBoolean, UtcDateTime
@@ -8,6 +8,10 @@ from competehub_api.services.competition_discovery import (
     competition_tag_names,
     next_time_node,
     sorted_time_nodes,
+)
+from competehub_api.subscription_node_types import (
+    SUBSCRIPTION_NODE_TYPES,
+    canonical_subscription_node_types,
 )
 
 
@@ -46,13 +50,6 @@ class CompetitionListQuerySchema(Schema):
             )
 
 
-SUBSCRIPTION_NODE_TYPES = (
-    "registration_deadline",
-    "submission_deadline",
-    "competition_start",
-)
-
-
 class SubscriptionCreateSchema(Schema):
     reminder_enabled = StrictBoolean(required=True)
     remind_days = fields.Integer(
@@ -74,6 +71,11 @@ class SubscriptionCreateSchema(Schema):
                 "Node types must not contain duplicates.",
                 field_name="node_types",
             )
+
+    @post_load
+    def canonicalize_node_types(self, data, **kwargs):
+        data["node_types"] = canonical_subscription_node_types(data["node_types"])
+        return data
 
 
 class PublicCompetitionTimeNodeSchema(Schema):

@@ -10,12 +10,12 @@ from competehub_api.extensions import db
 from competehub_api.models import Reminder, ReminderSetting, StudentProfile, User
 from competehub_api.models.enums import ReminderStatus
 from competehub_api.services.errors import ServiceError
+from competehub_api.subscription_node_types import (
+    SUBSCRIPTION_NODE_TYPES,
+    canonical_subscription_node_types,
+)
 
-DEFAULT_REMINDER_NODE_TYPES = [
-    "registration_deadline",
-    "submission_deadline",
-    "competition_start",
-]
+DEFAULT_REMINDER_NODE_TYPES = list(SUBSCRIPTION_NODE_TYPES)
 
 
 @dataclass(frozen=True)
@@ -42,13 +42,13 @@ def create_default_reminder_settings(user: User) -> ReminderSetting:
             user_id=user.id,
             enabled=True,
             default_remind_days=3,
-            node_types=list(DEFAULT_REMINDER_NODE_TYPES),
+            node_types=list(SUBSCRIPTION_NODE_TYPES),
         )
     return ReminderSetting(
         user_id=user.id,
         enabled=True,
         default_remind_days=3,
-        node_types=list(DEFAULT_REMINDER_NODE_TYPES),
+        node_types=list(SUBSCRIPTION_NODE_TYPES),
     )
 
 
@@ -129,7 +129,7 @@ def update_student_preferences(user: User, updates: dict) -> StudentProfileView:
         if "default_remind_days" in updates:
             reminder_settings.default_remind_days = updates["default_remind_days"]
         if "default_reminder_node_types" in updates:
-            reminder_settings.node_types = _canonical_reminder_node_types(
+            reminder_settings.node_types = canonical_subscription_node_types(
                 updates["default_reminder_node_types"]
             )
         db.session.commit()
@@ -254,7 +254,3 @@ def _profile_validation_error(field: str) -> ServiceError:
         "profile field is outside the controlled dictionary",
         {"field": field},
     )
-
-
-def _canonical_reminder_node_types(node_types: list[str]) -> list[str]:
-    return [node_type for node_type in DEFAULT_REMINDER_NODE_TYPES if node_type in node_types]
