@@ -1,17 +1,13 @@
 from __future__ import annotations
 
 import json
-import os
-import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
 from flask_migrate import check, downgrade, upgrade
-from psycopg import connect, sql
 from sqlalchemy import inspect, text
-from sqlalchemy.engine import make_url
 from werkzeug.security import generate_password_hash
 
 from competehub_api import create_app
@@ -90,6 +86,25 @@ def test_unowned_predecessor_competition_blocks_before_schema_mutation(tmp_path)
         )
 
 
+def test_empty_recommendation_rule_predecessor_upgrades(tmp_path) -> None:
+    app = _migration_app(tmp_path / "empty-recommendation-predecessor.db")
+    with app.app_context():
+        upgrade(directory=str(MIGRATIONS_DIR), revision="13eb10903bd7")
+        assert (
+            db.session.execute(text("SELECT COUNT(*) FROM recommendation_rules")).scalar_one() == 0
+        )
+
+        upgrade(directory=str(MIGRATIONS_DIR))
+
+        assert "recommendation_rule_sets" in _tables()
+        assert "rule_set_id" in _columns("recommendation_rules")
+
+
+def test_populated_recommendation_rule_predecessor_fails_closed(tmp_path) -> None:
+    app = _migration_app(tmp_path / "populated-recommendation-predecessor.db")
+    _assert_populated_recommendation_rule_predecessor_fails_closed(app)
+
+
 def test_postgresql_fresh_upgrade_downgrade_and_reupgrade(postgresql_database_uri) -> None:
     app = _migration_app(database_uri=postgresql_database_uri)
     _assert_fresh_upgrade_and_downgrade(app)
@@ -114,6 +129,13 @@ def test_postgresql_predecessor_upgrade_preserves_submitter_and_removes_pending_
     _assert_predecessor_review_actor_upgrade(app)
 
 
+def test_postgresql_populated_recommendation_rule_predecessor_fails_closed(
+    postgresql_database_uri,
+) -> None:
+    app = _migration_app(database_uri=postgresql_database_uri)
+    _assert_populated_recommendation_rule_predecessor_fails_closed(app)
+
+
 def _assert_fresh_upgrade_and_downgrade(app) -> None:
 
     with app.app_context():
@@ -122,6 +144,8 @@ def _assert_fresh_upgrade_and_downgrade(app) -> None:
         assert "user_identities" in _tables()
         assert "verification_delivery_outbox" in _tables()
         assert "competition_revisions" in _tables()
+        assert "recommendation_rule_sets" in _tables()
+        assert _columns("recommendation_rules") >= {"rule_set_id", "conditions"}
         check(directory=str(MIGRATIONS_DIR))
 
         downgrade(directory=str(MIGRATIONS_DIR), revision="base")
@@ -129,6 +153,7 @@ def _assert_fresh_upgrade_and_downgrade(app) -> None:
         assert "users" not in _tables()
         assert "user_identities" not in _tables()
         assert "verification_delivery_outbox" not in _tables()
+        assert "recommendation_rule_sets" not in _tables()
         assert "competehub_migration_baselines" not in _tables()
         if db.engine.dialect.name == "postgresql":
             remaining_types = db.session.execute(
@@ -137,9 +162,10 @@ def _assert_fresh_upgrade_and_downgrade(app) -> None:
                     SELECT typname FROM pg_type
                     WHERE typname IN (
                         'competition_revision_status', 'competition_status',
+                        'recommendation_rule_set_status',
                         'identity_verification_status', 'reminder_status',
-                        'review_status', 'subscription_status', 'user_role',
-                        'user_status'
+                        'review_status', 'subscription_status',
+                        'user_role', 'user_status'
                     )
                     """
                 )
@@ -150,6 +176,49 @@ def _assert_fresh_upgrade_and_downgrade(app) -> None:
         assert "competition_revisions" in _tables()
         check(directory=str(MIGRATIONS_DIR))
         downgrade(directory=str(MIGRATIONS_DIR), revision="base")
+
+
+def _assert_populated_recommendation_rule_predecessor_fails_closed(app) -> None:
+    with app.app_context():
+        upgrade(directory=str(MIGRATIONS_DIR), revision="13eb10903bd7")
+        rules = sa.Table("recommendation_rules", sa.MetaData(), autoload_with=db.engine)
+        now = datetime(2026, 7, 14, 8, 0)
+        db.session.execute(
+            rules.insert().values(
+                id=991,
+                code="legacy-major-match",
+                name="Legacy mutable rule",
+                weight=30,
+                conditions={"operator": "overlap"},
+                reason_template="Legacy reason",
+                enabled=True,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        db.session.commit()
+
+        with pytest.raises(SystemExit) as error:
+            upgrade(directory=str(MIGRATIONS_DIR))
+
+        assert error.value.code == 1
+        assert "recommendation_rule_sets" not in _tables()
+        assert "rule_set_id" not in _columns("recommendation_rules")
+        persisted = (
+            db.session.execute(
+                text("SELECT code, name, weight FROM recommendation_rules WHERE id = 991")
+            )
+            .mappings()
+            .one()
+        )
+        assert persisted == {
+            "code": "legacy-major-match",
+            "name": "Legacy mutable rule",
+            "weight": 30,
+        }
+        assert db.session.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == (
+            "13eb10903bd7"
+        )
 
 
 def _assert_populated_predecessor_upgrade(app) -> None:
@@ -594,6 +663,8 @@ def _assert_legacy_upgrade_and_downgrade(app) -> None:
         assert "user_identities" in _tables()
         assert "identity_verification_challenges" in _tables()
         assert "verification_delivery_outbox" in _tables()
+        assert "recommendation_rule_sets" in _tables()
+        assert "rule_set_id" in _columns("recommendation_rules")
         assert _columns("users") >= {"session_version", "capabilities"}
         assert db.session.execute(text("SELECT COUNT(*) FROM user_identities")).scalar_one() == 2
         phone_login = app.test_client().post(
@@ -628,6 +699,8 @@ def _assert_legacy_upgrade_and_downgrade(app) -> None:
         assert "user_identities" not in _tables()
         assert "identity_verification_challenges" not in _tables()
         assert "verification_delivery_outbox" not in _tables()
+        assert "recommendation_rule_sets" not in _tables()
+        assert "rule_set_id" not in _columns("recommendation_rules")
         assert "session_version" not in _columns("users")
         assert "capabilities" not in _columns("users")
         assert (
@@ -718,29 +791,6 @@ def _create_legacy_schema() -> None:
         ],
     )
     db.session.commit()
-
-
-@pytest.fixture()
-def postgresql_database_uri():
-    admin_dsn = os.getenv("POSTGRES_TEST_ADMIN_URL")
-    if not admin_dsn:
-        pytest.skip("POSTGRES_TEST_ADMIN_URL is required for PostgreSQL migration evidence")
-
-    database_name = f"competehub_migration_test_{uuid.uuid4().hex}"
-    with connect(admin_dsn, autocommit=True) as connection:
-        connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database_name)))
-
-    admin_url = make_url(admin_dsn)
-    database_url = admin_url.set(
-        drivername="postgresql+psycopg", database=database_name
-    ).render_as_string(hide_password=False)
-    try:
-        yield database_url
-    finally:
-        with connect(admin_dsn, autocommit=True) as connection:
-            connection.execute(
-                sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(database_name))
-            )
 
 
 def _tables() -> set[str]:
