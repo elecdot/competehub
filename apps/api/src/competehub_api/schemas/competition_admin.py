@@ -329,7 +329,7 @@ class EditionWorkspaceSchema(Schema):
                     CompetitionRevisionStatus.PENDING_REVIEW,
                 }
             ),
-            edition.published_revision,
+            edition.revisions[-1] if edition.revisions else None,
         )
         return competition_revision_schema.dump(active) if active is not None else None
 

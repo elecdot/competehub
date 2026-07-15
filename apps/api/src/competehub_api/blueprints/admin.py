@@ -45,6 +45,7 @@ from competehub_api.services.competition_revisions import (
     review_revision,
     submit_revision,
     update_revision,
+    withdraw_revision,
 )
 from competehub_api.services.errors import ServiceError
 
@@ -190,6 +191,21 @@ def submit_competition_revision(revision_id: int):
         return error_response(HTTPStatus.NOT_FOUND, "not_found", "competition revision not found")
     try:
         revision = submit_revision(revision, actor)
+    except ServiceError as error:
+        return _service_error_response(error)
+    return success_response(revision_read_model(revision))
+
+
+@admin_bp.post("/admin/competition_revisions/<int:revision_id>/withdraw")
+def withdraw_competition_revision(revision_id: int):
+    actor, response = _require_admin("competition_editor")
+    if response is not None:
+        return response
+    revision = get_competition_revision(revision_id)
+    if revision is None:
+        return error_response(HTTPStatus.NOT_FOUND, "not_found", "competition revision not found")
+    try:
+        revision = withdraw_revision(revision, actor)
     except ServiceError as error:
         return _service_error_response(error)
     return success_response(revision_read_model(revision))

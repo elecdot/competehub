@@ -4,7 +4,6 @@ from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
 from typing import Any
 
-from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from competehub_api.extensions import db
@@ -28,12 +27,17 @@ from competehub_api.models.enums import (
     CompetitionStatus,
     ReminderStatus,
     ReviewStatus,
-    SubscriptionStatus,
 )
+from competehub_api.repositories import engagement as engagement_repository
 from competehub_api.repositories.competitions import (
+    get_active_competition_revision,
+    get_competition_by_series_edition,
+    get_competition_for_update,
+    get_competition_revision_for_update,
     get_competition_series,
     get_competition_series_by_name,
     get_competition_tag_by_code,
+    get_latest_terminal_competition_revision,
 )
 from competehub_api.services.errors import ServiceError
 
@@ -114,12 +118,7 @@ def create_edition_with_revision(payload: dict[str, Any], actor: User) -> Compet
     series = get_competition_series(series_id)
     if series is None:
         raise ServiceError(HTTPStatus.NOT_FOUND, "not_found", "competition series not found")
-    existing = db.session.scalar(
-        select(Competition).where(
-            Competition.series_id == series_id,
-            Competition.edition_label == edition_label,
-        )
-    )
+    existing = get_competition_by_series_edition(series_id, edition_label)
     if existing is not None:
         raise ServiceError(
             HTTPStatus.CONFLICT,
@@ -166,20 +165,7 @@ def create_successor_revision(
     actor: User,
     reason: str,
 ) -> CompetitionRevision:
-    if edition.published_revision_id is None:
-        raise ServiceError(
-            HTTPStatus.CONFLICT,
-            "conflict",
-            "a successor revision requires a published baseline",
-        )
-    active = db.session.scalar(
-        select(CompetitionRevision).where(
-            CompetitionRevision.competition_id == edition.id,
-            CompetitionRevision.revision_status.in_(
-                [CompetitionRevisionStatus.DRAFT, CompetitionRevisionStatus.PENDING_REVIEW]
-            ),
-        )
-    )
+    active = get_active_competition_revision(edition.id)
     if active is not None:
         raise ServiceError(
             HTTPStatus.CONFLICT,
@@ -188,9 +174,23 @@ def create_successor_revision(
             {"revision_id": active.id, "revision_status": active.revision_status.value},
         )
 
-    base = db.session.get(CompetitionRevision, edition.published_revision_id)
-    if base is None:
-        raise ServiceError(HTTPStatus.CONFLICT, "conflict", "published revision is missing")
+    public_base = (
+        db.session.get(CompetitionRevision, edition.published_revision_id)
+        if edition.published_revision_id is not None
+        else None
+    )
+    terminal = get_latest_terminal_competition_revision(edition.id)
+    source = public_base
+    if terminal is not None and (
+        source is None or terminal.revision_number > source.revision_number
+    ):
+        source = terminal
+    if source is None:
+        raise ServiceError(
+            HTTPStatus.CONFLICT,
+            "conflict",
+            "a successor revision requires a published or decided source revision",
+        )
     edition_id = edition.id
     # Relationship loads while cloning can otherwise autoflush the new revision before
     # the explicit flush below, bypassing the unique-conflict translation.
@@ -198,14 +198,14 @@ def create_successor_revision(
         revision = CompetitionRevision(
             competition=edition,
             revision_number=max(item.revision_number for item in edition.revisions) + 1,
-            base_revision_id=base.id,
+            base_revision_id=public_base.id if public_base is not None else None,
             change_reason=reason,
             revision_status=CompetitionRevisionStatus.DRAFT,
             created_by_id=actor.id,
-            **{field: getattr(base, field) for field in REVISION_FIELDS},
+            **{field: getattr(source, field) for field in REVISION_FIELDS},
         )
         db.session.add(revision)
-        for base_stage in base.stages:
+        for base_stage in source.stages:
             stage = CompetitionStage(
                 stage_key=base_stage.stage_key,
                 stage_type=base_stage.stage_type,
@@ -225,7 +225,7 @@ def create_successor_revision(
                     )
                 )
             revision.stages.append(stage)
-        for base_link in base.tag_links:
+        for base_link in source.tag_links:
             revision.tag_links.append(CompetitionTagLink(tag=base_link.tag))
     try:
         db.session.flush()
@@ -236,7 +236,8 @@ def create_successor_revision(
             revision.id,
             {
                 "competition_id": edition_id,
-                "base_revision_id": base.id,
+                "base_revision_id": public_base.id if public_base is not None else None,
+                "source_revision_id": source.id,
                 "revision_number": revision.revision_number,
                 "reason": reason,
             },
@@ -249,17 +250,7 @@ def create_successor_revision(
             for constraint in ("uq_active_competition_revision", "uq_competition_revision")
         ):
             raise
-        active = db.session.scalar(
-            select(CompetitionRevision).where(
-                CompetitionRevision.competition_id == edition_id,
-                CompetitionRevision.revision_status.in_(
-                    [
-                        CompetitionRevisionStatus.DRAFT,
-                        CompetitionRevisionStatus.PENDING_REVIEW,
-                    ]
-                ),
-            )
-        )
+        active = get_active_competition_revision(edition_id)
         if active is None:
             raise
         raise ServiceError(
@@ -346,18 +337,45 @@ def submit_revision(revision: CompetitionRevision, actor: User) -> CompetitionRe
     return revision
 
 
+def withdraw_revision(revision: CompetitionRevision, actor: User) -> CompetitionRevision:
+    revision = get_competition_revision_for_update(revision.id)
+    if revision is None:
+        raise ServiceError(HTTPStatus.NOT_FOUND, "not_found", "competition revision not found")
+    if revision.revision_status != CompetitionRevisionStatus.PENDING_REVIEW:
+        raise ServiceError(
+            HTTPStatus.CONFLICT,
+            "conflict",
+            "only pending revisions can be withdrawn",
+        )
+    submitted_by_id = revision.submitted_by_id
+    submitted_at = revision.submitted_at
+    revision.revision_status = CompetitionRevisionStatus.DRAFT
+    revision.submitted_by_id = None
+    revision.submitted_at = None
+    revision.decided_at = None
+    _write_audit(
+        actor,
+        "competition_revision.withdraw",
+        "competition_revision",
+        revision.id,
+        {
+            "competition_id": revision.competition_id,
+            "revision_number": revision.revision_number,
+            "submitted_by_id": submitted_by_id,
+            "submitted_at": _utc_iso(submitted_at),
+        },
+    )
+    db.session.commit()
+    return revision
+
+
 def review_revision(
     revision: CompetitionRevision,
     actor: User,
     action: str,
     comment: str,
 ) -> CompetitionRevision:
-    revision = db.session.scalar(
-        select(CompetitionRevision)
-        .where(CompetitionRevision.id == revision.id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
+    revision = get_competition_revision_for_update(revision.id)
     if revision is None:
         raise ServiceError(HTTPStatus.NOT_FOUND, "not_found", "competition revision not found")
     if revision.revision_status != CompetitionRevisionStatus.PENDING_REVIEW:
@@ -386,9 +404,7 @@ def review_revision(
         "return": (CompetitionRevisionStatus.RETURNED, ReviewStatus.RETURNED),
     }
     revision_status, review_status = status_by_action[action]
-    edition = db.session.scalar(
-        select(Competition).where(Competition.id == revision.competition_id).with_for_update()
-    )
+    edition = get_competition_for_update(revision.competition_id)
     if edition is None:
         raise ServiceError(HTTPStatus.NOT_FOUND, "not_found", "competition edition not found")
     if action == "approve":

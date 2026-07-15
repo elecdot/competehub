@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
+
 from competehub_api.extensions import db
 from competehub_api.models import (
     AuditLog,
@@ -1065,3 +1067,93 @@ def test_distinct_reviewer_can_reject_without_publishing(client, app) -> None:
     assert rejected.get_json()["data"]["revision_status"] == "rejected"
     assert rejected.get_json()["data"]["published_revision_id"] is None
     assert client.get(f"/api/v1/competitions/{created['id']}").status_code == 404
+
+
+@pytest.mark.parametrize("action", ["reject", "return"])
+def test_terminal_initial_revision_can_continue_as_successor_draft(client, app, action) -> None:
+    with app.app_context():
+        editor_id = create_user(
+            71, UserRole.ADMIN, f"terminal-{action}-editor@example.edu", ["competition_editor"]
+        )
+        reviewer_id = create_user(
+            72,
+            UserRole.ADMIN,
+            f"terminal-{action}-reviewer@example.edu",
+            ["competition_reviewer"],
+        )
+    login(client, editor_id)
+    edition = create_edition(client, create_series(client))
+    edition_id = edition["id"]
+    revision_id = edition["revision"]["id"]
+    assert (
+        client.post(f"/api/v1/admin/competition_revisions/{revision_id}/submit_review").status_code
+        == 200
+    )
+    login(client, reviewer_id)
+    assert (
+        client.post(
+            f"/api/v1/admin/competition_revisions/{revision_id}/review",
+            json={"action": action, "comment": "More source work is required."},
+        ).status_code
+        == 200
+    )
+
+    login(client, editor_id)
+    workspace = next(
+        item
+        for item in client.get("/api/v1/admin/competitions").get_json()["data"]["items"]
+        if item["id"] == edition_id
+    )
+    assert workspace["active_revision"]["id"] == revision_id
+    response = client.post(
+        f"/api/v1/admin/competitions/{edition_id}/revisions",
+        json={"reason": "Continue from the reviewed terminal candidate."},
+    )
+
+    assert response.status_code == 201
+    successor = response.get_json()["data"]
+    assert successor["revision_number"] == 2
+    assert successor["revision_status"] == "draft"
+    assert successor["base_revision_id"] is None
+    assert successor["title"] == edition["revision"]["title"]
+    assert (
+        client.patch(
+            f"/api/v1/admin/competition_revisions/{successor['id']}",
+            json={"summary": "Corrected after review."},
+        ).status_code
+        == 200
+    )
+
+
+def test_editor_withdraws_pending_revision_back_to_editable_draft(client, app) -> None:
+    with app.app_context():
+        editor_id = create_user(
+            73, UserRole.ADMIN, "withdraw-editor@example.edu", ["competition_editor"]
+        )
+    login(client, editor_id)
+    edition = create_edition(client, create_series(client))
+    revision_id = edition["revision"]["id"]
+    assert (
+        client.post(f"/api/v1/admin/competition_revisions/{revision_id}/submit_review").status_code
+        == 200
+    )
+
+    withdrawn = client.post(f"/api/v1/admin/competition_revisions/{revision_id}/withdraw")
+
+    assert withdrawn.status_code == 200
+    payload = withdrawn.get_json()["data"]
+    assert payload["revision_status"] == "draft"
+    assert payload["submitted_by_id"] is None
+    assert payload["submitted_at"] is None
+    assert (
+        client.patch(
+            f"/api/v1/admin/competition_revisions/{revision_id}",
+            json={"summary": "Corrected before resubmission."},
+        ).status_code
+        == 200
+    )
+    with app.app_context():
+        event = AuditLog.query.filter_by(
+            action="competition_revision.withdraw", target_id=revision_id
+        ).one()
+        assert event.actor_id == editor_id

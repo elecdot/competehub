@@ -159,6 +159,13 @@ export async function submitCompetitionRevision(revisionId: number) {
   return response.data.data
 }
 
+export async function withdrawCompetitionRevision(revisionId: number) {
+  const response = await apiClient.post<ApiEnvelope<CompetitionRevision>>(
+    `/admin/competition_revisions/${revisionId}/withdraw`,
+  )
+  return response.data.data
+}
+
 export async function fetchPendingCompetitionRevisions() {
   const response = await apiClient.get<ApiEnvelope<{ items: CompetitionRevision[] }>>(
     '/admin/competition_revisions',

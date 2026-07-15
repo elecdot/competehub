@@ -1152,6 +1152,11 @@ edition. If one exists, return `409 active_revision_exists` with its revision id
 instead of creating a parallel candidate. A replacement stores the exact copied
 public revision as `base_revision_id`.
 
+If the latest candidate is `rejected` or `returned`, this endpoint copies that
+immutable terminal candidate so editing can continue in a new draft. The new
+draft still records the current public revision as `base_revision_id`; before
+initial publication that value remains `null`.
+
 The request requires the source-backed reason for preparing the replacement:
 
 ```json
@@ -1190,6 +1195,14 @@ HTTP(S).
 Submission derives and freezes each time node's effective `node_revision`
 against the immutable base revision. Clients may submit logical keys and node
 facts but cannot assign authoritative node-revision numbers.
+
+### `POST /admin/competition_revisions/{revision_id}/withdraw`
+
+Withdraw a `pending_review` revision back to editable `draft`. The endpoint
+requires `competition_editor`, clears the prior submission actor and instant,
+and appends a `competition_revision.withdraw` audit event. Decided revisions
+remain immutable; withdrawing any state other than `pending_review` returns
+`409 conflict`.
 
 ### `POST /admin/competition_revisions/{revision_id}/review`
 

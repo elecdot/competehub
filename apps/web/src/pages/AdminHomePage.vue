@@ -44,6 +44,7 @@ import {
   reviewCompetitionRevision,
   submitCompetitionRevision,
   updateCompetitionRevision,
+  withdrawCompetitionRevision,
 } from '@/api/client'
 import type {
   CompetitionRevision,
@@ -115,8 +116,10 @@ const selectedWorkspace = computed(() =>
 )
 const canCreateSuccessor = computed(
   () =>
-    selectedWorkspace.value?.published_revision_id != null &&
-    selectedWorkspace.value.active_revision.revision_status === 'approved',
+    selectedWorkspace.value != null &&
+    ['approved', 'rejected', 'returned'].includes(
+      selectedWorkspace.value.active_revision.revision_status,
+    ),
 )
 
 onMounted(async () => {
@@ -492,6 +495,22 @@ async function decide(action: 'approve' | 'reject' | 'return') {
   }
 }
 
+async function withdrawSelectedRevision() {
+  if (selectedRevision.value == null) return
+  const competitionId = selectedRevision.value.competition_id
+  loading.value = true
+  try {
+    await withdrawCompetitionRevision(selectedRevision.value.id)
+    selectedRevision.value = undefined
+    await Promise.all([loadPending(), loadEditions(competitionId)])
+    message.success('修订已撤回到草稿')
+  } catch {
+    message.error('撤回失败；只有待审核修订可以撤回')
+  } finally {
+    loading.value = false
+  }
+}
+
 function differenceLabel(difference: CompetitionRevision['differences'][number]) {
   return difference.field ?? difference.stage_key ?? difference.logical_node_key ?? difference.kind
 }
@@ -814,6 +833,13 @@ function displayValue(value: unknown) {
                 </div>
               </div>
               <Alert v-if="isSelfReview" data-testid="self-review-warning" type="warning" show-icon message="提交者不能审核自己的修订" />
+              <Button
+                v-if="isSelfReview"
+                data-testid="withdraw-revision"
+                @click="withdrawSelectedRevision"
+              >
+                撤回到草稿
+              </Button>
               <Textarea v-model:value="reviewComment" data-testid="review-comment" :rows="3" placeholder="填写审核依据与结论" />
               <Space>
                 <Button data-testid="approve-revision" type="primary" :disabled="isSelfReview || !reviewComment.trim()" @click="decide('approve')"><template #icon><CheckOutlined /></template>批准发布</Button>
