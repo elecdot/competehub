@@ -546,16 +546,14 @@ def revision_comparison(revision: CompetitionRevision) -> dict[str, list[dict[st
 
 def revision_impact(revision: CompetitionRevision) -> dict[str, Any]:
     visibility = "publish" if revision.base_revision_id is None else "replace"
-    schedule_changes = _schedule_changes(revision_comparison(revision))
-    changed_keys = {change["logical_node_key"] for change in schedule_changes}
-    subscriptions = list(
-        db.session.scalars(
-            select(Subscription).where(
-                Subscription.competition_id == revision.competition_id,
-                Subscription.status == SubscriptionStatus.ACTIVE,
-            )
-        )
+    comparison = revision_comparison(revision)
+    node_changes = comparison["time_node_changes"]
+    schedule_changes = _schedule_changes(comparison)
+    changed_keys = {change["logical_node_key"] for change in node_changes}
+    subscriptions = engagement_repository.list_active_subscriptions_for_competition(
+        revision.competition_id
     )
+    reminder_settings = _required_reminder_settings(subscriptions)
     affected_subscriptions = [
         subscription
         for subscription in subscriptions
@@ -569,29 +567,21 @@ def revision_impact(revision: CompetitionRevision) -> dict[str, Any]:
             for node in (base.time_nodes if base is not None else [])
             if node.logical_node_key in changed_keys
         }
-    pending_to_supersede = (
-        list(
-            db.session.scalars(
-                select(Reminder).where(
-                    Reminder.competition_id == revision.competition_id,
-                    Reminder.status == ReminderStatus.PENDING,
-                    Reminder.time_node_snapshot_id.in_(base_node_ids),
-                )
-            )
-        )
-        if base_node_ids
-        else []
+    pending_to_supersede = engagement_repository.list_pending_reminders_for_competition(
+        revision.competition_id,
+        snapshot_ids=base_node_ids,
     )
     now = datetime.now(UTC)
     future_to_create = sum(
         1
-        for subscription in affected_subscriptions
+        for subscription in subscriptions
         for node in revision.time_nodes
         if node.logical_node_key in changed_keys
         and node.node_type in (subscription.node_types or [])
         and node.occurs_at is not None
         and _aware_utc(node.occurs_at) - timedelta(days=subscription.remind_days) > now
         and subscription.reminder_enabled
+        and reminder_settings[subscription.user_id].enabled
     )
     return {
         "public_visibility": visibility,
@@ -767,21 +757,30 @@ def _freeze_node_revisions(revision: CompetitionRevision) -> None:
     base = db.session.get(CompetitionRevision, revision.base_revision_id)
     if base is None:
         raise ServiceError(HTTPStatus.CONFLICT, "conflict", "base revision is missing")
-    base_nodes = {node.logical_node_key: node for node in base.time_nodes}
+    base_nodes = {
+        node.logical_node_key: (stage, node) for stage in base.stages for node in stage.time_nodes
+    }
     for stage in revision.stages:
         for node in stage.time_nodes:
-            prior = base_nodes.get(node.logical_node_key)
-            if prior is None:
+            prior_entry = base_nodes.get(node.logical_node_key)
+            if prior_entry is None:
                 node.node_revision = 1
                 continue
-            changed = _node_behavior_facts(prior) != _node_behavior_facts(node)
+            prior_stage, prior = prior_entry
+            changed = _node_behavior_facts(prior_stage, prior) != _node_behavior_facts(stage, node)
             node.node_revision = prior.node_revision + 1 if changed else prior.node_revision
 
 
-def _node_behavior_facts(node: CompetitionTimeNode) -> tuple:
+def _node_behavior_facts(stage: CompetitionStage, node: CompetitionTimeNode) -> tuple:
     return (
+        stage.stage_key,
+        stage.stage_type,
+        stage.label,
+        stage.stage_order,
         node.node_type,
-        node.occurs_at,
+        _utc_iso(node.occurs_at),
+        node.prominence,
+        node.description,
     )
 
 
@@ -791,31 +790,6 @@ def _write_reconciliation_event(
     reason: str,
     comparison: dict[str, list[dict[str, Any]]],
 ) -> None:
-    schedule_changes = []
-    for change in comparison["time_node_changes"]:
-        before = change.get("before") or {}
-        after = change.get("after") or {}
-        if change.get("change") == "changed" and (
-            before.get("occurs_at") != after.get("occurs_at")
-            or before.get("node_type") != after.get("node_type")
-        ):
-            schedule_changes.append(
-                {
-                    "logical_node_key": change["logical_node_key"],
-                    "change": "changed",
-                    "before": before.get("occurs_at"),
-                    "after": after.get("occurs_at"),
-                }
-            )
-        elif change.get("change") in {"added", "removed"}:
-            schedule_changes.append(
-                {
-                    "logical_node_key": change["logical_node_key"],
-                    "change": change["change"],
-                    "before": before.get("occurs_at"),
-                    "after": after.get("occurs_at"),
-                }
-            )
     _write_audit(
         actor,
         "competition_revision.reconcile",
@@ -825,7 +799,7 @@ def _write_reconciliation_event(
             "competition_id": revision.competition_id,
             "base_revision_id": revision.base_revision_id,
             "reason": reason,
-            "time_node_changes": schedule_changes,
+            "time_node_changes": comparison["time_node_changes"],
         },
     )
 
@@ -867,27 +841,30 @@ def _reconcile_subscriber_state(
     comparison: dict[str, list[dict[str, Any]]],
     now: datetime,
 ) -> None:
+    node_changes = comparison["time_node_changes"]
     schedule_changes = _schedule_changes(comparison)
-    changed_keys = {change["logical_node_key"] for change in schedule_changes}
+    changed_keys = {change["logical_node_key"] for change in node_changes}
     base = db.session.get(CompetitionRevision, revision.base_revision_id)
     base_nodes_by_key = {
         node.logical_node_key: node for node in (base.time_nodes if base is not None else [])
     }
     new_nodes_by_key = {node.logical_node_key: node for node in revision.time_nodes}
-    presentation_only_keys = (base_nodes_by_key.keys() & new_nodes_by_key.keys()) - changed_keys
-    presentation_only_base_ids = {base_nodes_by_key[key].id for key in presentation_only_keys}
-    presentation_only_base_nodes = {
-        base_nodes_by_key[key].id: base_nodes_by_key[key] for key in presentation_only_keys
+    subscriptions = engagement_repository.list_active_subscriptions_for_competition(
+        revision.competition_id
+    )
+    reminder_settings = _required_reminder_settings(subscriptions, for_update=True)
+    unchanged_keys = (base_nodes_by_key.keys() & new_nodes_by_key.keys()) - changed_keys
+    unchanged_base_ids = {base_nodes_by_key[key].id for key in unchanged_keys}
+    unchanged_base_nodes = {
+        base_nodes_by_key[key].id: base_nodes_by_key[key] for key in unchanged_keys
     }
-    if presentation_only_base_ids:
-        for reminder in db.session.scalars(
-            select(Reminder).where(
-                Reminder.competition_id == revision.competition_id,
-                Reminder.status == ReminderStatus.PENDING,
-                Reminder.time_node_snapshot_id.in_(presentation_only_base_ids),
-            )
+    if unchanged_base_ids:
+        for reminder in engagement_repository.list_pending_reminders_for_competition(
+            revision.competition_id,
+            snapshot_ids=unchanged_base_ids,
+            for_update=True,
         ):
-            base_node = presentation_only_base_nodes[reminder.time_node_snapshot_id]
+            base_node = unchanged_base_nodes[reminder.time_node_snapshot_id]
             new_node = new_nodes_by_key[base_node.logical_node_key]
             reminder.time_node_snapshot_id = new_node.id
             reminder.logical_node_key = new_node.logical_node_key
@@ -896,34 +873,22 @@ def _reconcile_subscriber_state(
             reminder.title = f"{revision.title}: {new_node.node_type}"
             reminder.body = new_node.description
 
-    if not schedule_changes:
+    if not node_changes:
         return
     changed_base_nodes = {
         node.id: node for key, node in base_nodes_by_key.items() if key in changed_keys
     }
-    for reminder in db.session.scalars(
-        select(Reminder).where(
-            Reminder.competition_id == revision.competition_id,
-            Reminder.status == ReminderStatus.PENDING,
-            Reminder.time_node_snapshot_id.in_(changed_base_nodes),
-        )
+    for reminder in engagement_repository.list_pending_reminders_for_competition(
+        revision.competition_id,
+        snapshot_ids=set(changed_base_nodes),
+        for_update=True,
     ):
         reminder.status = ReminderStatus.CANCELLED
         reminder.cancel_reason = "competition_revision_superseded"
 
     changed_new_nodes = {key: node for key, node in new_nodes_by_key.items() if key in changed_keys}
-    subscriptions = list(
-        db.session.scalars(
-            select(Subscription).where(
-                Subscription.competition_id == revision.competition_id,
-                Subscription.status == SubscriptionStatus.ACTIVE,
-            )
-        )
-    )
     for subscription in subscriptions:
-        if not _subscription_affected(subscription, schedule_changes):
-            continue
-        if subscription.reminder_enabled:
+        if subscription.reminder_enabled and reminder_settings[subscription.user_id].enabled:
             for node in changed_new_nodes.values():
                 if node.node_type not in (subscription.node_types or []) or node.occurs_at is None:
                     continue
@@ -932,7 +897,7 @@ def _reconcile_subscriber_state(
                     continue
                 db.session.add(
                     Reminder(
-                        id=_next_pk(Reminder),
+                        id=engagement_repository.next_sqlite_id(Reminder),
                         user_id=subscription.user_id,
                         competition_id=revision.competition_id,
                         time_node_snapshot_id=node.id,
@@ -941,21 +906,20 @@ def _reconcile_subscriber_state(
                         node_type=node.node_type,
                         due_at=due_at,
                         title=f"{revision.title}: {node.node_type}",
-                        body=f"Updated schedule: {node.occurs_at.isoformat()}",
+                        body=node.description,
                         status=ReminderStatus.PENDING,
                     )
                 )
+        if not _subscription_affected(subscription, schedule_changes):
+            continue
         idempotency_key = f"competition_revision:{revision.id}:time_changed"
-        existing_message = db.session.scalar(
-            select(Message).where(
-                Message.user_id == subscription.user_id,
-                Message.idempotency_key == idempotency_key,
-            )
+        existing_message = engagement_repository.get_message_by_idempotency(
+            subscription.user_id, idempotency_key
         )
         if existing_message is None:
             db.session.add(
                 Message(
-                    id=_next_pk(Message),
+                    id=engagement_repository.next_sqlite_id(Message),
                     user_id=subscription.user_id,
                     competition_id=revision.competition_id,
                     message_type="competition_time_changed",
@@ -967,16 +931,33 @@ def _reconcile_subscriber_state(
             )
 
 
+def _required_reminder_settings(
+    subscriptions: list[Subscription],
+    *,
+    for_update: bool = False,
+) -> dict[int, Any]:
+    settings = {}
+    for subscription in subscriptions:
+        getter = (
+            engagement_repository.get_reminder_setting_for_update
+            if for_update
+            else engagement_repository.get_reminder_setting
+        )
+        setting = getter(subscription.user_id)
+        if setting is None:
+            raise ServiceError(
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                "internal_server_error",
+                "student-owned profile data is missing",
+            )
+        settings[subscription.user_id] = setting
+    return settings
+
+
 def _aware_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
-
-
-def _next_pk(model) -> int | None:
-    if db.session.get_bind().dialect.name != "sqlite":
-        return None
-    return (db.session.scalar(select(func.max(model.id))) or 0) + 1
 
 
 def _is_unique_constraint(error: IntegrityError, name: str) -> bool:

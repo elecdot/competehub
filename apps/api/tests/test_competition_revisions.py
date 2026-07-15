@@ -11,6 +11,7 @@ from competehub_api.models import (
     CompetitionRevision,
     Message,
     Reminder,
+    ReminderSetting,
     ReviewRecord,
     Subscription,
     User,
@@ -425,6 +426,9 @@ def test_successor_revision_keeps_public_snapshot_until_approval_and_reconciles_
             32, UserRole.ADMIN, "successor-reviewer@example.edu", ["competition_reviewer"]
         )
         student_id = create_user(33, UserRole.STUDENT, "successor-student@example.edu")
+        disabled_student_id = create_user(
+            37, UserRole.STUDENT, "successor-disabled-student@example.edu"
+        )
     login(client, editor_id)
     series_id = create_series(client)
     created = create_edition(client, series_id)
@@ -443,10 +447,26 @@ def test_successor_revision_keeps_public_snapshot_until_approval_and_reconciles_
         deadline = next(
             node for node in initial.time_nodes if node.logical_node_key == "registration-deadline"
         )
+        db.session.add_all(
+            [
+                ReminderSetting(id=1, user_id=student_id, enabled=True),
+                ReminderSetting(id=2, user_id=disabled_student_id, enabled=False),
+            ]
+        )
         db.session.add(
             Subscription(
                 id=1,
                 user_id=student_id,
+                competition_id=edition_id,
+                reminder_enabled=True,
+                remind_days=3,
+                node_types=["registration_deadline"],
+            )
+        )
+        db.session.add(
+            Subscription(
+                id=2,
+                user_id=disabled_student_id,
                 competition_id=edition_id,
                 reminder_enabled=True,
                 remind_days=3,
@@ -464,6 +484,20 @@ def test_successor_revision_keeps_public_snapshot_until_approval_and_reconciles_
                 node_type="registration_deadline",
                 due_at=datetime(2026, 8, 12, 16, tzinfo=UTC),
                 title="Old deadline reminder",
+                status=ReminderStatus.PENDING,
+            )
+        )
+        db.session.add(
+            Reminder(
+                id=2,
+                user_id=disabled_student_id,
+                competition_id=edition_id,
+                time_node_snapshot_id=deadline.id,
+                logical_node_key=deadline.logical_node_key,
+                time_node_revision=deadline.node_revision,
+                node_type="registration_deadline",
+                due_at=datetime(2026, 8, 12, 16, tzinfo=UTC),
+                title="Globally disabled old deadline reminder",
                 status=ReminderStatus.PENDING,
             )
         )
@@ -524,10 +558,10 @@ def test_successor_revision_keeps_public_snapshot_until_approval_and_reconciles_
         json={"stages": stages},
     )
     assert updated.status_code == 200
-    assert updated.get_json()["data"]["impact"]["affected_active_subscriptions"] == 1
-    assert updated.get_json()["data"]["impact"]["pending_reminders_to_supersede"] == 1
+    assert updated.get_json()["data"]["impact"]["affected_active_subscriptions"] == 2
+    assert updated.get_json()["data"]["impact"]["pending_reminders_to_supersede"] == 2
     assert updated.get_json()["data"]["impact"]["future_reminders_to_create"] == 1
-    assert updated.get_json()["data"]["impact"]["schedule_change_messages_estimate"] == 1
+    assert updated.get_json()["data"]["impact"]["schedule_change_messages_estimate"] == 2
     assert (
         client.post(f"/api/v1/admin/competition_revisions/{successor_id}/submit_review").status_code
         == 200
@@ -572,29 +606,41 @@ def test_successor_revision_keeps_public_snapshot_until_approval_and_reconciles_
         assert len(events) == 1
         assert events[0].target_id == successor_id
         assert events[0].detail["reason"] == "Corrected deadline matches the source."
-        assert events[0].detail["time_node_changes"] == [
-            {
-                "logical_node_key": "registration-deadline",
-                "change": "changed",
-                "before": old_deadline["occurs_at"],
-                "after": "2026-08-20T16:00:00+00:00",
-            }
-        ]
+        assert len(events[0].detail["time_node_changes"]) == 1
+        audit_change = events[0].detail["time_node_changes"][0]
+        assert audit_change["logical_node_key"] == "registration-deadline"
+        assert audit_change["change"] == "changed"
+        assert audit_change["before"] == {
+            "stage_key": "registration",
+            "node_type": "registration_deadline",
+            "occurs_at": old_deadline["occurs_at"],
+            "description": "Registration closes",
+            "prominence": "primary",
+            "prominence_override_reason": None,
+            "node_revision": old_deadline["node_revision"],
+        }
+        assert audit_change["after"] == {
+            **audit_change["before"],
+            "occurs_at": "2026-08-20T16:00:00+00:00",
+            "node_revision": old_deadline["node_revision"] + 1,
+        }
         reminders = Reminder.query.filter_by(competition_id=edition_id).order_by(Reminder.id).all()
         assert [reminder.status for reminder in reminders] == [
+            ReminderStatus.CANCELLED,
             ReminderStatus.CANCELLED,
             ReminderStatus.PENDING,
         ]
         assert reminders[0].cancel_reason == "competition_revision_superseded"
-        assert reminders[1].time_node_snapshot_id == changed_deadline["id"]
-        assert reminders[1].logical_node_key == changed_deadline["logical_node_key"]
-        assert reminders[1].time_node_revision == changed_deadline["node_revision"]
+        assert reminders[1].cancel_reason == "competition_revision_superseded"
+        assert reminders[2].user_id == student_id
+        assert reminders[2].time_node_snapshot_id == changed_deadline["id"]
+        assert reminders[2].logical_node_key == changed_deadline["logical_node_key"]
+        assert reminders[2].time_node_revision == changed_deadline["node_revision"]
         messages = Message.query.filter_by(
             competition_id=edition_id,
             message_type="competition_time_changed",
         ).all()
-        assert len(messages) == 1
-        assert messages[0].user_id == student_id
+        assert {message.user_id for message in messages} == {student_id, disabled_student_id}
 
 
 def test_presentation_only_revision_moves_pending_reminder_without_schedule_message(
@@ -637,6 +683,7 @@ def test_presentation_only_revision_moves_pending_reminder_without_schedule_mess
                 node_types=["registration_deadline"],
             )
         )
+        db.session.add(ReminderSetting(id=3, user_id=student_id, enabled=True))
         db.session.add(
             Reminder(
                 id=3,
@@ -682,13 +729,14 @@ def test_presentation_only_revision_moves_pending_reminder_without_schedule_mess
             node.pop("id", None)
             node.pop("node_revision", None)
 
-    assert (
-        client.patch(
-            f"/api/v1/admin/competition_revisions/{successor_id}",
-            json={"stages": stages},
-        ).status_code
-        == 200
+    updated = client.patch(
+        f"/api/v1/admin/competition_revisions/{successor_id}",
+        json={"stages": stages},
     )
+    assert updated.status_code == 200
+    assert updated.get_json()["data"]["impact"]["pending_reminders_to_supersede"] == 1
+    assert updated.get_json()["data"]["impact"]["future_reminders_to_create"] == 1
+    assert updated.get_json()["data"]["impact"]["schedule_change_messages_estimate"] == 0
     assert (
         client.post(f"/api/v1/admin/competition_revisions/{successor_id}/submit_review").status_code
         == 200
@@ -711,15 +759,41 @@ def test_presentation_only_revision_moves_pending_reminder_without_schedule_mess
             if node.logical_node_key == "registration-deadline"
         )
         assert new_deadline.id != old_deadline_id
-        assert new_deadline.node_revision == old_node_revision
-        reminder = db.session.get(Reminder, 3)
-        assert reminder is not None
-        assert reminder.status == ReminderStatus.PENDING
-        assert reminder.time_node_snapshot_id == new_deadline.id
-        assert reminder.logical_node_key == new_deadline.logical_node_key
-        assert reminder.time_node_revision == new_deadline.node_revision
-        assert reminder.title == f"{successor_revision.title}: {new_deadline.node_type}"
-        assert reminder.body == new_deadline.description
+        assert new_deadline.node_revision == old_node_revision + 1
+        reminders = Reminder.query.filter_by(competition_id=edition_id).order_by(Reminder.id).all()
+        assert [reminder.status for reminder in reminders] == [
+            ReminderStatus.CANCELLED,
+            ReminderStatus.PENDING,
+        ]
+        assert reminders[0].cancel_reason == "competition_revision_superseded"
+        assert reminders[1].time_node_snapshot_id == new_deadline.id
+        assert reminders[1].logical_node_key == new_deadline.logical_node_key
+        assert reminders[1].time_node_revision == new_deadline.node_revision
+        assert reminders[1].title == f"{successor_revision.title}: {new_deadline.node_type}"
+        assert reminders[1].body == new_deadline.description
+        event = AuditLog.query.filter_by(
+            action="competition_revision.reconcile", target_id=successor_id
+        ).one()
+        deadline_change = next(
+            change
+            for change in event.detail["time_node_changes"]
+            if change["logical_node_key"] == "registration-deadline"
+        )
+        assert deadline_change["before"] == {
+            "stage_key": "registration",
+            "node_type": "registration_deadline",
+            "occurs_at": "2026-08-15T16:00:00+00:00",
+            "description": "Registration closes",
+            "prominence": "primary",
+            "prominence_override_reason": None,
+            "node_revision": old_node_revision,
+        }
+        assert deadline_change["after"] == {
+            **deadline_change["before"],
+            "stage_key": "main-registration",
+            "description": "Registration closes at the published instant",
+            "node_revision": old_node_revision + 1,
+        }
         assert (
             Message.query.filter_by(
                 competition_id=edition_id,
@@ -767,6 +841,7 @@ def test_historical_lifecycle_detail_keeps_warning_while_offline_returns_404(cli
                 node_types=["registration_deadline"],
             )
         )
+        db.session.add(ReminderSetting(id=5, user_id=student_id, enabled=True))
         db.session.add(
             Reminder(
                 id=2,
