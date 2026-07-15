@@ -9,14 +9,16 @@ from flask_migrate import upgrade
 from sqlalchemy.orm import Session
 from test_competition_revisions import (
     create_edition,
+    create_published_edition,
     create_series,
     create_user,
     login,
 )
 
 from competehub_api import create_app
+from competehub_api.blueprints import admin as admin_blueprint
 from competehub_api.extensions import db
-from competehub_api.models import CompetitionRevision
+from competehub_api.models import Competition, CompetitionRevision
 from competehub_api.models.enums import CompetitionRevisionStatus, UserRole
 
 MIGRATIONS_DIR = os.path.join(os.path.dirname(__file__), "..", "migrations")
@@ -153,3 +155,120 @@ def test_postgresql_simultaneous_successor_creation_returns_one_conflict(
         ).all()
         assert len(active) == 1
         assert active[0].revision_number == 2
+
+
+@pytest.mark.parametrize("lifecycle_status", ["archived", "expired"])
+def test_postgresql_historical_lifecycle_reloads_revision_after_concurrent_approval(
+    postgresql_app, monkeypatch, lifecycle_status: str
+) -> None:
+    editor = postgresql_app.test_client()
+    lifecycle = postgresql_app.test_client()
+    reviewer = postgresql_app.test_client()
+    with postgresql_app.app_context():
+        editor_id = create_user(
+            503,
+            UserRole.ADMIN,
+            f"issue37-{lifecycle_status}-editor@example.edu",
+            ["competition_editor", "competition_maintainer"],
+        )
+        reviewer_id = create_user(
+            504,
+            UserRole.ADMIN,
+            f"issue37-{lifecycle_status}-reviewer@example.edu",
+            ["competition_reviewer"],
+        )
+    login(editor, editor_id)
+    with (
+        editor.session_transaction() as editor_session,
+        lifecycle.session_transaction() as lifecycle_session,
+    ):
+        lifecycle_session.update(editor_session)
+
+    edition = create_published_edition(
+        editor,
+        editor_id,
+        reviewer_id,
+        elapsed_nodes=True,
+    )
+    edition_id = edition["id"]
+    successor = editor.post(
+        f"/api/v1/admin/competitions/{edition_id}/revisions",
+        json={"reason": "Add a newly announced future deadline."},
+    ).get_json()["data"]
+    successor_id = successor["id"]
+    stages = successor["stages"]
+    deadline = next(
+        node
+        for stage in stages
+        for node in stage["time_nodes"]
+        if node["logical_node_key"] == "registration-deadline"
+    )
+    deadline["occurs_at"] = "2099-08-20T16:00:00Z"
+    for stage in stages:
+        stage.pop("id", None)
+        for node in stage["time_nodes"]:
+            node.pop("id", None)
+            node.pop("node_revision", None)
+    assert (
+        editor.patch(
+            f"/api/v1/admin/competition_revisions/{successor_id}",
+            json={"stages": stages},
+        ).status_code
+        == 200
+    )
+    assert (
+        editor.post(f"/api/v1/admin/competition_revisions/{successor_id}/submit_review").status_code
+        == 200
+    )
+    login(reviewer, reviewer_id)
+
+    lifecycle_loaded = threading.Event()
+    continue_lifecycle = threading.Event()
+    original_maintain = admin_blueprint.maintain_competition_status
+
+    # Pause after the route has loaded the edition so approval can change the
+    # public pointer before lifecycle validation reacquires the edition lock.
+    def delayed_maintain(competition, actor, target_status, reason):
+        lifecycle_loaded.set()
+        assert continue_lifecycle.wait(timeout=10)
+        return original_maintain(competition, actor, target_status, reason)
+
+    monkeypatch.setattr(admin_blueprint, "maintain_competition_status", delayed_maintain)
+    responses = []
+
+    def maintain_lifecycle() -> None:
+        responses.append(
+            lifecycle.patch(
+                f"/api/v1/admin/competitions/{edition_id}/status",
+                json={
+                    "status": lifecycle_status,
+                    "reason": "Every node in the loaded public revision has elapsed.",
+                },
+            )
+        )
+
+    thread = threading.Thread(target=maintain_lifecycle)
+    thread.start()
+    assert lifecycle_loaded.wait(timeout=10)
+    try:
+        approval = reviewer.post(
+            f"/api/v1/admin/competition_revisions/{successor_id}/review",
+            json={"action": "approve", "comment": "Future deadline verified."},
+        )
+        assert approval.status_code == 200
+    finally:
+        continue_lifecycle.set()
+    thread.join(timeout=10)
+    assert not thread.is_alive()
+
+    assert len(responses) == 1
+    lifecycle_response = responses[0]
+    assert lifecycle_response.status_code == 409
+    error = lifecycle_response.get_json()["error"]
+    assert error["code"] == "conflict"
+    assert error["details"]["blocking_nodes"][0]["occurs_at"] == ("2099-08-20T16:00:00+00:00")
+    with postgresql_app.app_context():
+        current = db.session.get(Competition, edition_id)
+        assert current is not None
+        assert current.status.value == "published"
+        assert current.published_revision_id == successor_id

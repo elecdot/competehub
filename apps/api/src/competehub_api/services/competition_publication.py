@@ -7,6 +7,7 @@ from competehub_api.extensions import db
 from competehub_api.models import AuditLog, Competition, Message, User
 from competehub_api.models.enums import CompetitionStatus, ReminderStatus
 from competehub_api.repositories import engagement as engagement_repository
+from competehub_api.repositories.competitions import get_competition_for_update
 from competehub_api.services.errors import ServiceError
 
 POST_PUBLICATION_TARGET_STATUSES = {
@@ -23,6 +24,9 @@ def maintain_competition_status(
     target_status: str,
     reason: str,
 ) -> Competition:
+    competition = get_competition_for_update(competition.id)
+    if competition is None:
+        raise ServiceError(HTTPStatus.NOT_FOUND, "not_found", "competition edition not found")
     status = CompetitionStatus(target_status)
     if (
         competition.status != CompetitionStatus.PUBLISHED
