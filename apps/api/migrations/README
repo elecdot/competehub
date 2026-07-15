@@ -1,16 +1,22 @@
 Single-database Alembic configuration for Flask.
 
 The committed chain starts with `c5e0e7e0560d`, adds the verification-delivery
-outbox in `61f2c8e4a9bd`, and adds immutable publication persistence in
-`13eb10903bd7`.
+outbox in `61f2c8e4a9bd`, immutable publication persistence in `13eb10903bd7`,
+governed recommendation rule sets in `be7dfc45f976`, Issue #38 engagement and
+reminder integrity in `7f3c2a91d8e4`, and canonical subscription node-type
+ordering in `4d8b6e1a3f20`. Privacy-minimized outbound click analytics are
+added in the current head `a64f1b9d2c7e`.
 
-Fresh databases apply the complete chain. The initial migration records whether
-it adopted a fresh database or an older `db.create_all()` schema. On the legacy
-path, authentication tables and identities are bridged, while the immutable
-publication migration leaves unknown business-table shapes unchanged. Reset an
-old disposable database before upgrade. For a shared database, write and review
-a dedicated data-preserving publication bridge instead of stamping or guessing
-series, edition, and revision identities.
+Fresh databases apply the complete chain. A database at the known
+`13eb10903bd7` predecessor can upgrade to the governed recommendation schema
+when its legacy mutable `recommendation_rules` table is empty. The initial
+migration records whether it adopted a fresh database or an older
+`db.create_all()` schema. On the legacy path, authentication tables and
+identities are bridged, while the immutable publication migration leaves
+unknown business-table shapes unchanged. Reset an old disposable database
+before upgrade. For a shared database, write and review a dedicated
+data-preserving publication bridge instead of stamping or guessing series,
+edition, revision, or recommendation-rule lineage.
 
 A database already at the known `61f2c8e4a9bd` predecessor uses the committed
 publication bridge: owned mutable competitions become one-series/one-edition
@@ -19,4 +25,72 @@ visibility is retained. Rows without `created_by_id` are rejected before schema
 mutation so an operator can assign a real owner instead of receiving invented
 review attribution.
 
-`seed-e2e --reset` rebuilds only the isolated browser-test database.
+## Recommendation governance revision
+
+The `be7dfc45f976` upgrade follows `13eb10903bd7` and fails closed before
+destructive DDL when the legacy mutable `recommendation_rules` table contains
+rows. The table, its data, and the `13eb10903bd7` predecessor state remain
+available for operator review. Do not stamp the database, guess lineage, discard
+those rows, or automatically promote unreviewed mutable rules into active v1.
+Before retrying, back up the database and make an explicit, reviewed
+data-migration decision.
+
+Downgrading from `be7dfc45f976` to `13eb10903bd7` is a destructive schema
+rollback, not a history-preserving governance rollback. It removes governed
+rule-set and rule snapshots, drops the recommendation review snapshot columns,
+and recreates an empty legacy mutable `recommendation_rules` table. Before
+downgrading a shared database that contains governed recommendation data, back
+up and export the data and approve an explicit rollback plan.
+
+## Issue #38 engagement and reminder revisions
+
+`7f3c2a91d8e4` follows `be7dfc45f976`. A database still at `13eb10903bd7`
+therefore applies the independent recommendation-governance revision first. If
+legacy recommendation rules block that step, the database remains at
+`13eb10903bd7`; once it reaches `be7dfc45f976`, the Issue #38 preflight owns the
+next transition.
+
+The Issue #38 revision does not alter a recorded `legacy_create_all` database.
+On its supported `be7dfc45f976` predecessor, it first refuses an upgrade if
+`favorites`, `subscriptions`, or `reminders` contains retained rows. The
+engagement schema stays unchanged and the database remains at `be7dfc45f976`;
+an operator must reset a disposable database or use a separately reviewed
+bridge before changing that populated engagement data.
+
+For an empty engagement predecessor, the revision preserves each existing
+`reminder_settings` row and creates one missing row for every student. A row
+uses the legacy profile's `message_enabled` and `default_remind_days` when a
+profile exists, otherwise `true` and `3`; all created rows use the controlled
+default node-type order. Because this backfill assigns explicit setting IDs, it
+synchronizes PostgreSQL's `reminder_settings.id` sequence afterwards.
+
+The revision adds favorite and subscription uniqueness, the subscription
+confirmation timestamp and `0..30` reminder-day check, and reminder snapshot,
+logical-key, revision, cancellation, and delivery-attempt fields with the
+ordinary-plan uniqueness constraint. It then removes duplicate reminder columns
+from `student_profiles`.
+
+Its downgrade to `be7dfc45f976` also refuses retained engagement rows. With no
+such rows it restores profile compatibility columns from authoritative
+`reminder_settings` rows, refusing the downgrade when any student profile lacks
+a setting row, then removes the Issue #38 engagement constraints and columns.
+Recommendation-governance data and schema remain intact at that predecessor.
+
+`4d8b6e1a3f20` follows `7f3c2a91d8e4`. It normalizes every persisted
+`subscriptions.node_types` value to the controlled order
+`registration_deadline`, `submission_deadline`, `competition_start`. It refuses
+the upgrade and reports row IDs for malformed JSON, non-list/non-string,
+duplicate, or unknown values. Its downgrade is intentionally a no-op: ordering
+normalization is lossless because prior request order was never contractual.
+
+`a64f1b9d2c7e` follows `4d8b6e1a3f20`. It adds raw outbound activation
+events and durable daily aggregate dimensions keyed by competition, published
+revision, target type, source surface, and anonymous/authenticated actor kind.
+Neither table stores a user, session, or device identifier. The recorded
+`legacy_create_all` path remains unchanged. Downgrading drops both analytics
+tables and their retained counts, so export any required metrics before a
+shared-database rollback.
+
+`seed-e2e --reset` rebuilds only the isolated browser-test database. It is not a
+reset, migration, or recovery path for a development, shared, or production
+database.

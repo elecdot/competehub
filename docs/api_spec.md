@@ -287,7 +287,11 @@ Response data example:
   "id": 3,
   "display_name": "Day 1 Admin",
   "role": "admin",
-  "capabilities": ["competition_editor", "recommendation_editor"]
+  "capabilities": [
+    "competition_editor",
+    "recommendation_editor",
+    "recommendation_reviewer"
+  ]
 }
 ```
 
@@ -300,7 +304,10 @@ Requires authentication.
 Return current student's profile plus its dynamically derived readiness state.
 `profile_status` is `incomplete` or `recommendation_ready`; `missing_fields`
 contains any of `college`, `major`, `grade`, or `interest_tags`. The readiness
-state is not stored independently.
+state is not stored independently. Student profile and global reminder-setting
+rows are provisioned when a student account becomes active or is governed into
+the student role; these read and update routes do not create missing rows
+lazily.
 
 Response data example:
 
@@ -385,8 +392,16 @@ The global reminder values belong to `reminder_settings`, even though this
 combined preference API returns them with recommendation preferences. Defaults
 are enabled, three days, and the listed core node types, but they only prefill a
 subscription confirmation. Disabling `message_enabled` cancels all pending
-plans while preserving subscriptions and calendar nodes; re-enabling reconciles
-future eligible plans only.
+plans while preserving subscriptions and calendar nodes. Re-enabling changes
+only the global setting in #38. Its false-to-true restoration behavior remains
+Issue #40 scope.
+
+`reminder_settings` is authoritative when a row exists; the combined API shape
+remains stable across its storage migration. Persistence invariants are owned by
+the [data model](data_model.md#reminder_settings), transaction and
+reconciliation behavior by the [technical specification](tech_spec.zh.md), and
+operator migration/backfill/downgrade procedures by
+`apps/api/migrations/README`.
 
 ## Competition APIs
 
@@ -571,7 +586,8 @@ Response data extends the list item with detail fields:
     }
   ],
   "is_favorited": false,
-  "is_subscribed": false
+  "is_subscribed": false,
+  "subscription_summary": null
 }
 ```
 
@@ -591,7 +607,11 @@ inferring currentness from an editable candidate.
 
 For anonymous requests, `is_favorited` and `is_subscribed` are `false`. For an
 authenticated student, they reflect that student's persisted edition-bound
-favorite and subscription state.
+favorite and subscription state. Detail responses also include
+`subscription_summary`: `null` when the student has no relation, otherwise the
+same student-facing consent summary returned by subscription POST/PATCH. It
+contains the persisted `reminder_enabled`, `remind_days`, and `node_types` used
+to prefill an explicit later confirmation; it exposes no internal relation ID.
 
 ### `POST /competitions/{id}/outbound_clicks`
 
@@ -667,12 +687,18 @@ Cancel favorite.
 
 Requires `student`.
 
-### `POST /competitions/{id}/subscribe`
+### `POST /competitions/{id}/subscription`
 
 Subscribe to a competition and, only after explicit configuration, create
 eligible pending reminders. The first subscription UI must show a confirmation
 surface. User defaults may prefill it, but the API does not infer consent from
 omitted fields.
+
+`reminder_settings` is required authoritative student-owned data for subscription
+creation, re-subscription, semantic updates, plan reconciliation, and summary
+reads. If it is missing, the request returns `500 internal_server_error` in the
+normal error envelope and rolls back without creating or changing a subscription
+or reminder plan.
 
 Requires `student`.
 
@@ -697,19 +723,73 @@ reminder plans.
 
 The response includes the effective configuration, `scheduled_reminder_count`,
 `next_reminder_at`, and `unscheduled_reason` when no future plan is eligible.
-Trigger times already in the past are not backfilled as immediate due reminders.
+`unscheduled_reason` is `null` when any pending plan is scheduled. Otherwise it
+is exactly `reminder_disabled` when the subscription choice or global reminder
+switch is disabled, or `no_future_eligible_nodes` when reminders are effectively
+enabled but every matching trigger is non-future. Trigger times already in the
+past are not backfilled as immediate due reminders.
+
+Successful POST and PATCH responses use the normal envelope and expose only the
+student-facing subscription summary:
+
+```json
+{
+  "data": {
+    "competition_id": 1,
+    "status": "active",
+    "is_subscribed": true,
+    "reminder_enabled": true,
+    "remind_days": 3,
+    "node_types": ["registration_deadline"],
+    "reminder_confirmed_at": "2026-07-13T00:00:00+00:00",
+    "scheduled_reminder_count": 1,
+    "next_reminder_at": "2026-08-15T16:00:00+00:00",
+    "unscheduled_reason": null
+  },
+  "error": null
+}
+```
+
+The first POST that creates the edition-bound relation returns `201 Created`.
+POST against an active relation returns `200 OK` without replacing its existing
+consent, even when the repeated payload differs. POST against a cancelled
+relation is an explicit re-subscription and also returns `200 OK`: it requires a
+fresh complete payload, reuses the relation, replaces its current configuration
+and `reminder_confirmed_at`, and reconciles plans under the rules below. The
+subscription stores only the latest consent, not immutable consent generations.
+
+With newly confirmed consent and current eligible future nodes, explicit
+re-subscription and a semantic PATCH may restore an unsent cancelled ordinary
+plan only when its reason is `subscription_cancelled`, `reminder_disabled`,
+`node_type_removed`, or `subscription_offset_not_future`. They retain all other
+cancellation evidence. Sent, failed, elapsed, prior-revision, offline, deletion,
+lifecycle, supersession, global-setting, and other system-owned evidence, plus
+delivered messages, are terminal: they are never restored, rewritten, or
+replayed. Global `message_enabled` false-to-true restoration remains Issue #40
+scope.
 
 ### `PATCH /competitions/{id}/subscription`
 
 Update reminder settings for an existing subscription using the same explicit
 fields as subscription creation. Turning reminders off cancels pending plans but
-does not cancel the subscription or remove its calendar nodes. Turning them on
-reconciles only future eligible plans. The edition must still be `published`;
-historical or offline relations can be removed but not reconfigured.
+does not cancel the subscription or remove its calendar nodes. A semantic change
+that turns reminders on, restores a node type, or makes the offset future may
+restore only the controlled eligible plans listed above. New and restored plans
+require both the confirmed subscription switch and the current global reminder
+switch to be enabled. The edition must still be `published`; historical or
+offline relations can be removed but not reconfigured.
 
-### `DELETE /competitions/{id}/subscribe`
+### `DELETE /competitions/{id}/subscription`
 
-Cancel subscription and future pending reminders.
+Cancel subscription and future pending reminders with
+`cancel_reason=subscription_cancelled`. First and repeated DELETE return
+`200 OK` with the final cancelled state and never alter sent evidence.
+Deleting a nonexistent edition returns `404 not_found` with `competition not found`;
+an existing edition without an owned relation remains idempotent.
+
+Its response data is `{ "competition_id": 1, "status": "cancelled",
+"is_subscribed": false }`; cancellation reasons and reminder internals are not
+public response fields.
 
 Requires `student`.
 
@@ -829,7 +909,7 @@ Response item:
 ```json
 {
   "position": 1,
-  "reason_codes": ["major_match", "deadline_soon"],
+  "reason_codes": ["major_match", "deadline_urgency"],
   "competition": {
     "id": 1,
     "title": "大学生创新创业竞赛"
@@ -1213,35 +1293,115 @@ Update one config value.
 ### `GET /admin/recommendation_rule_sets`
 
 List recommendation rule-set versions, states, submitter/reviewer facts, and the
-single active version. Requires `recommendation_editor` or
-`recommendation_reviewer`.
+single active version. Items include `cloned_from_rule_set_id`,
+`cloned_from_version`, `base_rule_set_id`, `base_version`,
+`active_rule_set_id`, `active_version`, `is_stale`, rules, and frozen or
+deterministically generated `difference_snapshot` and `impact_summary` when
+applicable. Every item also returns labeled governance evidence:
+`created_by`, `submitted_by`, `reviewed_by`, `created_at`, `submitted_at`,
+`decided_at`, `activated_at`, `retired_at`, `review_comment`, and
+`terminal_review_status`. Pending candidates derive difference and impact from
+their immutable base; terminal candidates read the frozen snapshots and actors
+from their immutable `review_record`.
+
+Requires `recommendation_editor` or `recommendation_reviewer`.
 
 ### `POST /admin/recommendation_rule_sets`
 
-Create a draft by cloning an existing version or the reproducible initial seed.
-Rules use controlled codes, bounded integer weights, structured conditions,
-reason templates, and enabled state; executable expressions are rejected.
+Create a draft by cloning an existing persisted rule-set version.
+
+Request:
+
+```json
+{
+  "source_rule_set_id": 7
+}
+```
+
+The request accepts only `source_rule_set_id`. The client cannot provide
+`version`, `base_rule_set_id`, `cloned_from_rule_set_id`, owner, status,
+review/activation fields, or rule overrides. Clone sources are limited to the
+current `active` version and immutable `rejected` or `returned` versions; `draft`,
+`pending_review`, and `retired` sources return `409 conflict` in this thin
+slice. The response returns the new `draft` id, integer version, creator,
+clone provenance, governance base, current active version, stale state, and
+rules. The reproducible v1 seed is not a hidden runtime clone template.
 
 Requires `recommendation_editor`.
 
 ### `PATCH /admin/recommendation_rule_sets/{id}`
 
 Update a draft rule set. Submitted, decided, active, and retired versions are
-immutable.
+immutable. Only the draft owner with a current `recommendation_editor`
+capability can modify a draft; another editor receives `403 forbidden`, and the
+owner editing a non-draft snapshot receives `409 conflict`.
 
-Requires `recommendation_editor` and draft ownership or equivalent permission.
+Rules use the controlled codes `major_match`, `grade_match`, `interest_match`,
+`deadline_urgency`, and `general_fallback`. `weight` is an integer `1..100`.
+Conditions are strict tagged unions tied to the rule code:
+`{"operator": "overlap"}`, `{"operator": "within_days", "min_days": 0,
+"max_days": N}`, or `{"operator": "always"}`. Reason templates are single-line
+plain text, 1 to 200 Unicode code points after trimming, with only the
+allowlisted placeholders for the rule code.
+
+Requires `recommendation_editor` and draft ownership.
 
 ### `POST /admin/recommendation_rule_sets/{id}/preview`
 
 Preview ordering and reasons against a synthetic profile and selected public
-competition fixtures without persisting a recommendation. The endpoint does not
-accept another student's user id or read arbitrary personal profiles.
+competition fixtures without persisting a recommendation. The endpoint computes
+the rule-set version in the URL and never falls back to the current active
+version or service constants.
+
+Request:
+
+```json
+{
+  "scenario": "personalized",
+  "synthetic_profile": {
+    "college": "计算机学院",
+    "major": "软件工程",
+    "grade": "大二",
+    "interest_tags": ["人工智能"]
+  },
+  "competition_ids": [201, 305]
+}
+```
+
+`scenario` is `personalized` or `general`. Personalized preview requires the
+complete synthetic profile; general preview must omit it. The synthetic profile
+accepts only `college`, `major`, `grade`, and 1 to 10 unique controlled
+`interest_tags`; user ids, profile ids, arbitrary field paths, expressions, and
+scripts are rejected. The same profile dictionary and college-major relation
+used by real profile update/readiness validation govern these values; preview
+never loads a real student's profile. `competition_ids` contains 1 to 20 unique public
+competition fixture ids. Any duplicate, missing, or non-recommendable fixture
+returns one `400 validation_error` with stable `duplicate`, `not_found`, and
+`not_recommendable` id lists.
+
+The response returns `rule_set_id`, integer `version`, `scenario`, fixture ids,
+and deterministic results with server-assigned `position`, `competition_id`,
+current-revision competition identity, `matched_rule_codes`, `reason_codes`,
+and rendered plain-text reasons. Every recommendation fact—major and grade
+scope/values, tags, registration deadline, and time nodes—comes only from the
+immutable `CompetitionRevision` referenced by `competition.published_revision_id`.
+Legacy flattened fields and non-current historical revisions are never fallback
+facts. It does
+not return internal score, probability, percentage, weight contribution, or
+competition value rating. Preview is read-only: it writes no review record,
+recommendation event, analytics row, production recommendation snapshot, or
+business audit event.
 
 Requires `recommendation_editor` or `recommendation_reviewer`.
 
 ### `POST /admin/recommendation_rule_sets/{id}/submit_review`
 
-Freeze and submit a complete draft for independent review.
+Freeze and submit a complete changed draft for independent review. The caller
+must be the draft owner with a current `recommendation_editor` capability.
+Submission requires enabled `general_fallback`, at least one enabled
+personalized rule, valid controlled rules, and a normalized structural change
+against the immutable `base_rule_set_id`; an unchanged candidate returns
+`400 validation_error` with detail code `no_changes`.
 
 Requires `recommendation_editor`.
 
@@ -1249,7 +1409,14 @@ Requires `recommendation_editor`.
 
 Approve and activate, reject, or return a submitted rule set with a required
 comment. The reviewer must differ from the submitter. Approval atomically
-activates the candidate and retires the prior active version.
+activates the candidate and retires the prior active version. Before approval,
+the service verifies that the candidate `base_rule_set_id` still equals the
+current active rule set; a stale base returns `409 stale_rule_set`, creates no
+terminal review decision, does not activate the candidate, and does not retire
+the active version. Successful `approve`, `reject`, or `return` creates one
+immutable terminal `review_record` for `target_type =
+"recommendation_rule_set"`, `target_id` as the candidate id, and
+`target_revision` as the integer version.
 
 Requires `recommendation_reviewer`.
 

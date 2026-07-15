@@ -28,7 +28,7 @@ from competehub_api.services.passwords import (
     password_hash_needs_upgrade,
     verify_password_hash,
 )
-from competehub_api.services.profiles import create_missing_student_profile
+from competehub_api.services.profiles import provision_student_owned_rows
 from competehub_api.services.verification_delivery import derive_verification_code
 
 WEAK_PASSWORDS = {
@@ -140,7 +140,7 @@ def verify_identity(payload: dict) -> None:
     identity.verified_at = now
     identity.user.status = UserStatus.ACTIVE
     if identity.user.role == UserRole.STUDENT:
-        create_missing_student_profile(identity.user)
+        provision_student_owned_rows(identity.user)
     db.session.commit()
 
 
@@ -236,6 +236,8 @@ def apply_account_governance_change(
         user.status = status
     if capabilities is not None:
         user.capabilities = capabilities
+    if user.role == UserRole.STUDENT:
+        provision_student_owned_rows(user)
     increment_session_version(user)
 
 

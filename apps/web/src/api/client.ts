@@ -5,8 +5,12 @@ import type {
   CompetitionDetail,
   CompetitionListPayload,
   DiscoverySort,
-  ParticipantForm,
   RegistrationStatus,
+  FavoriteState,
+  ParticipantForm,
+  SubscriptionConsent,
+  SubscriptionCancellation,
+  SubscriptionSummary,
 } from '@/types/competition'
 import type {
   CompetitionRevision,
@@ -64,6 +68,39 @@ export function recordCompetitionOutboundClick(
     target_type: targetType,
     source_surface: sourceSurface,
   })
+}
+
+export async function favoriteCompetition(id: number) {
+  const response = await apiClient.post<ApiEnvelope<FavoriteState>>(`/competitions/${id}/favorite`)
+  return response.data.data
+}
+
+export async function unfavoriteCompetition(id: number) {
+  const response = await apiClient.delete<ApiEnvelope<FavoriteState>>(`/competitions/${id}/favorite`)
+  return response.data.data
+}
+
+export async function createCompetitionSubscription(id: number, payload: SubscriptionConsent) {
+  const response = await apiClient.post<ApiEnvelope<SubscriptionSummary>>(
+    `/competitions/${id}/subscription`,
+    payload,
+  )
+  return response.data.data
+}
+
+export async function updateCompetitionSubscription(id: number, payload: SubscriptionConsent) {
+  const response = await apiClient.patch<ApiEnvelope<SubscriptionSummary>>(
+    `/competitions/${id}/subscription`,
+    payload,
+  )
+  return response.data.data
+}
+
+export async function cancelCompetitionSubscription(id: number) {
+  const response = await apiClient.delete<ApiEnvelope<SubscriptionCancellation>>(
+    `/competitions/${id}/subscription`,
+  )
+  return response.data.data
 }
 
 export async function fetchCompetitionSeries() {

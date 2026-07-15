@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import TYPE_CHECKING
 
-from sqlalchemy import JSON, BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, BigInteger, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from competehub_api.extensions import db
 from competehub_api.models.enums import IdentityVerificationStatus, UserRole, UserStatus
 from competehub_api.models.mixins import TimestampMixin
+
+if TYPE_CHECKING:
+    from competehub_api.models.engagement import ReminderSetting
 
 
 def enum_values(enum_cls):
@@ -45,6 +49,10 @@ class User(db.Model, TimestampMixin):
         cascade="all, delete-orphan",
     )
     profile: Mapped[StudentProfile | None] = relationship(back_populates="user", uselist=False)
+    reminder_settings: Mapped[ReminderSetting | None] = relationship(
+        back_populates="user",
+        uselist=False,
+    )
 
 
 class UserIdentity(db.Model, TimestampMixin):
@@ -136,7 +144,5 @@ class StudentProfile(db.Model, TimestampMixin):
     competition_experience: Mapped[str | None] = mapped_column(Text)
     goal_preferences: Mapped[list | None] = mapped_column(JSON)
     blocked_tags: Mapped[list | None] = mapped_column(JSON)
-    default_remind_days: Mapped[int] = mapped_column(default=3, nullable=False)
-    message_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     user: Mapped[User] = relationship(back_populates="profile")

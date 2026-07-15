@@ -641,6 +641,10 @@ Key fields:
 - `node_types`
 - `reminder_confirmed_at`
 
+Unique constraints:
+
+- `(user_id, competition_id)`
+
 Rules:
 
 - Active subscription can generate reminders.
@@ -659,6 +663,13 @@ Rules:
   one ordinary plan per selected time node; when disabled, no plan is created.
 - Reminder-disabled subscriptions retain their confirmed offset and node
   selection and remain in follow lists and calendars.
+- A cancelled relation may return to active only through an explicit
+  re-subscription with a fresh complete reminder confirmation. The same row is
+  reused and stores the latest configuration and `reminder_confirmed_at`; P1
+  does not retain immutable consent generations.
+- An active repeated POST is idempotent and does not replace consent. Initial
+  row creation returns `201`; active repetition and cancelled-to-active
+  re-subscription return `200`.
 - Calendar projection reads active subscriptions only, never favorites, and
   includes selected nodes independently of reminder-plan state.
 - Calendar grouping uses `Asia/Shanghai`; current stage, prominence, and pair
@@ -682,14 +693,26 @@ Rules:
 
 - This table is the single source of truth for global reminder settings; profile
   rows do not duplicate them.
+- A missing row for an existing student is data corruption, not an enabled
+  default. Subscription creation, re-subscription, semantic preference updates,
+  reminder reconciliation, and subscription summary reads fail without changing
+  the subscription or any reminder plan.
+- Engagement and reminder migrations preserve existing settings, create missing
+  settings with valid defaults, and reject invalid or inconsistent legacy data
+  before mutation so that data integrity is maintained. The operator-facing
+  migration and recovery procedure is owned by the
+  [migrations README](https://github.com/elecdot/competehub/blob/main/apps/api/migrations/README).
 - New settings default to enabled, three days, and the controlled primary core
   types `registration_deadline`, `submission_deadline`, and
   `competition_start`. These values prefill a confirmation and are not consent.
 - Subscription-level settings are copied from the student's confirmed choice
   and may differ from later global defaults.
+- Persisted subscription node types use the controlled order
+  `registration_deadline`, `submission_deadline`, `competition_start`; invalid,
+  duplicate, or unknown values are not accepted.
 - Disabling global reminders cancels pending plans with a global-disabled
-  reason while preserving subscriptions and calendar nodes. Re-enabling
-  reconciles only future eligible plans.
+  reason while preserving subscriptions and calendar nodes. Global
+  `message_enabled` false-to-true restoration remains Issue #40 scope.
 
 ### `reminders`
 
@@ -725,6 +748,18 @@ Rules:
 - `(user_id, competition_id, logical_node_key, time_node_revision)` is unique
   for the P1 ordinary reminder plan. This permits the same logical key in
   another edition without duplicate delivery inside one node revision.
+- #38 controls the cancellation reasons `subscription_cancelled`,
+  `reminder_disabled`, `node_type_removed`, and
+  `subscription_offset_not_future`, plus `global_reminder_disabled`. Cancellation
+  evidence for the first four reasons may be restored only by explicit
+  re-subscription or semantic PATCH, with newly confirmed consent and current
+  eligible future nodes, when the plan is unsent. Sent, failed, elapsed,
+  prior-revision, offline, deletion, lifecycle, supersession, global-setting,
+  and other system-owned evidence is terminal; it and the delivered message are
+  never restored, rewritten, or replayed. Global `message_enabled` false-to-true
+  restoration remains Issue #40 scope.
+- Initial plan creation requires both the subscription's confirmed reminder
+  switch and the current global reminder switch.
 - Worker tasks must be idempotent.
 - Competition cancellation, offline status, or time node deletion should cancel pending reminders.
 - When a changed node receives a new `node_revision`, reconciliation cancels
@@ -734,7 +769,7 @@ Rules:
   so current public content is used without changing due time or plan identity.
 - Sent reminders are immutable and are never rewritten after a schedule change.
 - Trigger instants already in the past are not backfilled as immediate ordinary
-  reminders after subscription, re-enablement, or reconciliation.
+  reminders after subscription or reconciliation.
 
 ### `messages`
 
@@ -873,21 +908,57 @@ Key fields:
 - `created_by_id`
 - `submitted_by_id`
 - `reviewed_by_id`
+- `cloned_from_rule_set_id`: nullable FK to the direct content-copy source
+- `base_rule_set_id`: nullable FK to the immutable active governance baseline
 - `review_comment`
 - `submitted_at`
+- `decided_at`
 - `activated_at`
 - `retired_at`
 
 Rules:
 
-- Exactly one rule-set version is active. Activating an approved candidate and
-  retiring the prior active version occur atomically.
-- Drafts are editable. Submitted, decided, active, and retired snapshots are
-  immutable; continued work clones a successor draft.
+- `version` is a positive integer unique within the current single-deployment
+  institution scope. The reproducible seed creates `version = 1` once and must
+  not overwrite a conflicting existing v1 snapshot. Runtime draft creation
+  allocates the next version server-side in the same transaction as clone data.
+- Exactly one rule-set version is active. A partial unique constraint on
+  `status = active` protects the invariant. Activating an approved candidate
+  and retiring the prior active version occur atomically.
+- Drafts are editable only by `created_by_id` while that account still has
+  `recommendation_editor`. Other editors may read or preview but cannot modify,
+  submit, transfer, or take over the draft. Submitted, decided, active, and
+  retired snapshots are immutable; continued work clones a successor draft.
+- Creating a draft deep-copies rule rows from an allowed persisted source:
+  current `active`, immutable `rejected`, or immutable `returned`. `draft`,
+  `pending_review`, and `retired` sources are outside the #36 thin slice. The
+  new draft stores `cloned_from_rule_set_id` as the direct copy source.
+- `base_rule_set_id` is the immutable active governance baseline used for
+  structural difference and stale approval checks. A normal draft cloned from
+  the current active has both lineage fields pointing to active; a successor
+  cloned from `rejected` or `returned` copies content from that source but
+  inherits the source's original `base_rule_set_id`.
+- Approval verifies that `base_rule_set_id` still equals the current active
+  rule set. A stale candidate remains pending and returns `409 stale_rule_set`
+  without a terminal review decision.
 - The reviewer differs from the submitter. Submission, review, activation, and
   retirement write audit evidence with version and differences.
 - A reproducible seed creates the initial active version. Production
   personalization does not use hidden service constants.
+- Pending review read models derive `difference_snapshot` from the candidate
+  and immutable base, aligning rules by controlled `code`. Added and removed
+  rules include full rule snapshots; changed rules include only `name`,
+  `weight`, `conditions`, `reason_template`, and `enabled` field changes.
+- `impact_summary` is structural and non-user-level. It reports base/current
+  active/candidate versions, enabled/added/removed/changed counts, conservative
+  `ordering_may_change` and `reasons_may_change` flags, stale state, and that
+  no real profile evaluation was performed. It does not store affected-student,
+  quality, conversion, score, or cache-state claims.
+- History read models expose immutable lineage and review evidence through
+  creator, submitter, reviewer, submission/decision/activation/retirement
+  timestamps, review comment, terminal status, source/base/active versions,
+  stale state, and the applicable difference/impact snapshots. Terminal
+  evidence comes from `review_records`, not mutable reconstruction.
 
 ### `recommendation_rules`
 
@@ -907,15 +978,37 @@ Key fields:
 Rules:
 
 - `(rule_set_id, code)` is unique.
-- Rule codes are controlled, initially covering major match, grade match,
-  interest match, deadline urgency, and general fallback. Conditions cannot
-  contain executable expressions or arbitrary scripts.
+- `code` is controlled and limited to `major_match`, `grade_match`,
+  `interest_match`, `deadline_urgency`, and `general_fallback`. Unknown codes
+  are rejected when writing a rule; changing a code is modeled as removing one
+  controlled code and adding another.
+- `weight` is an integer in the closed range `1..100`; zero and negative
+  weights are invalid. Disabling a rule uses `enabled = false`.
+- Conditions are strict code-bound JSON contracts: overlap rules use
+  `{"operator": "overlap"}`, deadline urgency uses
+  `{"operator": "within_days", "min_days": 0, "max_days": N}`, and fallback
+  uses `{"operator": "always"}`. Unknown condition fields are invalid.
+- `reason_template` is a single-line plain-text template, 1 to 200 Unicode code
+  points after trimming, with only the placeholders allowed for its rule code.
+  It is rendered by fixed server-side field mappings rather than dynamic
+  evaluation.
 - Recommendation reasons must be generated from active rules or explicit
   competition fallback facts. The response identifies the active rule-set
   version.
-- Internal ranking score is not a public competition value score.
+- Internal ranking score and rule weights are not public competition value
+  scores, probabilities, percentages, or "quality" scores.
 - Preview uses a synthetic profile and selected public competition fixtures; it
-  does not read an arbitrary real student's profile or persist recommendations.
+  validates the same controlled college-major, grade, and interest dictionaries
+  as real profiles but does not read an arbitrary real student's profile or
+  persist recommendations.
+- Preview recommendation facts are an atomic projection of the one immutable
+  `competition_revisions` row referenced by `competitions.published_revision_id`.
+  Flattened predecessor fields and historical non-current revisions never
+  contribute majors, grades, tags, deadlines, time nodes, or reasons.
+- The governance migration may replace an empty legacy mutable
+  `recommendation_rules` table. A populated predecessor fails before destructive
+  DDL and requires an explicit reviewed data migration; its rows are never
+  silently discarded or promoted to active v1.
 
 ### `system_configs`
 
@@ -1096,20 +1189,15 @@ Search can start with PostgreSQL filters and simple text matching. Add a dedicat
 - Enum changes must include a compatibility note when existing rows may be affected.
 - Data backfills should be idempotent and documented in the migration or task note.
 - Migrations should not depend on Redis.
-- The reproducible chain starts at
-  `apps/api/migrations/versions/c5e0e7e0560d_initial_schema_with_verified_identities.py`;
-  `13eb10903bd7_add_immutable_competition_revisions.py` adds the series,
-  edition, revision, stage, single-instant node, review, and audit relationships.
-  `a64f1b9d2c7e_add_outbound_click_analytics.py` adds privacy-minimized raw
-  outbound activations and their durable daily aggregate dimensions without a
-  user or device identifier.
-  Fresh SQLite and PostgreSQL paths support repeatable upgrade, downgrade, and
-  re-upgrade. The known `61f2c8e4a9bd` predecessor backfills owned mutable
-  competitions, nodes, and tags into immutable revision snapshots while
-  retaining public visibility; unattributed rows block before schema mutation.
-  The recorded legacy `db.create_all()` path preserves unknown business-table
-  shapes and requires a dedicated publication bridge or reset.
-- `seed-e2e --reset` provisions distinct student/editor/reviewer actors plus
-  published and historical public-detail fixtures with immutable revisions,
-  staged nodes, and controlled official-link evidence. It is isolated
-  browser-test data, not a production backfill.
+- Migrations must upgrade legacy data safely, validate preconditions, and protect
+  data consistency across supported upgrade and downgrade paths. Exact revision
+  order, commands, backfill procedures, and guarded recovery guidance are owned
+  by the [migrations README](https://github.com/elecdot/competehub/blob/main/apps/api/migrations/README).
+- The outbound analytics revision follows the student-engagement integrity
+  revisions and stores privacy-minimized raw activations plus durable daily
+  aggregate dimensions without a user or device identifier.
+- `seed-e2e --reset` provisions distinct student/editor/reviewer actors,
+  recommendation governance, engagement lifecycle records, and published and
+  historical public-detail fixtures with immutable revisions, staged nodes, and
+  controlled official-link evidence. It is isolated browser-test data, not a
+  production backfill.

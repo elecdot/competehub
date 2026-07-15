@@ -30,6 +30,7 @@ import {
   Textarea,
 } from 'ant-design-vue'
 import { computed, onMounted, reactive, ref } from 'vue'
+import { RouterLink } from 'vue-router'
 
 import {
   createCompetitionEdition,
@@ -186,6 +187,33 @@ function removeNode(stage: RevisionStageInput, index: number) {
 
 function addTag() {
   draft.tags.push({ code: '', name: '', tag_type: 'topic' })
+}
+
+function startNewEdition() {
+  if (selectedSeriesId.value == null) return
+  selectedEditionId.value = undefined
+  createdRevision.value = undefined
+  Object.assign(draft, {
+    editionLabel: '',
+    title: '',
+    category: '',
+    organizer: '',
+    sourceName: '',
+    sourceUrl: '',
+    officialUrl: '',
+    summary: '',
+    eligibility: '',
+    registrationApplicability: 'applicable' as const,
+    participantForms: ['individual'],
+    teamSize: '',
+    majorScope: 'selected' as const,
+    gradeScope: 'selected' as const,
+    majors: '',
+    grades: '',
+    tags: [],
+    stages: [initialRegistrationStage()],
+  })
+  message.destroy()
 }
 
 async function loadSeries() {
@@ -429,7 +457,12 @@ function displayValue(value: unknown) {
         <h1 class="page-title">赛事发布工作台</h1>
         <p class="page-description">编辑者维护候选修订，独立审核者确认差异与影响后发布。</p>
       </div>
-      <Tag color="green">P1</Tag>
+      <Space>
+        <RouterLink to="/admin/recommendation-rule-sets">
+          <Button>推荐规则治理</Button>
+        </RouterLink>
+        <Tag color="green">P1</Tag>
+      </Space>
     </header>
 
     <Result
@@ -474,6 +507,14 @@ function displayValue(value: unknown) {
                 <Tag v-if="createdRevision" color="blue">
                   {{ createdRevision.revision_status }} · r{{ createdRevision.revision_number }}
                 </Tag>
+                <Button
+                  data-testid="new-edition"
+                  :disabled="selectedSeriesId == null"
+                  @click="startNewEdition"
+                >
+                  <template #icon><PlusOutlined /></template>
+                  新建届次
+                </Button>
               </div>
 
               <Select

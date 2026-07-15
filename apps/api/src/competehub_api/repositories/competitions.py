@@ -193,6 +193,21 @@ def get_public_competition(competition_id: int) -> Competition | None:
     return db.session.scalar(statement)
 
 
+def list_competitions_with_current_published_revision(
+    competition_ids: list[int],
+) -> list[Competition]:
+    """Load preview fixtures and exactly the revision selected by each public pointer."""
+    if not competition_ids:
+        return []
+    statement = (
+        select(Competition)
+        .where(Competition.id.in_(competition_ids))
+        .options(*_public_relation_options())
+        .order_by(Competition.id)
+    )
+    return list(db.session.scalars(statement).unique())
+
+
 def _public_relation_options():
     return (
         selectinload(Competition.published_revision)

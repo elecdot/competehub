@@ -6,23 +6,34 @@ import pytest
 from werkzeug.security import generate_password_hash
 
 import competehub_api.services.auth as auth_service
+import competehub_api.services.profiles as profile_service
 from competehub_api import create_app
 from competehub_api.config import ProductionConfig
 from competehub_api.extensions import db
 from competehub_api.models import (
     IdentityVerificationChallenge,
+    Reminder,
+    ReminderSetting,
     StudentProfile,
+    Subscription,
     User,
     UserIdentity,
     VerificationDeliveryOutbox,
 )
-from competehub_api.models.enums import IdentityVerificationStatus, UserRole, UserStatus
+from competehub_api.models.enums import (
+    IdentityVerificationStatus,
+    ReminderStatus,
+    SubscriptionStatus,
+    UserRole,
+    UserStatus,
+)
 from competehub_api.services.auth import (
     apply_account_governance_change,
     current_user,
     hash_password,
     terminate_all_sessions,
 )
+from competehub_api.services.profiles import provision_student_owned_rows
 from competehub_api.services.verification_delivery import dispatch_verification_deliveries
 
 
@@ -162,6 +173,9 @@ def provision_user(
             )
         )
         db.session.add(user)
+        db.session.flush()
+        if role == UserRole.STUDENT:
+            provision_student_owned_rows(user)
         db.session.commit()
         return user.id
 
@@ -289,6 +303,7 @@ def test_verify_activates_account_without_creating_session(client, app, sender) 
         identity = db.session.query(UserIdentity).one()
         challenge = db.session.query(IdentityVerificationChallenge).one()
         profile = db.session.query(StudentProfile).one()
+        settings = db.session.query(ReminderSetting).one()
 
         assert user.status == UserStatus.ACTIVE
         assert identity.verification_status == IdentityVerificationStatus.VERIFIED
@@ -297,6 +312,14 @@ def test_verify_activates_account_without_creating_session(client, app, sender) 
         assert profile.user_id == user.id
         assert profile.college is None
         assert profile.interest_tags == []
+        assert settings.user_id == user.id
+        assert settings.enabled is True
+        assert settings.default_remind_days == 3
+        assert settings.node_types == [
+            "registration_deadline",
+            "submission_deadline",
+            "competition_start",
+        ]
 
 
 def test_verification_challenge_rejects_correct_code_after_attempt_limit(
@@ -1017,33 +1040,301 @@ def test_get_profile_reads_activation_profile_without_writing(client, app) -> No
         "grade",
         "interest_tags",
     ]
+    assert response.get_json()["data"] == {
+        "id": 1,
+        "user_id": 1,
+        "college": None,
+        "major": None,
+        "grade": None,
+        "interest_tags": [],
+        "competition_experience": None,
+        "goal_preferences": [],
+        "blocked_tags": [],
+        "message_enabled": True,
+        "default_remind_days": 3,
+        "default_reminder_node_types": [
+            "registration_deadline",
+            "submission_deadline",
+            "competition_start",
+        ],
+        "profile_status": "incomplete",
+        "missing_fields": ["college", "major", "grade", "interest_tags"],
+    }
     with app.app_context():
         assert db.session.query(StudentProfile).count() == 1
+        assert db.session.query(ReminderSetting).count() == 1
 
 
-def test_get_profile_does_not_create_missing_legacy_profile(client, app) -> None:
-    provision_user(app)
+def test_get_profile_missing_required_rows_returns_internal_error_without_lazy_creation(
+    client, app
+) -> None:
+    user_id = provision_user(app)
+    with app.app_context():
+        user = db.session.get(User, user_id)
+        db.session.delete(user.profile)
+        db.session.delete(user.reminder_settings)
+        db.session.commit()
     login_email(client)
 
     response = client.get("/api/v1/me/profile")
 
-    assert response.status_code == 404
-    assert response.get_json()["error"]["code"] == "profile_not_found"
+    assert response.status_code == 500
+    assert response.get_json()["error"]["code"] == "internal_server_error"
     with app.app_context():
         assert db.session.query(StudentProfile).count() == 0
+        assert db.session.query(ReminderSetting).count() == 0
+
+
+def test_profile_and_preferences_patches_return_combined_authoritative_response(
+    client, app, sender
+) -> None:
+    register_email(client)
+    dispatch_verification_email(app)
+    verify_email(client, sender)
+    login_email(client)
+
+    profile_response = client.patch(
+        "/api/v1/me/profile",
+        json={"competition_experience": "school-level programming contest"},
+    )
+    preferences_response = client.patch(
+        "/api/v1/me/preferences",
+        json={
+            "message_enabled": False,
+            "default_remind_days": 7,
+            "default_reminder_node_types": [
+                "competition_start",
+                "registration_deadline",
+            ],
+        },
+    )
+
+    assert profile_response.status_code == 200
+    assert profile_response.get_json()["data"]["message_enabled"] is True
+    assert profile_response.get_json()["data"]["default_remind_days"] == 3
+    assert profile_response.get_json()["data"]["default_reminder_node_types"] == [
+        "registration_deadline",
+        "submission_deadline",
+        "competition_start",
+    ]
+    assert preferences_response.status_code == 200
+    assert preferences_response.get_json()["data"]["competition_experience"] == (
+        "school-level programming contest"
+    )
+    assert preferences_response.get_json()["data"]["message_enabled"] is False
+    assert preferences_response.get_json()["data"]["default_remind_days"] == 7
+    assert preferences_response.get_json()["data"]["default_reminder_node_types"] == [
+        "registration_deadline",
+        "competition_start",
+    ]
+    with app.app_context():
+        profile = db.session.query(StudentProfile).one()
+        settings = db.session.query(ReminderSetting).one()
+        assert profile.competition_experience == "school-level programming contest"
+        assert settings.enabled is False
+        assert settings.default_remind_days == 7
+        assert settings.node_types == ["registration_deadline", "competition_start"]
+
+
+def _add_reminder_preference_plans(app, user_id: int) -> tuple[int, list[int]]:
+    other_user_id = provision_user(app, identity="other-student@example.edu")
+    with app.app_context():
+        db.session.add_all(
+            [
+                Subscription(
+                    id=1,
+                    user_id=user_id,
+                    competition_id=101,
+                    status=SubscriptionStatus.ACTIVE,
+                    reminder_enabled=True,
+                    remind_days=5,
+                    node_types=["registration_deadline"],
+                    reminder_confirmed_at=datetime(2026, 7, 1, tzinfo=UTC),
+                ),
+                Reminder(
+                    id=1,
+                    user_id=user_id,
+                    competition_id=101,
+                    time_node_snapshot_id=101,
+                    logical_node_key="own-pending-a",
+                    time_node_revision=1,
+                    node_type="registration_deadline",
+                    due_at=datetime(2026, 8, 1, tzinfo=UTC),
+                    title="pending a",
+                    status=ReminderStatus.PENDING,
+                ),
+                Reminder(
+                    id=2,
+                    user_id=user_id,
+                    competition_id=101,
+                    time_node_snapshot_id=102,
+                    logical_node_key="own-pending-b",
+                    time_node_revision=1,
+                    node_type="submission_deadline",
+                    due_at=datetime(2026, 8, 2, tzinfo=UTC),
+                    title="pending b",
+                    status=ReminderStatus.PENDING,
+                ),
+                Reminder(
+                    id=3,
+                    user_id=user_id,
+                    competition_id=101,
+                    time_node_snapshot_id=103,
+                    logical_node_key="own-sent",
+                    time_node_revision=1,
+                    node_type="competition_start",
+                    due_at=datetime(2026, 8, 3, tzinfo=UTC),
+                    title="sent",
+                    status=ReminderStatus.SENT,
+                    sent_at=datetime(2026, 7, 2, tzinfo=UTC),
+                ),
+                Reminder(
+                    id=4,
+                    user_id=user_id,
+                    competition_id=101,
+                    time_node_snapshot_id=104,
+                    logical_node_key="own-failed",
+                    time_node_revision=1,
+                    node_type="competition_start",
+                    due_at=datetime(2026, 8, 4, tzinfo=UTC),
+                    title="failed",
+                    status=ReminderStatus.FAILED,
+                    failed_at=datetime(2026, 7, 3, tzinfo=UTC),
+                    last_error_code="delivery_failed",
+                ),
+                Reminder(
+                    id=5,
+                    user_id=other_user_id,
+                    competition_id=101,
+                    time_node_snapshot_id=105,
+                    logical_node_key="other-pending",
+                    time_node_revision=1,
+                    node_type="registration_deadline",
+                    due_at=datetime(2026, 8, 5, tzinfo=UTC),
+                    title="other pending",
+                    status=ReminderStatus.PENDING,
+                ),
+            ]
+        )
+        db.session.commit()
+    return other_user_id, [1, 2]
+
+
+def test_preferences_global_disable_cancels_only_own_pending_plans(client, app) -> None:
+    user_id = provision_user(app)
+    other_user_id, pending_ids = _add_reminder_preference_plans(app, user_id)
+    login_email(client)
+
+    response = client.patch("/api/v1/me/preferences", json={"message_enabled": False})
+
+    assert response.status_code == 200
+    assert response.get_json()["data"]["message_enabled"] is False
+    with app.app_context():
+        settings = db.session.query(ReminderSetting).filter_by(user_id=user_id).one()
+        subscription = db.session.query(Subscription).filter_by(user_id=user_id).one()
+        pending = db.session.query(Reminder).filter(Reminder.id.in_(pending_ids)).all()
+        sent = db.session.get(Reminder, 3)
+        failed = db.session.get(Reminder, 4)
+        other = db.session.get(Reminder, 5)
+        assert settings.enabled is False
+        assert [(reminder.status, reminder.cancel_reason) for reminder in pending] == [
+            (ReminderStatus.CANCELLED, "global_reminder_disabled"),
+            (ReminderStatus.CANCELLED, "global_reminder_disabled"),
+        ]
+        assert subscription.status == SubscriptionStatus.ACTIVE
+        assert subscription.reminder_enabled is True
+        assert subscription.remind_days == 5
+        assert subscription.node_types == ["registration_deadline"]
+        assert subscription.reminder_confirmed_at == datetime(2026, 7, 1)
+        assert sent.status == ReminderStatus.SENT
+        assert sent.sent_at == datetime(2026, 7, 2)
+        assert failed.status == ReminderStatus.FAILED
+        assert failed.failed_at == datetime(2026, 7, 3)
+        assert failed.last_error_code == "delivery_failed"
+        assert other.user_id == other_user_id
+        assert other.status == ReminderStatus.PENDING
+        assert other.cancel_reason is None
+
+
+def test_preferences_global_disable_is_idempotent_and_enable_does_not_restore_plans(
+    client, app
+) -> None:
+    user_id = provision_user(app)
+    _, pending_ids = _add_reminder_preference_plans(app, user_id)
+    login_email(client)
+
+    first_disable = client.patch("/api/v1/me/preferences", json={"message_enabled": False})
+    assert first_disable.status_code == 200
+    with app.app_context():
+        cancelled_at = {
+            reminder.id: reminder.updated_at
+            for reminder in db.session.query(Reminder).filter(Reminder.id.in_(pending_ids))
+        }
+    repeated_disable = client.patch("/api/v1/me/preferences", json={"message_enabled": False})
+    enable = client.patch("/api/v1/me/preferences", json={"message_enabled": True})
+    assert repeated_disable.status_code == 200
+    assert enable.status_code == 200
+
+    with app.app_context():
+        settings = db.session.query(ReminderSetting).filter_by(user_id=user_id).one()
+        pending = db.session.query(Reminder).filter(Reminder.id.in_(pending_ids)).all()
+        assert settings.enabled is True
+        assert [(reminder.status, reminder.cancel_reason) for reminder in pending] == [
+            (ReminderStatus.CANCELLED, "global_reminder_disabled"),
+            (ReminderStatus.CANCELLED, "global_reminder_disabled"),
+        ]
+        assert {reminder.id: reminder.updated_at for reminder in pending} == cancelled_at
+
+
+def test_preferences_global_disable_rolls_back_if_plan_cancellation_fails(
+    client, app, monkeypatch
+) -> None:
+    user_id = provision_user(app)
+    _, pending_ids = _add_reminder_preference_plans(app, user_id)
+    login_email(client)
+
+    def fail_after_cancellation(reminders):
+        reminders[0].status = ReminderStatus.CANCELLED
+        raise RuntimeError("cancellation failed")
+
+    monkeypatch.setattr(profile_service, "_cancel_pending_reminders", fail_after_cancellation)
+
+    with pytest.raises(RuntimeError, match="cancellation failed"):
+        client.patch("/api/v1/me/preferences", json={"message_enabled": False})
+
+    with app.app_context():
+        settings = db.session.query(ReminderSetting).filter_by(user_id=user_id).one()
+        pending = db.session.query(Reminder).filter(Reminder.id.in_(pending_ids)).all()
+        assert settings.enabled is True
+        assert all(reminder.status == ReminderStatus.PENDING for reminder in pending)
+        assert all(reminder.cancel_reason is None for reminder in pending)
+
+
+def test_preferences_missing_required_rows_returns_internal_error_without_lazy_creation(
+    client, app
+) -> None:
+    user_id = provision_user(app)
+    with app.app_context():
+        user = db.session.get(User, user_id)
+        db.session.delete(user.reminder_settings)
+        db.session.commit()
+    login_email(client)
+
+    response = client.patch("/api/v1/me/preferences", json={"message_enabled": False})
+
+    assert response.status_code == 500
+    assert response.get_json()["error"]["code"] == "internal_server_error"
+    with app.app_context():
+        assert db.session.query(ReminderSetting).filter_by(user_id=user_id).count() == 0
 
 
 def test_profile_response_normalizes_null_list_fields(client, app) -> None:
     user_id = provision_user(app)
     with app.app_context():
-        db.session.add(
-            StudentProfile(
-                user_id=user_id,
-                interest_tags=None,
-                goal_preferences=None,
-                blocked_tags=None,
-            )
-        )
+        profile = db.session.query(StudentProfile).filter_by(user_id=user_id).one()
+        profile.interest_tags = None
+        profile.goal_preferences = None
+        profile.blocked_tags = None
         db.session.commit()
     login_email(client)
 
@@ -1077,10 +1368,7 @@ def test_profile_rejects_duplicate_or_too_many_interest_tags(client, app) -> Non
 
 
 def test_profile_rejects_values_outside_controlled_dictionary(client, app) -> None:
-    user_id = provision_user(app)
-    with app.app_context():
-        db.session.add(StudentProfile(user_id=user_id))
-        db.session.commit()
+    provision_user(app)
     login_email(client)
 
     invalid_college = client.patch(
@@ -1124,15 +1412,11 @@ def test_invalid_existing_dictionary_values_do_not_count_as_recommendation_ready
 ) -> None:
     user_id = provision_user(app)
     with app.app_context():
-        db.session.add(
-            StudentProfile(
-                user_id=user_id,
-                college="不存在学院",
-                major="不存在专业",
-                grade="大二",
-                interest_tags=["不存在标签"],
-            )
-        )
+        profile = db.session.query(StudentProfile).filter_by(user_id=user_id).one()
+        profile.college = "不存在学院"
+        profile.major = "不存在专业"
+        profile.grade = "大二"
+        profile.interest_tags = ["不存在标签"]
         db.session.commit()
     login_email(client)
 
@@ -1145,10 +1429,7 @@ def test_invalid_existing_dictionary_values_do_not_count_as_recommendation_ready
 
 
 def test_profile_readiness_is_derived_with_stable_missing_field_order(client, app) -> None:
-    user_id = provision_user(app)
-    with app.app_context():
-        db.session.add(StudentProfile(user_id=user_id))
-        db.session.commit()
+    provision_user(app)
     login_email(client)
 
     incomplete = client.patch(
@@ -1162,6 +1443,10 @@ def test_profile_readiness_is_derived_with_stable_missing_field_order(client, ap
             "grade": "大二",
         },
     )
+    cleared_tags = client.patch(
+        "/api/v1/me/profile",
+        json={"interest_tags": []},
+    )
 
     assert incomplete.status_code == 200
     assert incomplete.get_json()["data"]["profile_status"] == "incomplete"
@@ -1169,6 +1454,9 @@ def test_profile_readiness_is_derived_with_stable_missing_field_order(client, ap
     assert ready.status_code == 200
     assert ready.get_json()["data"]["profile_status"] == "recommendation_ready"
     assert ready.get_json()["data"]["missing_fields"] == []
+    assert cleared_tags.status_code == 200
+    assert cleared_tags.get_json()["data"]["profile_status"] == "incomplete"
+    assert cleared_tags.get_json()["data"]["missing_fields"] == ["interest_tags"]
 
 
 def test_phone_identity_normalizes_to_e164_for_login(client, app) -> None:

@@ -39,7 +39,7 @@ test('shows actionable discovery, staged detail, historical context, and direct 
   })
   await (await popup).close()
 
-  await actorPage.goto('/competitions/2002')
+  await actorPage.goto('/competitions/2004')
   await expect(actorPage.getByText('已归档赛事仍保留历史详情')).toBeVisible()
   await expect(actorPage.getByText('该赛事已不在默认发现列表中')).toBeVisible()
 })

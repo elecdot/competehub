@@ -1,14 +1,18 @@
 from __future__ import annotations
 
-from marshmallow import Schema, ValidationError, fields, validate, validates_schema
+from marshmallow import Schema, ValidationError, fields, post_load, validate, validates_schema
 
 from competehub_api.models.enums import ParticipantForm
-from competehub_api.schemas.common import NonBlankString, UtcDateTime
+from competehub_api.schemas.common import NonBlankString, StrictBoolean, UtcDateTime
 from competehub_api.services.competition_discovery import (
     competition_tag_names,
     next_time_node,
     registration_status,
     sorted_time_nodes,
+)
+from competehub_api.subscription_node_types import (
+    SUBSCRIPTION_NODE_TYPES,
+    canonical_subscription_node_types,
 )
 
 
@@ -66,6 +70,33 @@ class OutboundClickSchema(Schema):
     )
 
 
+class SubscriptionCreateSchema(Schema):
+    reminder_enabled = StrictBoolean(required=True)
+    remind_days = fields.Integer(
+        required=True,
+        strict=True,
+        validate=validate.Range(min=0, max=30),
+    )
+    node_types = fields.List(
+        fields.String(validate=validate.OneOf(SUBSCRIPTION_NODE_TYPES)),
+        required=True,
+    )
+
+    @validates_schema
+    def validate_unique_node_types(self, data, **kwargs):
+        node_types = data.get("node_types", [])
+        if len(node_types) != len(set(node_types)):
+            raise ValidationError(
+                "Node types must not contain duplicates.",
+                field_name="node_types",
+            )
+
+    @post_load
+    def canonicalize_node_types(self, data, **kwargs):
+        data["node_types"] = canonical_subscription_node_types(data["node_types"])
+        return data
+
+
 class PublicCompetitionTimeNodeSchema(Schema):
     id = fields.Integer(required=True)
     snapshot_id = fields.Function(lambda node: node.id)
@@ -117,8 +148,10 @@ class PublicCompetitionSummarySchema(Schema):
     registration_status = fields.Method("serialize_registration_status")
     registration_status_basis = fields.Method("serialize_registration_status_basis")
     next_node = fields.Method("serialize_next_node")
-    is_favorited = fields.Constant(False)
-    is_subscribed = fields.Constant(False)
+    is_favorited = fields.Function(lambda competition: getattr(competition, "is_favorited", False))
+    is_subscribed = fields.Function(
+        lambda competition: getattr(competition, "is_subscribed", False)
+    )
 
     def serialize_tags(self, competition):
         return competition_tag_names(competition)
@@ -149,6 +182,7 @@ class PublicCompetitionDetailSchema(PublicCompetitionSummarySchema):
         lambda competition: _revision_value(competition, "registration_applicability")
     )
     team_size = fields.Function(lambda competition: _revision_value(competition, "team_size"))
+    subscription_summary = fields.Raw(allow_none=True, dump_default=None)
     time_nodes = fields.Method("serialize_time_nodes")
 
     def serialize_time_nodes(self, competition):
@@ -178,6 +212,7 @@ class PublicCompetitionPageSchema(Schema):
 
 competition_list_query_schema = CompetitionListQuerySchema()
 outbound_click_schema = OutboundClickSchema()
+subscription_create_schema = SubscriptionCreateSchema()
 public_competition_time_node_schema = PublicCompetitionTimeNodeSchema()
 public_competition_detail_schema = PublicCompetitionDetailSchema()
 public_competition_page_schema = PublicCompetitionPageSchema()

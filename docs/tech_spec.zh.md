@@ -329,14 +329,19 @@ Redis 不用于：
 6. 同届节点事实变化时保留 `logical_node_key`、创建新的不可变 snapshot ID；在提交时由服务端相对基线冻结 `node_revision`。新节点修订取消旧修订的未发送提醒并重建未来计划；未变节点保持修订号并原地刷新 pending plan 的 snapshot FK 和文案，已发送提醒不可变。
 7. 每个批准修订按“订阅者 + 批准修订事件”最多幂等生成一条赛事时间变更汇总消息，仅覆盖发生时刻、所选节点增删或所选节点类型变化。阶段、重点级别、描述、标题等展示修正只刷新当前内容；已过去的普通触发时间不补发伪准时提醒。
 8. 首次订阅请求必须显式携带 `reminder_enabled`；开启时同时携带 `0–30` 的单一提前天数和非空受控节点类型。全局默认只用于前端确认面板预填，后端不得在字段缺失时推断同意。
-9. 关闭单项提醒只取消该订阅的未发送计划，关闭全局提醒取消用户全部未发送计划；两者均保留订阅和日历节点。重新开启时只重建未来有效计划。
+9. 关闭单项提醒只取消该订阅的未发送计划，关闭全局提醒取消用户全部未发送计划；两者均保留订阅和日历节点。仅显式重新订阅或语义 PATCH 可按新的提醒确认恢复受控原因取消的未来有效计划；全局 `message_enabled` 从 `false` 到 `true` 的恢复协调属于 #40。
 10. `reminder_settings` 是全局开关、默认提前天数和默认节点类型的唯一事实来源；`student_profiles` 不重复存储提醒字段。
+    对既有学生缺失该行属于数据完整性错误，不得按开启处理；订阅创建、重新订阅、语义 PATCH、计划协调和订阅摘要均返回既有的 `500 internal_server_error` 形状，并回滚订阅及提醒计划变更。
 11. `reminder_due`、`competition_time_changed`、`competition_cancelled` 和 `competition_offline` 使用“用户 + 领域事件”幂等键创建不可变消息快照。用户主动取消或关闭提醒不创建消息。
 12. 周期清理任务删除创建满 365 天的消息，不区分已读状态；账号删除使用统一账号数据清理流程。提醒的 `sent` 状态与消息的已读状态分别维护。
+13. #38 的 `reminder_settings` 持久化迁移遵循数据模型的完整性约束；迁移顺序、回填、序列同步和受保护降级由 `apps/api/migrations/README` 运行手册负责。服务继续让 `/me/preferences` 组合返回稳定公开形状，不把迁移过程暴露为 API 行为。
+14. 同一学生与赛事届次只保留一个订阅关系。重新订阅要求新的完整提醒确认，复用 cancelled 关系并仅保存最近一次确认；首次创建返回 `201`，重复 active POST 和重新订阅返回 `200`。
+15. 初始计划或用户显式恢复计划要求订阅开关与全局开关同时开启。#38 只允许恢复由 `subscription_cancelled`、`reminder_disabled`、`node_type_removed` 或 `subscription_offset_not_future` 取消、从未发送且按当前不可变 snapshot 重新计算后仍为未来的普通计划；已发送、失败、旧节点修订和系统协调取消的计划不得恢复。全局开关变化后的批量协调属于 #40。
+16. 订阅 POST、PATCH、DELETE 与普通计划协调锁定同一订阅关系，并依靠 `(user_id, competition_id)` 和完整普通计划唯一键处理并发，不创建第二份订阅或重复计划。
 
 ### 8.3 推荐任务
 
-规则推荐可同步计算并缓存短时间结果。个性化计算只读取单一 `active` 推荐规则集，缓存键必须包含规则集版本；响应返回版本和可追溯理由，不返回内部得分。无激活版本时降级为通用可行动结果并暴露管理配置异常，不使用 service 常量。候选预览仅使用合成画像和选定公开赛事，不读取任意真实学生画像，也不持久化结果。
+规则推荐可同步计算并缓存短时间结果。个性化计算只读取单一 `active` 推荐规则集，缓存键必须包含规则集版本；响应返回版本和可追溯理由，不返回内部得分。无激活版本时降级为通用可行动结果并暴露管理配置异常，不使用 service 常量。候选预览仅使用合成画像和选定公开赛事，不读取任意真实学生画像，也不持久化结果。合成画像复用真实画像更新与 readiness 的受控学院—专业、年级和兴趣字典。赛事专业、年级、标签、报名截止与时间节点等推荐事实统一来自 `competition.published_revision_id` 指向的当前不可变公开修订，不读取展平旧字段，也不回退到非 current 历史修订。
 
 每次推荐响应为返回项创建随机 request ID 下的 90 天服务端快照。前端实际渲染后批量尽力记录曝光，从推荐页导航详情时尽力记录点击；统计失败不影响展示或导航。事件 API 只接受 request ID、事件类型和赛事 ID，从服务端快照读取位置、模式、规则版本、理由代码和登录状态类别。曝光和点击分别按 request item 幂等，点击要求已有曝光。原始行不保存用户、账号、画像、IP、User-Agent 或跨 request 标识，也不用于自动个性化。
 
@@ -399,7 +404,7 @@ Redis 不用于：
 - `GET /api/v1/competitions`
 - `GET /api/v1/competitions/{id}`
 - `POST /api/v1/competitions/{id}/favorite`
-- `POST /api/v1/competitions/{id}/subscribe`
+- `POST /api/v1/competitions/{id}/subscription`
 - `GET /api/v1/me/calendar`
 - `GET /api/v1/me/messages`
 - `POST /api/v1/me/messages/{id}/read`
@@ -407,6 +412,7 @@ Redis 不用于：
 - `POST /api/v1/recommendation_events`
 - `GET /api/v1/admin/recommendation_rule_sets`
 - `POST /api/v1/admin/recommendation_rule_sets`
+- `PATCH /api/v1/admin/recommendation_rule_sets/{id}`
 - `POST /api/v1/admin/recommendation_rule_sets/{id}/preview`
 - `POST /api/v1/admin/recommendation_rule_sets/{id}/submit_review`
 - `POST /api/v1/admin/recommendation_rule_sets/{id}/review`
@@ -476,7 +482,7 @@ owned by #37.
 - `GET /me` 返回角色和受控 capability 列表供前端发现工作台入口；学生列表为空，后端不得把该响应或前端隐藏当成授权检查。
 - 用户列表及角色、状态、capability 变更要求 `user_administrator`；禁止自我变更，并以事务约束保留至少一个 active 用户治理管理员。成功变更目标账号时递增其 `session_version`，记录原因和受控新旧值。
 - 赛事录入、赛事审核和发布后状态维护分别使用 `competition_editor`、`competition_reviewer` 和 `competition_maintainer` 管理员权限，不新增正式用户角色；当前修订的提交者不得审核该修订，维护权限不允许编辑、审核或直接恢复公开修订。
-- 推荐规则使用 `recommendation_editor` 和 `recommendation_reviewer` 管理员权限，不新增正式角色；候选规则集提交者不得审核该版本，激活必须原子退役旧版本。
+- 推荐规则使用 `recommendation_editor` 和 `recommendation_reviewer` 管理员权限，不新增正式角色；普通 `admin` 角色本身不授予推荐治理能力。创建规则集草稿要求 `recommendation_editor`；修改和提交草稿要求当前账号同时是 `created_by_id` 且仍具有 `recommendation_editor`。其他 editor 和 reviewer 可以按治理读模型读取或只读 preview，但不能接管、共同编辑、代提交或审核自己提交的版本。激活必须在同一事务内验证治理基线仍为当前 active，原子激活候选并退役旧版本；stale approve 返回 `409 stale_rule_set` 且不创建终态审核记录。
 - 后端必须对每个后台接口做权限检查。
 
 ### 10.3 审计
