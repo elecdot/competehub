@@ -2,15 +2,20 @@ Single-database Alembic configuration for Flask.
 
 The committed chain starts with `c5e0e7e0560d`, adds the verification-delivery
 outbox in `61f2c8e4a9bd`, and adds immutable publication persistence in
-`13eb10903bd7`.
+`13eb10903bd7`. The current head is `be7dfc45f976`, whose direct predecessor is
+`13eb10903bd7`; it adds governed, immutable recommendation rule-set and rule
+snapshots plus recommendation review snapshot columns.
 
-Fresh databases apply the complete chain. The initial migration records whether
-it adopted a fresh database or an older `db.create_all()` schema. On the legacy
-path, authentication tables and identities are bridged, while the immutable
-publication migration leaves unknown business-table shapes unchanged. Reset an
-old disposable database before upgrade. For a shared database, write and review
-a dedicated data-preserving publication bridge instead of stamping or guessing
-series, edition, and revision identities.
+Fresh databases apply the complete chain. A database at the known
+`13eb10903bd7` predecessor can upgrade to the governed recommendation schema
+when its legacy mutable `recommendation_rules` table is empty. The initial
+migration records whether it adopted a fresh database or an older
+`db.create_all()` schema. On the legacy path, authentication tables and
+identities are bridged, while the immutable publication migration leaves
+unknown business-table shapes unchanged. Reset an old disposable database
+before upgrade. For a shared database, write and review a dedicated
+data-preserving publication bridge instead of stamping or guessing series,
+edition, revision, or recommendation-rule lineage.
 
 A database already at the known `61f2c8e4a9bd` predecessor uses the committed
 publication bridge: owned mutable competitions become one-series/one-edition
@@ -19,4 +24,20 @@ visibility is retained. Rows without `created_by_id` are rejected before schema
 mutation so an operator can assign a real owner instead of receiving invented
 review attribution.
 
-`seed-e2e --reset` rebuilds only the isolated browser-test database.
+The `be7dfc45f976` upgrade fails closed before destructive DDL when the legacy
+mutable `recommendation_rules` table contains rows. The table, its data, and the
+`13eb10903bd7` predecessor state remain available for operator review. Do not
+stamp the database, guess lineage, discard those rows, or automatically promote
+unreviewed mutable rules into active v1. Before retrying, back up the database
+and make an explicit, reviewed data-migration decision.
+
+Downgrading from `be7dfc45f976` is a destructive schema rollback, not a
+history-preserving governance rollback. It removes governed rule-set and rule
+snapshots, drops the recommendation review snapshot columns, and recreates an
+empty legacy mutable `recommendation_rules` table. Before downgrading a shared
+database that contains governed recommendation data, back up and export the
+data and approve an explicit rollback plan.
+
+`seed-e2e --reset` rebuilds only the isolated browser-test database. It is not a
+reset, migration, or recovery path for a development, shared, or production
+database.
