@@ -51,6 +51,45 @@ test.describe('competition engagement', () => {
     await expect(favoriteButton).toHaveAttribute('aria-pressed', 'false')
   })
 
+  test('restores persisted consent after reloading detail without submitting a mutation', async ({
+    actorPage,
+  }) => {
+    const competition = await firstPublicCompetition(actorPage)
+    const persistedNodeTypes = competition.nodeTypes.slice(0, 1)
+    const created = await actorPage.request.post(`/api/v1/competitions/${competition.id}/subscription`, {
+      data: {
+        reminder_enabled: false,
+        remind_days: 8,
+        node_types: persistedNodeTypes,
+      },
+    })
+    expect([200, 201]).toContain(created.status())
+
+    let subscriptionMutations = 0
+    await actorPage.route(`**/api/v1/competitions/${competition.id}/subscription`, async (route) => {
+      if (route.request().method() === 'POST' || route.request().method() === 'PATCH') {
+        subscriptionMutations += 1
+      }
+      await route.continue()
+    })
+    await actorPage.goto(`/competitions/${competition.id}`)
+    await actorPage.reload()
+    await actorPage.getByTestId('subscription-action').click()
+    const consent = actorPage.getByTestId('subscription-consent')
+
+    await expect(consent.getByLabel('启用提醒')).not.toBeChecked()
+    await expect(consent.getByLabel('提前天数')).toHaveValue('8')
+    for (const nodeType of competition.nodeTypes) {
+      const node = consent.getByLabel(subscriptionNodeLabels[nodeType])
+      if (persistedNodeTypes.includes(nodeType)) {
+        await expect(node).toBeChecked()
+      } else {
+        await expect(node).not.toBeChecked()
+      }
+    }
+    expect(subscriptionMutations).toBe(0)
+  })
+
   test('creates, updates, cancels, and re-subscribes with complete consent', async ({ actorPage }) => {
     const competition = await firstPublicCompetition(actorPage)
     await actorPage.goto(`/competitions/${competition.id}`)
@@ -117,6 +156,34 @@ test.describe('competition engagement', () => {
   })
 })
 
+test.describe('first subscription consent', () => {
+  test.use({ actorName: 'profileReady' })
+
+  test('prefills first subscription consent without creating engagement on read', async ({
+    actorPage,
+  }) => {
+    const competition = await firstPublicCompetition(actorPage)
+    let subscriptionMutations = 0
+    await actorPage.route(`**/api/v1/competitions/${competition.id}/subscription`, async (route) => {
+      if (route.request().method() === 'POST' || route.request().method() === 'PATCH') {
+        subscriptionMutations += 1
+      }
+      await route.continue()
+    })
+
+    await actorPage.goto(`/competitions/${competition.id}`)
+    await actorPage.getByTestId('subscription-action').click()
+    const consent = actorPage.getByTestId('subscription-consent')
+
+    await expect(consent.getByLabel('启用提醒')).toBeChecked()
+    await expect(consent.getByLabel('提前天数')).toHaveValue('3')
+    for (const nodeType of competition.nodeTypes) {
+      await expect(consent.getByLabel(subscriptionNodeLabels[nodeType])).toBeChecked()
+    }
+    expect(subscriptionMutations).toBe(0)
+  })
+})
+
 test('anonymous engagement login returns to the competition without replaying an action', async ({ page }) => {
   const competition = await firstPublicCompetition(page)
   await page.request.delete(`/api/v1/competitions/${competition.id}/favorite`)
@@ -146,9 +213,10 @@ async function firstPublicCompetition(page: import('@playwright/test').Page) {
   const detailResponse = await page.request.get(`/api/v1/competitions/${competition.id}`)
   expect(detailResponse).toBeOK()
   const detail = (await detailResponse.json()) as {
-    data: { time_nodes: Array<{ node_type: string }> }
+    data: { time_nodes: Array<{ node_type: string; occurs_at: string | null }> }
   }
   const nodeTypes = detail.data.time_nodes
+    .filter((node) => node.occurs_at !== null)
     .map((node) => node.node_type)
     .filter(isSubscriptionNodeType)
   expect(nodeTypes, 'the public competition should expose a selectable reminder node').not.toEqual([])
@@ -159,14 +227,15 @@ async function selectSubscriptionNodeTypes(
   consent: import('@playwright/test').Locator,
   nodeTypes: SubscriptionNodeType[],
 ) {
-  const labels: Record<SubscriptionNodeType, string> = {
-    registration_deadline: '报名截止',
-    submission_deadline: '作品提交截止',
-    competition_start: '比赛开始',
-  }
   for (const nodeType of nodeTypes) {
-    await consent.getByLabel(labels[nodeType]).check()
+    await consent.getByLabel(subscriptionNodeLabels[nodeType]).check()
   }
+}
+
+const subscriptionNodeLabels: Record<SubscriptionNodeType, string> = {
+  registration_deadline: '报名截止',
+  submission_deadline: '作品提交截止',
+  competition_start: '比赛开始',
 }
 
 function isSubscriptionNodeType(nodeType: string): nodeType is SubscriptionNodeType {

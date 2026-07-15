@@ -50,6 +50,7 @@ export interface CompetitionDetail extends CompetitionSummary {
   team_size?: string | null
   registration_applicability?: 'applicable' | 'not_applicable' | 'unknown' | null
   time_nodes: CompetitionTimeNode[]
+  subscription_summary: SubscriptionSummary | null
 }
 
 export type SubscriptionNodeType =
@@ -68,7 +69,10 @@ export interface FavoriteState {
 }
 
 export interface SubscriptionSummary extends SubscriptionConsent {
+  competition_id: number
+  status: 'active' | 'cancelled'
   is_subscribed: boolean
+  reminder_confirmed_at?: string | null
   scheduled_reminder_count?: number
   next_reminder_at?: string | null
   unscheduled_reason?: string | null

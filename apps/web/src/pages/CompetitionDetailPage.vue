@@ -7,7 +7,12 @@ import {
 } from '@ant-design/icons-vue'
 import {
   Button as AButton,
+  Checkbox as ACheckbox,
+  CheckboxGroup as ACheckboxGroup,
   Empty as AEmpty,
+  Form as AForm,
+  FormItem as AFormItem,
+  InputNumber as AInputNumber,
   Result as AResult,
   Skeleton as ASkeleton,
   Tag as ATag,
@@ -65,7 +70,11 @@ const availableSubscriptionNodeTypes = computed<SubscriptionNodeType[]>(() => {
   if (!competition.value) return []
   return subscriptionNodeOptions
     .map((option) => option.value)
-    .filter((nodeType) => competition.value?.time_nodes.some((node) => node.node_type === nodeType))
+    .filter((nodeType) =>
+      competition.value?.time_nodes.some(
+        (node) => node.node_type === nodeType && node.occurs_at != null,
+      ),
+    )
 })
 const subscriptionFormIsValid = computed(
   () =>
@@ -90,7 +99,9 @@ async function loadCompetition() {
   notFound.value = false
 
   try {
-    competition.value = await fetchCompetitionDetail(competitionId)
+    const detail = await fetchCompetitionDetail(competitionId)
+    competition.value = detail
+    subscriptionSummary.value = detail.subscription_summary
   } catch (error) {
     competition.value = null
     if (isAxiosError(error) && error.response?.status === 404) {
@@ -143,8 +154,9 @@ function openSubscriptionConsent() {
   subscriptionForm.value = {
     reminder_enabled: previous?.reminder_enabled ?? true,
     remind_days: previous?.remind_days ?? 3,
-    node_types:
-      previous?.node_types?.filter((type) => availableSubscriptionNodeTypes.value.includes(type)) ?? [],
+    node_types: previous
+      ? previous.node_types.filter((type) => availableSubscriptionNodeTypes.value.includes(type))
+      : [...availableSubscriptionNodeTypes.value],
   }
   showSubscriptionConsent.value = true
 }
@@ -394,33 +406,33 @@ onMounted(() => {
           <template v-else>未订阅</template>
         </p>
 
-        <form
+        <AForm
           v-if="showSubscriptionConsent"
           data-testid="subscription-consent"
           class="profile-form"
-          @submit.prevent="saveSubscription"
+          layout="vertical"
+          :model="subscriptionForm"
+          @finish="saveSubscription"
         >
           <p>请确认本次订阅的提醒设置。</p>
-          <label>
-            <input v-model="subscriptionForm.reminder_enabled" type="checkbox" />
-            启用提醒
-          </label>
-          <label>
-            提前天数
-            <input v-model.number="subscriptionForm.remind_days" type="number" min="0" max="30" />
-          </label>
-          <fieldset>
-            <legend>提醒节点</legend>
-            <label v-for="option in subscriptionNodeOptions" :key="option.value">
-              <input
-                v-model="subscriptionForm.node_types"
-                type="checkbox"
+          <AFormItem>
+            <ACheckbox v-model:checked="subscriptionForm.reminder_enabled">启用提醒</ACheckbox>
+          </AFormItem>
+          <AFormItem label="提前天数" name="remind_days">
+            <AInputNumber v-model:value="subscriptionForm.remind_days" :min="0" :max="30" />
+          </AFormItem>
+          <AFormItem label="提醒节点" name="node_types">
+            <ACheckboxGroup v-model:value="subscriptionForm.node_types">
+              <ACheckbox
+                v-for="option in subscriptionNodeOptions"
+                :key="option.value"
                 :value="option.value"
                 :disabled="!availableSubscriptionNodeTypes.includes(option.value)"
-              />
-              {{ option.label }}
-            </label>
-          </fieldset>
+              >
+                {{ option.label }}
+              </ACheckbox>
+            </ACheckboxGroup>
+          </AFormItem>
           <AButton
             type="primary"
             html-type="submit"
@@ -429,7 +441,7 @@ onMounted(() => {
           >
             {{ competition.is_subscribed ? '保存订阅设置' : '确认订阅' }}
           </AButton>
-        </form>
+        </AForm>
       </section>
     </article>
   </section>
