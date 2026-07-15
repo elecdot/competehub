@@ -586,7 +586,10 @@ def test_authenticated_competition_detail_exposes_persisted_subscription_consent
             .count(),
             "setting": (
                 db.session.query(ReminderSetting).filter_by(user_id=student_id).one().enabled,
-                db.session.query(ReminderSetting).filter_by(user_id=student_id).one().default_remind_days,
+                db.session.query(ReminderSetting)
+                .filter_by(user_id=student_id)
+                .one()
+                .default_remind_days,
             ),
         }
 
@@ -615,7 +618,10 @@ def test_authenticated_competition_detail_exposes_persisted_subscription_consent
             .count(),
             "setting": (
                 db.session.query(ReminderSetting).filter_by(user_id=student_id).one().enabled,
-                db.session.query(ReminderSetting).filter_by(user_id=student_id).one().default_remind_days,
+                db.session.query(ReminderSetting)
+                .filter_by(user_id=student_id)
+                .one()
+                .default_remind_days,
             ),
         }
     assert after == before
@@ -673,9 +679,7 @@ def test_favorite_missing_competition_returns_not_found(client, app) -> None:
     assert response.get_json()["error"]["code"] == "not_found"
 
 
-def test_favorite_existing_edition_without_public_revision_is_unavailable(
-    client, app
-) -> None:
+def test_favorite_existing_edition_without_public_revision_is_unavailable(client, app) -> None:
     sign_in_as(client, app)
     with app.app_context():
         create_unpublished_edition()

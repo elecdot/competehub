@@ -197,12 +197,12 @@ def test_postgresql_subscription_post_and_delete_serialize_without_duplicate_pla
         )
         assert subscription.status in {SubscriptionStatus.ACTIVE, SubscriptionStatus.CANCELLED}
         assert len(reminders) == 2
-        assert len(
-            {
-                (reminder.logical_node_key, reminder.time_node_revision)
-                for reminder in reminders
-            }
-        ) == 2
+        assert (
+            len(
+                {(reminder.logical_node_key, reminder.time_node_revision) for reminder in reminders}
+            )
+            == 2
+        )
         if subscription.status == SubscriptionStatus.ACTIVE:
             assert all(reminder.status == ReminderStatus.PENDING for reminder in reminders)
         else:
@@ -259,12 +259,12 @@ def test_postgresql_subscription_patch_and_delete_serialize_without_partial_cons
         assert subscription.status == SubscriptionStatus.CANCELLED
         assert subscription.remind_days == (2 if patch_response.status_code == 200 else 3)
         assert len(reminders) == 2
-        assert len(
-            {
-                (reminder.logical_node_key, reminder.time_node_revision)
-                for reminder in reminders
-            }
-        ) == 2
+        assert (
+            len(
+                {(reminder.logical_node_key, reminder.time_node_revision) for reminder in reminders}
+            )
+            == 2
+        )
         sent = next(reminder for reminder in reminders if reminder.id == sent_snapshot[0])
         assert (sent.id, sent.due_at, sent.title, sent.sent_at) == sent_snapshot
         pending = [reminder for reminder in reminders if reminder.id != sent.id]
