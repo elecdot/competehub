@@ -701,7 +701,7 @@ Rules:
   settings with valid defaults, and reject invalid or inconsistent legacy data
   before mutation so that data integrity is maintained. The operator-facing
   migration and recovery procedure is owned by the
-  [migrations README](../apps/api/migrations/README).
+  [migrations README](https://github.com/elecdot/competehub/blob/main/apps/api/migrations/README).
 - New settings default to enabled, three days, and the controlled primary core
   types `registration_deadline`, `submission_deadline`, and
   `competition_start`. These values prefill a confirmation and are not consent.
@@ -1190,7 +1190,7 @@ Search can start with PostgreSQL filters and simple text matching. Add a dedicat
 - Migrations must upgrade legacy data safely, validate preconditions, and protect
   data consistency across supported upgrade and downgrade paths. Exact revision
   order, commands, backfill procedures, and guarded recovery guidance are owned
-  by the [migrations README](../apps/api/migrations/README).
+  by the [migrations README](https://github.com/elecdot/competehub/blob/main/apps/api/migrations/README).
 - `seed-e2e --reset` provisions distinct student/editor/reviewer actors plus one
   approved series/edition/revision fixture with an ordered stage and immutable
   `occurs_at` node. It is isolated browser-test data, not a production backfill.
