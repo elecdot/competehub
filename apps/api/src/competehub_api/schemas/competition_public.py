@@ -14,6 +14,7 @@ from competehub_api.subscription_node_types import (
     SUBSCRIPTION_NODE_TYPES,
     canonical_subscription_node_types,
 )
+from competehub_api.timezones import stored_datetime_as_utc
 
 
 class OptionalQueryText(NonBlankString):
@@ -171,6 +172,7 @@ class PublicCompetitionSummarySchema(Schema):
 class PublicCompetitionDetailSchema(PublicCompetitionSummarySchema):
     edition_label = fields.Function(lambda competition: competition.edition_label)
     current_revision = fields.Method("serialize_current_revision")
+    lifecycle_warning = fields.Method("serialize_lifecycle_warning")
     host = fields.Function(lambda competition: _revision_value(competition, "host"))
     attachment_url = fields.Function(
         lambda competition: _revision_value(competition, "attachment_url")
@@ -196,6 +198,19 @@ class PublicCompetitionDetailSchema(PublicCompetitionSummarySchema):
         if revision is None:
             return None
         return {"id": revision.id, "revision_number": revision.revision_number}
+
+    def serialize_lifecycle_warning(self, competition):
+        if competition.status.value not in {"cancelled", "archived", "expired"}:
+            return None
+        return {
+            "status": competition.status.value,
+            "reason": competition.lifecycle_reason,
+            "changed_at": (
+                stored_datetime_as_utc(competition.lifecycle_changed_at).isoformat()
+                if competition.lifecycle_changed_at is not None
+                else None
+            ),
+        }
 
 
 class PublicCompetitionPageSchema(Schema):

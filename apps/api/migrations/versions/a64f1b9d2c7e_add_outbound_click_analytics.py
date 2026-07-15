@@ -1,7 +1,7 @@
 """add outbound click analytics
 
 Revision ID: a64f1b9d2c7e
-Revises: 4d8b6e1a3f20
+Revises: 8b4d2f7a1c90
 Create Date: 2026-07-12 00:00:00.000000
 """
 
@@ -9,7 +9,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "a64f1b9d2c7e"
-down_revision = "4d8b6e1a3f20"
+down_revision = "8b4d2f7a1c90"
 branch_labels = None
 depends_on = None
 

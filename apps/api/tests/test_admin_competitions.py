@@ -139,11 +139,13 @@ def test_status_maintenance_hides_published_competition_and_records_audit(
         assert competition.status == CompetitionStatus(target_status)
         assert competition.status not in PUBLIC_COMPETITION_STATUSES
         audit = AuditLog.query.filter_by(action=f"competition.{target_status}").one()
-        assert audit.detail == {
+        expected_detail = {
             "from_status": "published",
             "reason": "status maintenance",
             "to_status": target_status,
         }
+        assert audit.detail | expected_detail == audit.detail
+        assert "impact" in audit.detail
 
 
 def test_status_maintenance_requires_maintainer_capability(client, app) -> None:

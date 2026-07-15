@@ -56,6 +56,11 @@ export interface CompetitionDetail extends CompetitionSummary {
     id: number
     revision_number: number
   } | null
+  lifecycle_warning: {
+    status: Exclude<CompetitionLifecycleStatus, 'published'>
+    reason: string
+    changed_at: string
+  } | null
   host?: string | null
   attachment_url?: string | null
   summary?: string | null

@@ -128,9 +128,21 @@ class Message(db.Model, TimestampMixin):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     reminder_id: Mapped[int | None] = mapped_column(ForeignKey("reminders.id"))
+    competition_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("competitions.id", name="fk_messages_competition_id_competitions"),
+        index=True,
+    )
+    message_type: Mapped[str | None] = mapped_column(String(80), index=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(160))
+    event_occurred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     body: Mapped[str | None] = mapped_column(Text)
     is_read: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     reminder: Mapped[Reminder | None] = relationship()
+
+    __table_args__ = (
+        db.UniqueConstraint("user_id", "idempotency_key", name="uq_message_user_event"),
+    )

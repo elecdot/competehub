@@ -9,6 +9,7 @@ from competehub_api.schemas.competition_admin import (
     competition_revision_schema,
     edition_workspace_schema,
 )
+from competehub_api.services.competition_publication import lifecycle_impact
 from competehub_api.services.competition_revisions import (
     revision_comparison,
     revision_completeness,
@@ -71,34 +72,16 @@ def edition_workspace_read_model(
     review: ReviewRecord | None = None,
 ) -> dict:
     payload = edition_workspace_schema.dump(edition)
-    active = next(
-        (
-            revision
-            for revision in reversed(edition.revisions)
-            if revision.revision_status
-            in {CompetitionRevisionStatus.DRAFT, CompetitionRevisionStatus.PENDING_REVIEW}
-        ),
-        edition.published_revision,
-    )
+    active = _workspace_revision(edition)
     revision_payload = revision_read_model(active, review) if active is not None else None
     payload["revision"] = revision_payload
     payload["active_revision"] = revision_payload
+    payload["lifecycle_impact"] = lifecycle_impact(edition)
     return payload
 
 
 def edition_workspace_read_models(editions: list[Competition]) -> list[dict]:
-    active_revisions = [
-        next(
-            (
-                revision
-                for revision in reversed(edition.revisions)
-                if revision.revision_status
-                in {CompetitionRevisionStatus.DRAFT, CompetitionRevisionStatus.PENDING_REVIEW}
-            ),
-            edition.published_revision,
-        )
-        for edition in editions
-    ]
+    active_revisions = [_workspace_revision(edition) for edition in editions]
     terminal_ids = [
         revision.id
         for revision in active_revisions
@@ -114,6 +97,18 @@ def edition_workspace_read_models(editions: list[Competition]) -> list[dict]:
         )
         for edition, revision in zip(editions, active_revisions, strict=True)
     ]
+
+
+def _workspace_revision(edition: Competition) -> CompetitionRevision | None:
+    return next(
+        (
+            revision
+            for revision in reversed(edition.revisions)
+            if revision.revision_status
+            in {CompetitionRevisionStatus.DRAFT, CompetitionRevisionStatus.PENDING_REVIEW}
+        ),
+        edition.revisions[-1] if edition.revisions else None,
+    )
 
 
 def _latest_terminal_reviews(revision_ids: list[int]) -> dict[int, ReviewRecord]:

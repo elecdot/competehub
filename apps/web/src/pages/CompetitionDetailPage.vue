@@ -58,6 +58,13 @@ const notFound = ref(false)
 const historical = computed(
   () => competition.value !== null && competition.value.status !== 'published',
 )
+const historicalWarningDescription = computed(() => {
+  const warning = competition.value?.lifecycle_warning
+  if (!warning) {
+    return '该赛事已不在默认发现列表中，请以官方或学校通知为准。'
+  }
+  return `维护原因：${warning.reason}；该赛事已不在默认发现列表中，请以官方或学校通知为准。`
+})
 const groupedTimeNodes = computed(() => groupTimeNodes(competition.value?.time_nodes ?? []))
 const favoritePending = ref(false)
 const subscriptionPending = ref(false)
@@ -375,7 +382,7 @@ function nodeTime(node: CompetitionTimeNode) {
           show-icon
           type="warning"
           :message="`${formatCompetitionStatus(competition.status)}赛事仍保留历史详情`"
-          description="该赛事已不在默认发现列表中，请以官方或学校通知为准。"
+          :description="historicalWarningDescription"
         />
         <div v-if="competition.tags.length" class="tag-row">
           <ATag v-for="tag in competition.tags" :key="tag" color="cyan">{{ tag }}</ATag>

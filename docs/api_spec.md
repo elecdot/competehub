@@ -83,6 +83,7 @@ boundaries to UTC before comparing stored instants. See
 | 409 | `conflict` | Request conflicts with current resource state. |
 | 409 | `active_revision_exists` | The edition already has its one active draft or pending revision. |
 | 409 | `stale_revision` | A submitted replacement was reviewed against a public revision that is no longer current. |
+| 409 | `offline_restoration_requires_corrected_revision` | An offline edition can be restored only by a changed candidate submitted after the current withdrawal. |
 | 409 | `engagement_unavailable` | The current edition lifecycle does not permit the requested favorite/subscription mutation. |
 | 429 | `rate_limited` | Too many attempts; retry after the indicated delay. |
 | 500 | `internal_server_error` | Unexpected server error. |
@@ -536,6 +537,11 @@ status so the frontend can show a warning, but they are excluded from default
 list and recommendation results. Missing, `draft`, `pending_review`, `rejected`,
 and `offline` competitions return `404 not_found`.
 
+Historical detail includes `lifecycle_warning` with the current lifecycle
+`status`, the required maintenance `reason`, and `changed_at`. Published detail
+returns `lifecycle_warning: null`. The reason is current warning context; the
+append-only audit event remains the durable transition evidence.
+
 Response data extends the list item with detail fields:
 
 ```json
@@ -548,6 +554,7 @@ Response data extends the list item with detail fields:
     "id": 11,
     "revision_number": 2
   },
+  "lifecycle_warning": null,
   "source_name": "示例高校竞赛通知",
   "source_url": "https://example.edu/notices/innovation",
   "official_url": "https://example.org/innovation",
@@ -1063,6 +1070,8 @@ Each `time_node_changes` item classifies `change_kind` and
 addition/removal are schedule-semantic; stage, prominence, and description-only
 changes are not. Message estimates include only affected active subscriptions
 whose selected old or new node types intersect a schedule-semantic change.
+Future-reminder estimates additionally require both the subscription reminder
+switch and the student's current global `reminder_settings.enabled` switch.
 
 For an initial revision, `base_revision_id` and
 `current_published_revision_id` are both `null` until approval. Its comparison
@@ -1160,11 +1169,35 @@ edition. If one exists, return `409 active_revision_exists` with its revision id
 instead of creating a parallel candidate. A replacement stores the exact copied
 public revision as `base_revision_id`.
 
+Successor creation is available only while the edition lifecycle is
+`unpublished`, `published`, or `offline`. `cancelled`, `archived`, and `expired`
+editions return `409 conflict`; those terminal lifecycle states cannot start a
+new publication workflow.
+
+If the latest candidate is `rejected` or `returned`, this endpoint copies that
+immutable terminal candidate so editing can continue in a new draft. The new
+draft still records the current public revision as `base_revision_id`; before
+initial publication that value remains `null`.
+
+The request requires the source-backed reason for preparing the replacement:
+
+```json
+{
+  "reason": "Official notice postponed the registration deadline"
+}
+```
+
+The response is the complete draft revision read model, including
+`change_reason`, base/current public identifiers, comparison, completeness, and
+live subscriber/reminder impact. Approval records the reviewer comment as the
+reason on the single revision-scoped reconciliation audit event.
+
 ### `PATCH /admin/competition_revisions/{revision_id}`
 
-Update one draft revision. Submitted and decided revisions are immutable.
-Stage and time-node editing is identity-aware and must not use blind list
-replacement after reminder-dependent state exists.
+Update one draft revision. A `pending_review` revision is content-frozen until
+it is explicitly withdrawn to `draft`; decided revisions are immutable. Stage
+and time-node editing is identity-aware and must not use blind list replacement
+after reminder-dependent state exists.
 
 ### `POST /admin/competition_revisions/{revision_id}/submit_review`
 
@@ -1186,6 +1219,14 @@ Submission derives and freezes each time node's effective `node_revision`
 against the immutable base revision. Clients may submit logical keys and node
 facts but cannot assign authoritative node-revision numbers.
 
+### `POST /admin/competition_revisions/{revision_id}/withdraw`
+
+Withdraw a `pending_review` revision back to editable `draft`. The endpoint
+requires `competition_editor`, clears the prior submission actor and instant,
+and appends a `competition_revision.withdraw` audit event. Decided revisions
+remain immutable; withdrawing any state other than `pending_review` returns
+`409 conflict`.
+
 ### `POST /admin/competition_revisions/{revision_id}/review`
 
 Approve, reject, or return a competition.
@@ -1202,6 +1243,25 @@ candidate's `base_revision_id` still equals the edition's
 mismatch returns `409 stale_revision`, changes no public pointer, and appends no
 terminal review decision. The reviewer must reload the comparison and an editor
 must create a successor from the current public revision.
+
+Approval is rejected with `409 conflict` when the edition is already
+`cancelled`, `archived`, or `expired`, including when the candidate was
+submitted before the terminal lifecycle transition. The candidate remains
+pending and the public pointer and engagement state remain unchanged; a
+reviewer may still reject or return it, or an editor may explicitly withdraw
+it to draft.
+
+Replacement approval locks and requires each affected subscriber's global
+reminder setting before changing the public pointer. Missing student-owned
+settings fail the transaction with `500 internal_server_error`; a disabled
+global switch prevents new ordinary reminder plans without suppressing the
+schedule-change message.
+
+When the edition is `offline`, approval restores publication only if the
+candidate was submitted after the current `lifecycle_changed_at` withdrawal
+instant and differs from the selected public baseline. Otherwise the API
+returns `409 offline_restoration_requires_corrected_revision`, keeps the public
+pointer and lifecycle state unchanged, and appends no terminal review decision.
 
 Request:
 

@@ -596,6 +596,8 @@ def test_public_detail_keeps_historical_editions_viewable_with_status(client) ->
         source_name="Example University Notice",
         source_url="https://example.edu/notices/historical-archive",
         status=CompetitionStatus.ARCHIVED,
+        lifecycle_reason="Official archive notice",
+        lifecycle_changed_at=datetime(2026, 7, 15, 9, 0, tzinfo=UTC),
     )
     db.session.add(archived)
     db.session.flush()
@@ -609,6 +611,11 @@ def test_public_detail_keeps_historical_editions_viewable_with_status(client) ->
     assert data["id"] == 150
     assert data["status"] == "archived"
     assert data["content_updated_at"] is not None
+    assert data["lifecycle_warning"] == {
+        "status": "archived",
+        "reason": "Official archive notice",
+        "changed_at": "2026-07-15T09:00:00+00:00",
+    }
 
 
 def test_outbound_click_records_controlled_current_public_link(client) -> None:

@@ -82,6 +82,7 @@ E2E_ACTORS = (
         role=UserRole.ADMIN,
         capabilities=(
             "competition_editor",
+            "competition_maintainer",
             "recommendation_editor",
             "recommendation_reviewer",
         ),
@@ -323,6 +324,8 @@ def _seed_publication_fixture() -> None:
         suitable_majors=["Computer Science"],
         suitable_grades=["Year 2"],
         status=CompetitionStatus.ARCHIVED,
+        lifecycle_reason="Official archive notice retained for student reference.",
+        lifecycle_changed_at=decided_at,
         created_by_id=1002,
     )
     historical_revision = CompetitionRevision(

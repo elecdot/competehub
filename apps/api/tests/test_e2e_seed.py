@@ -112,6 +112,10 @@ def test_e2e_seed_rebuilds_the_expected_actor_set() -> None:
         assert revision.stages[0].time_nodes[0].due_at is None
         assert revision.official_url == "https://example.org/seeded-innovation-2025"
         assert historical_edition.status == CompetitionStatus.ARCHIVED
+        assert historical_edition.lifecycle_reason == (
+            "Official archive notice retained for student reference."
+        )
+        assert historical_edition.lifecycle_changed_at is not None
         assert historical_edition.published_revision_id == historical_revision.id
         assert [link.tag.name for link in revision.tag_links] == ["人工智能"]
         recommendation_rule_set = db.session.query(RecommendationRuleSet).one()

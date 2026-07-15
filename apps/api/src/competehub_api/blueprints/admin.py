@@ -25,6 +25,7 @@ from competehub_api.schemas.competition_admin import (
     competition_series_create_schema,
     competition_series_schema,
     competition_status_schema,
+    competition_successor_revision_schema,
     edition_create_schema,
 )
 from competehub_api.services.auth import current_user
@@ -40,9 +41,11 @@ from competehub_api.services.competition_revision_views import (
 from competehub_api.services.competition_revisions import (
     create_edition_with_revision,
     create_series,
+    create_successor_revision,
     review_revision,
     submit_revision,
     update_revision,
+    withdraw_revision,
 )
 from competehub_api.services.errors import ServiceError
 
@@ -69,6 +72,27 @@ def create_competition():
         return _service_error_response(error)
 
     return success_response(edition_workspace_read_model(competition), HTTPStatus.CREATED)
+
+
+@admin_bp.post("/admin/competitions/<int:competition_id>/revisions")
+def create_competition_successor_revision(competition_id: int):
+    actor, response = _require_admin("competition_editor")
+    if response is not None:
+        return response
+    competition, response = _get_competition(competition_id)
+    if response is not None:
+        return response
+    try:
+        payload = load_payload(
+            competition_successor_revision_schema,
+            request.get_json(silent=True),
+        )
+        revision = create_successor_revision(competition, actor, payload["reason"])
+    except ValidationError as error:
+        return validation_error_response(error)
+    except ServiceError as error:
+        return _service_error_response(error)
+    return success_response(revision_read_model(revision), HTTPStatus.CREATED)
 
 
 @admin_bp.get("/admin/competition_series")
@@ -167,6 +191,21 @@ def submit_competition_revision(revision_id: int):
         return error_response(HTTPStatus.NOT_FOUND, "not_found", "competition revision not found")
     try:
         revision = submit_revision(revision, actor)
+    except ServiceError as error:
+        return _service_error_response(error)
+    return success_response(revision_read_model(revision))
+
+
+@admin_bp.post("/admin/competition_revisions/<int:revision_id>/withdraw")
+def withdraw_competition_revision(revision_id: int):
+    actor, response = _require_admin("competition_editor")
+    if response is not None:
+        return response
+    revision = get_competition_revision(revision_id)
+    if revision is None:
+        return error_response(HTTPStatus.NOT_FOUND, "not_found", "competition revision not found")
+    try:
+        revision = withdraw_revision(revision, actor)
     except ServiceError as error:
         return _service_error_response(error)
     return success_response(revision_read_model(revision))
