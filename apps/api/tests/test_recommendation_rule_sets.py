@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -413,6 +414,71 @@ def test_distinct_reviewer_atomically_activates_candidate_and_retires_base(app) 
             "recommendation_rule_set.activate",
             "recommendation_rule_set.retire",
         }
+
+
+@pytest.mark.parametrize(
+    ("action", "expected_audit_keys"),
+    [
+        (
+            "approve",
+            {
+                "recommendation_rule_set.approve": {"version"},
+                "recommendation_rule_set.activate": {"version"},
+                "recommendation_rule_set.retire": {"version", "successor_version"},
+            },
+        ),
+        ("reject", {"recommendation_rule_set.reject": {"version"}}),
+        ("return", {"recommendation_rule_set.return": {"version"}}),
+    ],
+)
+def test_review_comment_is_kept_out_of_action_allowlisted_audit_detail(
+    app,
+    action: str,
+    expected_audit_keys: dict[str, set[str]],
+) -> None:
+    with app.app_context():
+        active = seed_initial_recommendation_rule_set()
+        editor = _create_admin(f"{action}-audit-editor@example.edu", "Audit Editor")
+        reviewer = _create_admin(f"{action}-audit-reviewer@example.edu", "Audit Reviewer")
+        candidate = _changed_submitted_candidate(active, editor)
+        comment = "DO-NOT-COPY account@example.edu profile=software-engineering"
+
+        review_recommendation_rule_set(
+            candidate.id,
+            reviewer,
+            action,
+            f"  {comment}  ",
+        )
+
+        decision = ReviewRecord.query.filter_by(
+            target_type="recommendation_rule_set",
+            target_id=candidate.id,
+        ).one()
+        assert decision.comment == comment
+
+        terminal_actions = {
+            "recommendation_rule_set.approve",
+            "recommendation_rule_set.reject",
+            "recommendation_rule_set.return",
+            "recommendation_rule_set.activate",
+            "recommendation_rule_set.retire",
+        }
+        terminal_audits = AuditLog.query.filter(
+            AuditLog.target_type == "recommendation_rule_set",
+            AuditLog.action.in_(terminal_actions),
+        ).all()
+        audits_by_action = {
+            audit_action: [audit for audit in terminal_audits if audit.action == audit_action]
+            for audit_action in expected_audit_keys
+        }
+
+        assert {audit.action for audit in terminal_audits} == set(expected_audit_keys)
+        assert all(len(audits) == 1 for audits in audits_by_action.values())
+        for audit_action, allowed_keys in expected_audit_keys.items():
+            detail = audits_by_action[audit_action][0].detail
+            assert set(detail) == allowed_keys
+            assert "comment" not in detail
+            assert comment not in json.dumps(detail, ensure_ascii=False)
 
 
 def test_stale_approve_returns_conflict_without_terminal_review_record(app) -> None:

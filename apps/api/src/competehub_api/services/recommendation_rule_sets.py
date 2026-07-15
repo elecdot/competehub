@@ -307,7 +307,7 @@ def review_recommendation_rule_set(
         actor,
         f"recommendation_rule_set.{action}",
         candidate,
-        {"version": candidate.version, "comment": normalized_comment},
+        {"version": candidate.version},
     )
     if action == "approve":
         _write_rule_set_audit(
