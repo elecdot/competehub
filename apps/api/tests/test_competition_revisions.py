@@ -116,6 +116,25 @@ def create_edition(client, series_id: int) -> dict:
     return response.get_json()["data"]
 
 
+def create_published_edition(client, editor_id: int, reviewer_id: int) -> dict:
+    edition = create_edition(client, create_series(client))
+    revision_id = edition["revision"]["id"]
+    assert (
+        client.post(f"/api/v1/admin/competition_revisions/{revision_id}/submit_review").status_code
+        == 200
+    )
+    login(client, reviewer_id)
+    assert (
+        client.post(
+            f"/api/v1/admin/competition_revisions/{revision_id}/review",
+            json={"action": "approve", "comment": "Initial publication verified."},
+        ).status_code
+        == 200
+    )
+    login(client, editor_id)
+    return edition
+
+
 def test_editor_creates_series_and_immutable_candidate_revision(client, app) -> None:
     with app.app_context():
         editor_id = create_user(10, UserRole.ADMIN, "editor@example.edu", ["competition_editor"])
@@ -813,25 +832,8 @@ def test_emergency_offline_cannot_flip_back_but_approved_successor_restores_publ
             52, UserRole.ADMIN, "offline-reviewer@example.edu", ["competition_reviewer"]
         )
     login(client, editor_id)
-    edition = create_edition(client, create_series(client))
+    edition = create_published_edition(client, editor_id, reviewer_id)
     edition_id = edition["id"]
-    initial_revision_id = edition["revision"]["id"]
-    assert (
-        client.post(
-            f"/api/v1/admin/competition_revisions/{initial_revision_id}/submit_review"
-        ).status_code
-        == 200
-    )
-    login(client, reviewer_id)
-    assert (
-        client.post(
-            f"/api/v1/admin/competition_revisions/{initial_revision_id}/review",
-            json={"action": "approve", "comment": "Initial publication verified."},
-        ).status_code
-        == 200
-    )
-
-    login(client, editor_id)
     assert (
         client.patch(
             f"/api/v1/admin/competitions/{edition_id}/status",
@@ -846,6 +848,33 @@ def test_emergency_offline_cannot_flip_back_but_approved_successor_restores_publ
     )
     assert direct_restore.status_code == 409
 
+    unchanged = client.post(
+        f"/api/v1/admin/competitions/{edition_id}/revisions",
+        json={"reason": "Recheck the withdrawn public facts."},
+    ).get_json()["data"]
+    unchanged_id = unchanged["id"]
+    assert (
+        client.post(f"/api/v1/admin/competition_revisions/{unchanged_id}/submit_review").status_code
+        == 200
+    )
+    login(client, reviewer_id)
+    unchanged_approval = client.post(
+        f"/api/v1/admin/competition_revisions/{unchanged_id}/review",
+        json={"action": "approve", "comment": "No correction was supplied."},
+    )
+    assert unchanged_approval.status_code == 409
+    assert unchanged_approval.get_json()["error"]["code"] == (
+        "offline_restoration_requires_corrected_revision"
+    )
+    assert (
+        client.post(
+            f"/api/v1/admin/competition_revisions/{unchanged_id}/review",
+            json={"action": "reject", "comment": "A corrected fact is required."},
+        ).status_code
+        == 200
+    )
+
+    login(client, editor_id)
     successor = client.post(
         f"/api/v1/admin/competitions/{edition_id}/revisions",
         json={"reason": "Replace the compromised official link."},
@@ -875,6 +904,67 @@ def test_emergency_offline_cannot_flip_back_but_approved_successor_restores_publ
     assert restored.get_json()["data"]["revision_id"] == successor_id
     assert restored.get_json()["data"]["status"] == "published"
     assert restored.get_json()["data"]["official_url"] == "https://safe.example.org/ai-2026"
+
+
+def test_emergency_offline_rejects_candidate_submitted_before_withdrawal(client, app) -> None:
+    with app.app_context():
+        editor_id = create_user(
+            55,
+            UserRole.ADMIN,
+            "offline-stale-editor@example.edu",
+            ["competition_editor", "competition_maintainer"],
+        )
+        reviewer_id = create_user(
+            56,
+            UserRole.ADMIN,
+            "offline-stale-reviewer@example.edu",
+            ["competition_reviewer"],
+        )
+    login(client, editor_id)
+    edition = create_published_edition(client, editor_id, reviewer_id)
+    edition_id = edition["id"]
+    initial_revision_id = edition["revision"]["id"]
+    successor = client.post(
+        f"/api/v1/admin/competitions/{edition_id}/revisions",
+        json={"reason": "Prepare a replacement official link."},
+    ).get_json()["data"]
+    successor_id = successor["id"]
+    assert (
+        client.patch(
+            f"/api/v1/admin/competition_revisions/{successor_id}",
+            json={"official_url": "https://candidate.example.org/ai-2026"},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(f"/api/v1/admin/competition_revisions/{successor_id}/submit_review").status_code
+        == 200
+    )
+    assert (
+        client.patch(
+            f"/api/v1/admin/competitions/{edition_id}/status",
+            json={"status": "offline", "reason": "A later source-integrity incident."},
+        ).status_code
+        == 200
+    )
+
+    login(client, reviewer_id)
+    response = client.post(
+        f"/api/v1/admin/competition_revisions/{successor_id}/review",
+        json={"action": "approve", "comment": "The older candidate looked valid."},
+    )
+
+    assert response.status_code == 409
+    assert response.get_json()["error"]["code"] == (
+        "offline_restoration_requires_corrected_revision"
+    )
+    with app.app_context():
+        competition = db.session.get(Competition, edition_id)
+        candidate = db.session.get(CompetitionRevision, successor_id)
+        assert competition.status.value == "offline"
+        assert competition.published_revision_id == initial_revision_id
+        assert candidate.revision_status.value == "pending_review"
+        assert ReviewRecord.query.filter_by(target_id=successor_id).count() == 0
 
 
 def test_archive_and_expire_reject_current_public_future_nodes(client, app) -> None:

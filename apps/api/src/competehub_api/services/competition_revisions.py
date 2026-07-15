@@ -392,6 +392,35 @@ def review_revision(
     if edition is None:
         raise ServiceError(HTTPStatus.NOT_FOUND, "not_found", "competition edition not found")
     if action == "approve":
+        if edition.status == CompetitionStatus.OFFLINE and (
+            revision.submitted_at is None
+            or edition.lifecycle_changed_at is None
+            or _aware_utc(revision.submitted_at) <= _aware_utc(edition.lifecycle_changed_at)
+        ):
+            raise ServiceError(
+                HTTPStatus.CONFLICT,
+                "offline_restoration_requires_corrected_revision",
+                "offline restoration requires a corrected revision submitted after withdrawal",
+                {
+                    "offline_changed_at": (
+                        _aware_utc(edition.lifecycle_changed_at).isoformat()
+                        if edition.lifecycle_changed_at is not None
+                        else None
+                    ),
+                    "submitted_at": (
+                        _aware_utc(revision.submitted_at).isoformat()
+                        if revision.submitted_at is not None
+                        else None
+                    ),
+                },
+            )
+        if edition.status == CompetitionStatus.OFFLINE and not differences:
+            raise ServiceError(
+                HTTPStatus.CONFLICT,
+                "offline_restoration_requires_corrected_revision",
+                "offline restoration requires a corrected revision with changed facts",
+                {"correction_required": True},
+            )
         if revision.base_revision_id != edition.published_revision_id:
             raise ServiceError(
                 HTTPStatus.CONFLICT,

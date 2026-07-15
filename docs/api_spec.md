@@ -83,6 +83,7 @@ boundaries to UTC before comparing stored instants. See
 | 409 | `conflict` | Request conflicts with current resource state. |
 | 409 | `active_revision_exists` | The edition already has its one active draft or pending revision. |
 | 409 | `stale_revision` | A submitted replacement was reviewed against a public revision that is no longer current. |
+| 409 | `offline_restoration_requires_corrected_revision` | An offline edition can be restored only by a changed candidate submitted after the current withdrawal. |
 | 409 | `engagement_unavailable` | The current edition lifecycle does not permit the requested favorite/subscription mutation. |
 | 429 | `rate_limited` | Too many attempts; retry after the indicated delay. |
 | 500 | `internal_server_error` | Unexpected server error. |
@@ -1206,6 +1207,12 @@ candidate's `base_revision_id` still equals the edition's
 mismatch returns `409 stale_revision`, changes no public pointer, and appends no
 terminal review decision. The reviewer must reload the comparison and an editor
 must create a successor from the current public revision.
+
+When the edition is `offline`, approval restores publication only if the
+candidate was submitted after the current `lifecycle_changed_at` withdrawal
+instant and differs from the selected public baseline. Otherwise the API
+returns `409 offline_restoration_requires_corrected_revision`, keeps the public
+pointer and lifecycle state unchanged, and appends no terminal review decision.
 
 Request:
 
