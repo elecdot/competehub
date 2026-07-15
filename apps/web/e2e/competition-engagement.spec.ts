@@ -188,6 +188,65 @@ test.describe('competition engagement', () => {
     expect(resubscriptionMutations).toBe(1)
     await expect(actorPage.getByTestId('subscription-summary')).toContainText('已订阅')
   })
+  test('renders only canonical selectable nodes and filters persisted consent', async ({ actorPage }) => {
+    const competition = await firstPublicCompetition(actorPage)
+    await mockCompetitionDetailNodes(actorPage, competition.id, [
+      { node_type: 'submission_deadline', occurs_at: '2030-03-01T00:00:00Z' },
+      { node_type: 'unknown_future_node', occurs_at: '2030-03-02T00:00:00Z' },
+      { node_type: 'registration_deadline', occurs_at: '2030-03-03T00:00:00Z' },
+      { node_type: 'competition_start', occurs_at: null },
+    ], {
+      is_subscribed: true,
+      subscription_summary: {
+        competition_id: competition.id,
+        status: 'active',
+        is_subscribed: true,
+        reminder_enabled: true,
+        remind_days: 4,
+        node_types: ['registration_deadline', 'competition_start'],
+      },
+    })
+
+    await actorPage.goto(`/competitions/${competition.id}`)
+    await actorPage.reload()
+    await actorPage.getByTestId('subscription-action').click()
+    const consent = actorPage.getByTestId('subscription-consent')
+
+    await expect(consent.getByTestId('subscription-node-registration_deadline')).toBeChecked()
+    await expect(consent.getByTestId('subscription-node-submission_deadline')).not.toBeChecked()
+    await expect(consent.getByTestId('subscription-node-competition_start')).toHaveCount(0)
+    await expect(consent.locator('[data-testid^="subscription-node-"]')).toHaveCount(2)
+    expect(await consent.locator('[data-testid^="subscription-node-"]').evaluateAll(
+      (nodes) => nodes.map((node) => node.getAttribute('data-testid')),
+    )).toEqual([
+      'subscription-node-registration_deadline',
+      'subscription-node-submission_deadline',
+    ])
+  })
+
+  test('does not open or submit a subscription form when no selectable nodes exist', async ({
+    actorPage,
+  }) => {
+    const competition = await firstPublicCompetition(actorPage)
+    await mockCompetitionDetailNodes(actorPage, competition.id, [
+      { node_type: 'unknown_future_node', occurs_at: '2030-03-02T00:00:00Z' },
+      { node_type: 'registration_deadline', occurs_at: null },
+    ])
+    let subscriptionMutations = 0
+    await actorPage.route(`**/api/v1/competitions/${competition.id}/subscription`, async (route) => {
+      if (route.request().method() === 'POST' || route.request().method() === 'PATCH') {
+        subscriptionMutations += 1
+      }
+      await route.continue()
+    })
+
+    await actorPage.goto(`/competitions/${competition.id}`)
+    await actorPage.getByTestId('subscription-action').click()
+
+    await expect(actorPage.getByTestId('subscription-consent')).toHaveCount(0)
+    await expect(actorPage.getByRole('alert')).toContainText('没有可订阅的提醒节点')
+    expect(subscriptionMutations).toBe(0)
+  })
 })
 
 test.describe('first subscription consent', () => {
@@ -205,7 +264,10 @@ test.describe('first subscription consent', () => {
     actorPage,
   }) => {
     const competition = await firstPublicCompetition(actorPage)
-    const defaultNodeTypes = competition.nodeTypes.slice(0, 1)
+    const defaultNodeTypes: SubscriptionNodeType[] = [
+      'registration_deadline',
+      'competition_start',
+    ]
     originalProfileReadyReminderSettings = await fetchReminderSettings(actorPage)
     await updateReminderSettings(actorPage, {
       message_enabled: false,
@@ -219,6 +281,11 @@ test.describe('first subscription consent', () => {
       }
       await route.continue()
     })
+    await mockCompetitionDetailNodes(actorPage, competition.id, [
+      { node_type: 'submission_deadline', occurs_at: '2030-03-01T00:00:00Z' },
+      { node_type: 'registration_deadline', occurs_at: '2030-03-03T00:00:00Z' },
+      { node_type: 'competition_start', occurs_at: null },
+    ])
 
     await actorPage.goto(`/competitions/${competition.id}`)
     await actorPage.getByTestId('subscription-action').click()
@@ -226,15 +293,57 @@ test.describe('first subscription consent', () => {
 
     await expect(consent.getByLabel('启用提醒')).not.toBeChecked()
     await expect(consent.getByLabel('提前天数')).toHaveValue('8')
-    for (const nodeType of competition.nodeTypes) {
-      const node = consent.getByLabel(subscriptionNodeLabels[nodeType])
-      if (defaultNodeTypes.includes(nodeType)) {
-        await expect(node).toBeChecked()
-      } else {
-        await expect(node).not.toBeChecked()
-      }
-    }
+    await expect(consent.getByTestId('subscription-node-registration_deadline')).toBeChecked()
+    await expect(consent.getByTestId('subscription-node-submission_deadline')).not.toBeChecked()
+    await expect(consent.getByTestId('subscription-node-competition_start')).toHaveCount(0)
     expect(subscriptionMutations).toBe(0)
+  })
+
+  test('filters unavailable reminder defaults from the subscription payload', async ({ actorPage }) => {
+    const competition = await firstPublicCompetition(actorPage)
+    originalProfileReadyReminderSettings = await fetchReminderSettings(actorPage)
+    await updateReminderSettings(actorPage, {
+      message_enabled: true,
+      default_remind_days: 3,
+      default_reminder_node_types: ['registration_deadline', 'competition_start'],
+    })
+    await mockCompetitionDetailNodes(actorPage, competition.id, [
+      { node_type: 'submission_deadline', occurs_at: '2030-03-01T00:00:00Z' },
+      { node_type: 'registration_deadline', occurs_at: '2030-03-03T00:00:00Z' },
+      { node_type: 'competition_start', occurs_at: null },
+    ])
+    let payload: unknown = null
+    await actorPage.route(`**/api/v1/competitions/${competition.id}/subscription`, async (route) => {
+      if (route.request().method() !== 'POST') {
+        await route.continue()
+        return
+      }
+      payload = route.request().postDataJSON()
+      await route.fulfill({
+        json: {
+          data: {
+            competition_id: competition.id,
+            status: 'active',
+            is_subscribed: true,
+            reminder_enabled: true,
+            remind_days: 3,
+            node_types: ['registration_deadline'],
+          },
+          error: null,
+        },
+      })
+    })
+
+    await actorPage.goto(`/competitions/${competition.id}`)
+    await actorPage.getByTestId('subscription-action').click()
+    const consent = actorPage.getByTestId('subscription-consent')
+    await consent.locator('button[type="submit"]').click()
+
+    expect(payload).toEqual({
+      reminder_enabled: true,
+      remind_days: 3,
+      node_types: ['registration_deadline'],
+    })
   })
 })
 
@@ -275,6 +384,44 @@ async function firstPublicCompetition(page: import('@playwright/test').Page) {
     .filter(isSubscriptionNodeType)
   expect(nodeTypes, 'the public competition should expose a selectable reminder node').not.toEqual([])
   return { ...competition, nodeTypes }
+}
+
+type MockTimeNode = { node_type: string; occurs_at: string | null }
+
+async function mockCompetitionDetailNodes(
+  page: import('@playwright/test').Page,
+  competitionId: number,
+  nodeDefinitions: MockTimeNode[],
+  overrides: Record<string, unknown> = {},
+) {
+  const response = await page.request.get(`/api/v1/competitions/${competitionId}`)
+  expect(response).toBeOK()
+  const payload = (await response.json()) as {
+    data: { time_nodes: Array<Record<string, unknown>> } & Record<string, unknown>
+  }
+  const template = payload.data.time_nodes[0]
+  expect(template, 'the e2e seed should include a time node to build a detail fixture').toBeDefined()
+  if (!template) throw new Error('missing e2e time-node fixture')
+  const detailFixture = {
+    ...payload,
+    data: {
+      ...payload.data,
+      ...overrides,
+      time_nodes: nodeDefinitions.map((node, index) => ({
+        ...template,
+        id: Number(template.id) + index + 1000,
+        node_type: node.node_type,
+        occurs_at: node.occurs_at,
+      })),
+    },
+  }
+  await page.route(`**/api/v1/competitions/${competitionId}`, async (route) => {
+    if (route.request().method() !== 'GET') {
+      await route.continue()
+      return
+    }
+    await route.fulfill({ json: detailFixture })
+  })
 }
 
 async function selectSubscriptionNodeTypes(

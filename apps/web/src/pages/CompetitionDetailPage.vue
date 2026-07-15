@@ -70,7 +70,7 @@ const subscriptionNodeOptions: Array<{ value: SubscriptionNodeType; label: strin
 const isStudent = computed(() => auth.currentUser?.role === 'student')
 const canStartEngagement = computed(() => auth.currentUser === null || isStudent.value)
 const currentSubscriptionState = computed(() => competition.value?.is_subscribed ?? false)
-const availableSubscriptionNodeTypes = computed<SubscriptionNodeType[]>(() => {
+const selectableSubscriptionNodeTypes = computed<SubscriptionNodeType[]>(() => {
   if (!competition.value) return []
   return subscriptionNodeOptions
     .map((option) => option.value)
@@ -80,6 +80,11 @@ const availableSubscriptionNodeTypes = computed<SubscriptionNodeType[]>(() => {
       ),
     )
 })
+const selectableSubscriptionNodeOptions = computed(() =>
+  subscriptionNodeOptions.filter((option) =>
+    selectableSubscriptionNodeTypes.value.includes(option.value),
+  ),
+)
 const subscriptionFormIsValid = computed(
   () =>
     Number.isInteger(subscriptionFormDraft.value.remind_days) &&
@@ -178,6 +183,10 @@ async function openSubscriptionConsent() {
   if (!isStudent.value) return
 
   engagementError.value = ''
+  if (selectableSubscriptionNodeTypes.value.length === 0) {
+    engagementError.value = '当前赛事没有可订阅的提醒节点。'
+    return
+  }
   if (persistedSubscriptionConsent.value === null && authoritativeReminderSettings.value === null) {
     await loadAuthoritativeReminderSettings()
   }
@@ -189,8 +198,8 @@ async function openSubscriptionConsent() {
   subscriptionFormDraft.value = {
     reminder_enabled: prefill.reminder_enabled,
     remind_days: prefill.remind_days,
-    node_types: prefill.node_types.filter((type) =>
-      availableSubscriptionNodeTypes.value.includes(type),
+    node_types: selectableSubscriptionNodeTypes.value.filter((type) =>
+      prefill.node_types.includes(type),
     ),
   }
   showSubscriptionConsent.value = true
@@ -198,13 +207,20 @@ async function openSubscriptionConsent() {
 
 async function saveSubscription() {
   if (!competition.value || subscriptionPending.value || !subscriptionFormIsValid.value) return
+  const nodeTypes = selectableSubscriptionNodeTypes.value.filter((type) =>
+    subscriptionFormDraft.value.node_types.includes(type),
+  )
+  if (nodeTypes.length === 0) {
+    engagementError.value = '当前赛事没有可订阅的提醒节点。'
+    return
+  }
   subscriptionPending.value = true
   engagementError.value = ''
   try {
     const payload: SubscriptionConsent = {
       reminder_enabled: subscriptionFormDraft.value.reminder_enabled,
       remind_days: subscriptionFormDraft.value.remind_days,
-      node_types: [...subscriptionFormDraft.value.node_types],
+      node_types: nodeTypes,
     }
     subscriptionSummary.value = currentSubscriptionState.value
       ? await updateCompetitionSubscription(competition.value.id, payload)
@@ -458,12 +474,15 @@ onMounted(() => {
             <AInputNumber v-model:value="subscriptionFormDraft.remind_days" :min="0" :max="30" />
           </AFormItem>
           <AFormItem label="提醒节点" name="node_types">
-            <ACheckboxGroup v-model:value="subscriptionFormDraft.node_types">
+            <ACheckboxGroup
+              data-testid="subscription-node-options"
+              v-model:value="subscriptionFormDraft.node_types"
+            >
               <ACheckbox
-                v-for="option in subscriptionNodeOptions"
+                v-for="option in selectableSubscriptionNodeOptions"
                 :key="option.value"
                 :value="option.value"
-                :disabled="!availableSubscriptionNodeTypes.includes(option.value)"
+                :data-testid="`subscription-node-${option.value}`"
               >
                 {{ option.label }}
               </ACheckbox>
