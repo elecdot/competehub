@@ -26,6 +26,7 @@ import {
   createCompetitionSubscription,
   favoriteCompetition,
   fetchCompetitionDetail,
+  fetchCurrentProfile,
   unfavoriteCompetition,
   updateCompetitionSubscription,
 } from '@/api/client'
@@ -54,9 +55,11 @@ const subscriptionPending = ref(false)
 const engagementError = ref('')
 const showSubscriptionConsent = ref(false)
 const subscriptionSummary = ref<SubscriptionSummary | null>(null)
-const subscriptionForm = ref<SubscriptionConsent>({
-  reminder_enabled: true,
-  remind_days: 3,
+const authoritativeReminderSettings = ref<SubscriptionConsent | null>(null)
+const persistedSubscriptionConsent = ref<SubscriptionConsent | null>(null)
+const subscriptionFormDraft = ref<SubscriptionConsent>({
+  reminder_enabled: false,
+  remind_days: 0,
   node_types: [],
 })
 const subscriptionNodeOptions: Array<{ value: SubscriptionNodeType; label: string }> = [
@@ -66,6 +69,7 @@ const subscriptionNodeOptions: Array<{ value: SubscriptionNodeType; label: strin
 ]
 const isStudent = computed(() => auth.currentUser?.role === 'student')
 const canStartEngagement = computed(() => auth.currentUser === null || isStudent.value)
+const currentSubscriptionState = computed(() => competition.value?.is_subscribed ?? false)
 const availableSubscriptionNodeTypes = computed<SubscriptionNodeType[]>(() => {
   if (!competition.value) return []
   return subscriptionNodeOptions
@@ -78,11 +82,33 @@ const availableSubscriptionNodeTypes = computed<SubscriptionNodeType[]>(() => {
 })
 const subscriptionFormIsValid = computed(
   () =>
-    Number.isInteger(subscriptionForm.value.remind_days) &&
-    subscriptionForm.value.remind_days >= 0 &&
-    subscriptionForm.value.remind_days <= 30 &&
-    subscriptionForm.value.node_types.length > 0,
+    Number.isInteger(subscriptionFormDraft.value.remind_days) &&
+    subscriptionFormDraft.value.remind_days >= 0 &&
+    subscriptionFormDraft.value.remind_days <= 30 &&
+    subscriptionFormDraft.value.node_types.length > 0,
 )
+
+function consentFromSummary(summary: SubscriptionSummary): SubscriptionConsent {
+  return {
+    reminder_enabled: summary.reminder_enabled,
+    remind_days: summary.remind_days,
+    node_types: [...summary.node_types],
+  }
+}
+
+async function loadAuthoritativeReminderSettings() {
+  if (!isStudent.value) return
+  try {
+    const profile = await fetchCurrentProfile()
+    authoritativeReminderSettings.value = {
+      reminder_enabled: profile.message_enabled,
+      remind_days: profile.default_remind_days,
+      node_types: [...profile.default_reminder_node_types],
+    }
+  } catch {
+    authoritativeReminderSettings.value = null
+  }
+}
 
 async function loadCompetition() {
   const routeId = Array.isArray(route.params.id) ? route.params.id[0] : route.params.id
@@ -102,6 +128,9 @@ async function loadCompetition() {
     const detail = await fetchCompetitionDetail(competitionId)
     competition.value = detail
     subscriptionSummary.value = detail.subscription_summary
+    persistedSubscriptionConsent.value = detail.subscription_summary
+      ? consentFromSummary(detail.subscription_summary)
+      : null
   } catch (error) {
     competition.value = null
     if (isAxiosError(error) && error.response?.status === 404) {
@@ -140,7 +169,7 @@ async function toggleFavorite() {
   }
 }
 
-function openSubscriptionConsent() {
+async function openSubscriptionConsent() {
   if (!competition.value || subscriptionPending.value) return
   if (!auth.currentUser) {
     loginForEngagement()
@@ -149,13 +178,20 @@ function openSubscriptionConsent() {
   if (!isStudent.value) return
 
   engagementError.value = ''
-  const previous = subscriptionSummary.value
-  subscriptionForm.value = {
-    reminder_enabled: previous?.reminder_enabled ?? true,
-    remind_days: previous?.remind_days ?? 3,
-    node_types: previous
-      ? previous.node_types.filter((type) => availableSubscriptionNodeTypes.value.includes(type))
-      : [...availableSubscriptionNodeTypes.value],
+  if (persistedSubscriptionConsent.value === null && authoritativeReminderSettings.value === null) {
+    await loadAuthoritativeReminderSettings()
+  }
+  const prefill = persistedSubscriptionConsent.value ?? authoritativeReminderSettings.value
+  if (prefill === null) {
+    engagementError.value = '提醒默认设置暂时无法加载，请稍后重试。'
+    return
+  }
+  subscriptionFormDraft.value = {
+    reminder_enabled: prefill.reminder_enabled,
+    remind_days: prefill.remind_days,
+    node_types: prefill.node_types.filter((type) =>
+      availableSubscriptionNodeTypes.value.includes(type),
+    ),
   }
   showSubscriptionConsent.value = true
 }
@@ -166,14 +202,15 @@ async function saveSubscription() {
   engagementError.value = ''
   try {
     const payload: SubscriptionConsent = {
-      reminder_enabled: subscriptionForm.value.reminder_enabled,
-      remind_days: subscriptionForm.value.remind_days,
-      node_types: [...subscriptionForm.value.node_types],
+      reminder_enabled: subscriptionFormDraft.value.reminder_enabled,
+      remind_days: subscriptionFormDraft.value.remind_days,
+      node_types: [...subscriptionFormDraft.value.node_types],
     }
-    subscriptionSummary.value = competition.value.is_subscribed
+    subscriptionSummary.value = currentSubscriptionState.value
       ? await updateCompetitionSubscription(competition.value.id, payload)
       : await createCompetitionSubscription(competition.value.id, payload)
     competition.value.is_subscribed = subscriptionSummary.value.is_subscribed
+    persistedSubscriptionConsent.value = consentFromSummary(subscriptionSummary.value)
     showSubscriptionConsent.value = false
   } catch {
     engagementError.value = '订阅设置保存失败，请检查后重试。'
@@ -198,7 +235,7 @@ async function cancelSubscription() {
 }
 
 onMounted(() => {
-  void auth.loadCurrentUser()
+  void auth.loadCurrentUser().then(() => loadAuthoritativeReminderSettings())
   void loadCompetition()
 })
 </script>
@@ -410,18 +447,18 @@ onMounted(() => {
           data-testid="subscription-consent"
           class="profile-form"
           layout="vertical"
-          :model="subscriptionForm"
+          :model="subscriptionFormDraft"
           @finish="saveSubscription"
         >
           <p>请确认本次订阅的提醒设置。</p>
           <AFormItem>
-            <ACheckbox v-model:checked="subscriptionForm.reminder_enabled">启用提醒</ACheckbox>
+            <ACheckbox v-model:checked="subscriptionFormDraft.reminder_enabled">启用提醒</ACheckbox>
           </AFormItem>
           <AFormItem label="提前天数" name="remind_days">
-            <AInputNumber v-model:value="subscriptionForm.remind_days" :min="0" :max="30" />
+            <AInputNumber v-model:value="subscriptionFormDraft.remind_days" :min="0" :max="30" />
           </AFormItem>
           <AFormItem label="提醒节点" name="node_types">
-            <ACheckboxGroup v-model:value="subscriptionForm.node_types">
+            <ACheckboxGroup v-model:value="subscriptionFormDraft.node_types">
               <ACheckbox
                 v-for="option in subscriptionNodeOptions"
                 :key="option.value"

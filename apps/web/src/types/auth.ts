@@ -1,3 +1,5 @@
+import type { SubscriptionNodeType } from './competition'
+
 export type Role = 'student' | 'admin' | 'teacher' | 'organizer'
 
 export type ProfileStatus = 'incomplete' | 'recommendation_ready'
@@ -30,6 +32,7 @@ export interface StudentProfile {
   blocked_tags: string[]
   default_remind_days: number
   message_enabled: boolean
+  default_reminder_node_types: SubscriptionNodeType[]
   profile_status: ProfileStatus
   missing_fields: string[]
 }

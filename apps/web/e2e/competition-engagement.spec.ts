@@ -1,13 +1,27 @@
 import { expect, test } from './fixtures/actors'
 import type { SubscriptionNodeType } from '../src/types/competition'
 
+interface ReminderSettings {
+  message_enabled: boolean
+  default_remind_days: number
+  default_reminder_node_types: SubscriptionNodeType[]
+}
+
 test.describe('competition engagement', () => {
   test.use({ actorName: 'student' })
+  let originalStudentReminderSettings: ReminderSettings | null = null
 
   test.beforeEach(async ({ actorPage }) => {
     const competition = await firstPublicCompetition(actorPage)
     await actorPage.request.delete(`/api/v1/competitions/${competition.id}/favorite`)
     await actorPage.request.delete(`/api/v1/competitions/${competition.id}/subscription`)
+  })
+
+  test.afterEach(async ({ actorPage }) => {
+    if (originalStudentReminderSettings !== null) {
+      await updateReminderSettings(actorPage, originalStudentReminderSettings)
+      originalStudentReminderSettings = null
+    }
   })
 
   test('favorites and unfavorites a competition from the canonical response state', async ({
@@ -56,6 +70,12 @@ test.describe('competition engagement', () => {
   }) => {
     const competition = await firstPublicCompetition(actorPage)
     const persistedNodeTypes = competition.nodeTypes.slice(0, 1)
+    originalStudentReminderSettings = await fetchReminderSettings(actorPage)
+    await updateReminderSettings(actorPage, {
+      message_enabled: true,
+      default_remind_days: 2,
+      default_reminder_node_types: competition.nodeTypes,
+    })
     const created = await actorPage.request.post(`/api/v1/competitions/${competition.id}/subscription`, {
       data: {
         reminder_enabled: false,
@@ -143,7 +163,20 @@ test.describe('competition engagement', () => {
     expect((await cancelResponse).ok()).toBeTruthy()
     await expect(actorPage.getByTestId('subscription-summary')).toContainText('未订阅')
 
+    let resubscriptionMutations = 0
+    await actorPage.route(`**/api/v1/competitions/${competition.id}/subscription`, async (route) => {
+      if (route.request().method() === 'POST') {
+        resubscriptionMutations += 1
+      }
+      await route.continue()
+    })
     await actorPage.getByTestId('subscription-action').click()
+    await expect(consent.getByLabel('启用提醒')).toBeChecked()
+    await expect(consent.getByLabel('提前天数')).toHaveValue('5')
+    for (const nodeType of competition.nodeTypes) {
+      await expect(consent.getByLabel(subscriptionNodeLabels[nodeType])).toBeChecked()
+    }
+    expect(resubscriptionMutations).toBe(0)
     await selectSubscriptionNodeTypes(consent, competition.nodeTypes)
     const resubscribeResponse = actorPage.waitForResponse(
       (response) =>
@@ -152,17 +185,33 @@ test.describe('competition engagement', () => {
     )
     await consent.getByRole('button', { name: '确认订阅' }).click()
     expect((await resubscribeResponse).ok()).toBeTruthy()
+    expect(resubscriptionMutations).toBe(1)
     await expect(actorPage.getByTestId('subscription-summary')).toContainText('已订阅')
   })
 })
 
 test.describe('first subscription consent', () => {
   test.use({ actorName: 'profileReady' })
+  let originalProfileReadyReminderSettings: ReminderSettings | null = null
 
-  test('prefills first subscription consent without creating engagement on read', async ({
+  test.afterEach(async ({ actorPage }) => {
+    if (originalProfileReadyReminderSettings !== null) {
+      await updateReminderSettings(actorPage, originalProfileReadyReminderSettings)
+      originalProfileReadyReminderSettings = null
+    }
+  })
+
+  test('prefills first subscription consent from authoritative reminder settings without mutation', async ({
     actorPage,
   }) => {
     const competition = await firstPublicCompetition(actorPage)
+    const defaultNodeTypes = competition.nodeTypes.slice(0, 1)
+    originalProfileReadyReminderSettings = await fetchReminderSettings(actorPage)
+    await updateReminderSettings(actorPage, {
+      message_enabled: false,
+      default_remind_days: 8,
+      default_reminder_node_types: defaultNodeTypes,
+    })
     let subscriptionMutations = 0
     await actorPage.route(`**/api/v1/competitions/${competition.id}/subscription`, async (route) => {
       if (route.request().method() === 'POST' || route.request().method() === 'PATCH') {
@@ -175,10 +224,15 @@ test.describe('first subscription consent', () => {
     await actorPage.getByTestId('subscription-action').click()
     const consent = actorPage.getByTestId('subscription-consent')
 
-    await expect(consent.getByLabel('启用提醒')).toBeChecked()
-    await expect(consent.getByLabel('提前天数')).toHaveValue('3')
+    await expect(consent.getByLabel('启用提醒')).not.toBeChecked()
+    await expect(consent.getByLabel('提前天数')).toHaveValue('8')
     for (const nodeType of competition.nodeTypes) {
-      await expect(consent.getByLabel(subscriptionNodeLabels[nodeType])).toBeChecked()
+      const node = consent.getByLabel(subscriptionNodeLabels[nodeType])
+      if (defaultNodeTypes.includes(nodeType)) {
+        await expect(node).toBeChecked()
+      } else {
+        await expect(node).not.toBeChecked()
+      }
     }
     expect(subscriptionMutations).toBe(0)
   })
@@ -230,6 +284,23 @@ async function selectSubscriptionNodeTypes(
   for (const nodeType of nodeTypes) {
     await consent.getByLabel(subscriptionNodeLabels[nodeType]).check()
   }
+}
+
+async function fetchReminderSettings(page: import('@playwright/test').Page): Promise<ReminderSettings> {
+  const response = await page.request.get('/api/v1/me/profile')
+  expect(response).toBeOK()
+  const payload = (await response.json()) as {
+    data: ReminderSettings
+  }
+  return payload.data
+}
+
+async function updateReminderSettings(
+  page: import('@playwright/test').Page,
+  settings: ReminderSettings,
+) {
+  const response = await page.request.patch('/api/v1/me/preferences', { data: settings })
+  expect(response).toBeOK()
 }
 
 const subscriptionNodeLabels: Record<SubscriptionNodeType, string> = {
