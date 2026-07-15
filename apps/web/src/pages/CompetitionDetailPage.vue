@@ -115,8 +115,7 @@ async function loadCompetition() {
 }
 
 function loginForEngagement() {
-  const target = router.resolve({ name: 'competition-detail', params: { id: route.params.id } })
-  void router.push({ name: 'account-status', query: { returnTo: target.fullPath } })
+  void router.push({ name: 'account-status', query: { return_to: route.fullPath } })
 }
 
 async function toggleFavorite() {

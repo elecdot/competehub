@@ -30,6 +30,7 @@ const profileSaving = ref(false)
 const profileLoadError = ref('')
 const profileSaveError = ref('')
 const loginError = ref('')
+const defaultReturnPath = '/competitions'
 
 const loginForm = ref<LoginPayload>({
   identity_type: 'email',
@@ -80,18 +81,41 @@ async function submitLogin() {
   try {
     await auth.login(loginForm.value)
     await loadProfile()
-    const returnTo = getSafeReturnPath(route.query.returnTo)
-    if (returnTo) {
-      await router.replace(returnTo)
-    }
+    await router.replace(getSafeReturnPath(route.query.return_to))
   } catch {
     loginError.value = '登录失败'
   }
 }
 
 function getSafeReturnPath(value: unknown) {
-  if (typeof value !== 'string') return null
-  if (!value.startsWith('/') || value.startsWith('//') || value.includes('\\')) return null
+  if (typeof value !== 'string' || !value) return defaultReturnPath
+
+  let decoded: string
+  try {
+    decoded = decodeURIComponent(value)
+  } catch {
+    return defaultReturnPath
+  }
+
+  if (!decoded.startsWith('/') || decoded.startsWith('//') || decoded.includes('\\')) {
+    return defaultReturnPath
+  }
+
+  const origin = 'https://competehub.invalid'
+  let target: URL
+  try {
+    target = new URL(decoded, origin)
+  } catch {
+    return defaultReturnPath
+  }
+  if (
+    target.origin !== origin ||
+    !target.pathname.startsWith('/') ||
+    target.pathname.startsWith('//')
+  ) {
+    return defaultReturnPath
+  }
+
   return value
 }
 

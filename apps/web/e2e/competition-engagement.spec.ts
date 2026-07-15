@@ -191,7 +191,7 @@ test('anonymous engagement login returns to the competition without replaying an
 
   await page.getByTestId('favorite-action').click()
   await expect(page).toHaveURL(
-    new RegExp(`/me\\?returnTo=/competitions/${competition.id}`),
+    new RegExp(`/me\\?return_to=/competitions/${competition.id}`),
   )
 
   await page.locator('input[autocomplete="username"]').fill('student.day1@example.edu')
