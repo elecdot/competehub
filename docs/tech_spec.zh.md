@@ -334,7 +334,7 @@ Redis 不用于：
     对既有学生缺失该行属于数据完整性错误，不得按开启处理；订阅创建、重新订阅、语义 PATCH、计划协调和订阅摘要均返回既有的 `500 internal_server_error` 形状，并回滚订阅及提醒计划变更。
 11. `reminder_due`、`competition_time_changed`、`competition_cancelled` 和 `competition_offline` 使用“用户 + 领域事件”幂等键创建不可变消息快照。用户主动取消或关闭提醒不创建消息。
 12. 周期清理任务删除创建满 365 天的消息，不区分已读状态；账号删除使用统一账号数据清理流程。提醒的 `sent` 状态与消息的已读状态分别维护。
-13. #38 的后继迁移以既有 `reminder_settings` 为准；缺失时从旧画像字段回填开关和提前天数并补受控默认节点类型，然后删除画像中的重复字段。降级从设置表恢复兼容字段，`/me/preferences` 继续组合返回同一公开形状。
+13. #38 的 `reminder_settings` 持久化迁移遵循数据模型的完整性约束；迁移顺序、回填、序列同步和受保护降级由 `apps/api/migrations/README` 运行手册负责。服务继续让 `/me/preferences` 组合返回稳定公开形状，不把迁移过程暴露为 API 行为。
 14. 同一学生与赛事届次只保留一个订阅关系。重新订阅要求新的完整提醒确认，复用 cancelled 关系并仅保存最近一次确认；首次创建返回 `201`，重复 active POST 和重新订阅返回 `200`。
 15. 初始计划或用户显式恢复计划要求订阅开关与全局开关同时开启。#38 只允许恢复由 `subscription_cancelled`、`reminder_disabled`、`node_type_removed` 或 `subscription_offset_not_future` 取消、从未发送且按当前不可变 snapshot 重新计算后仍为未来的普通计划；已发送、失败、旧节点修订和系统协调取消的计划不得恢复。全局开关变化后的批量协调属于 #40。
 16. 订阅 POST、PATCH、DELETE 与普通计划协调锁定同一订阅关系，并依靠 `(user_id, competition_id)` 和完整普通计划唯一键处理并发，不创建第二份订阅或重复计划。

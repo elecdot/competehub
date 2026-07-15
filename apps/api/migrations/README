@@ -1,8 +1,10 @@
 Single-database Alembic configuration for Flask.
 
 The committed chain starts with `c5e0e7e0560d`, adds the verification-delivery
-outbox in `61f2c8e4a9bd`, and adds immutable publication persistence in
-`13eb10903bd7`.
+outbox in `61f2c8e4a9bd`, adds immutable publication persistence in
+`13eb10903bd7`, adds Issue #38 engagement/reminder integrity in
+`7f3c2a91d8e4`, and canonicalizes persisted subscription node-type ordering in
+`4d8b6e1a3f20`.
 
 Fresh databases apply the complete chain. The initial migration records whether
 it adopted a fresh database or an older `db.create_all()` schema. On the legacy
@@ -20,3 +22,36 @@ mutation so an operator can assign a real owner instead of receiving invented
 review attribution.
 
 `seed-e2e --reset` rebuilds only the isolated browser-test database.
+
+## Issue #38 engagement and reminder revisions
+
+`7f3c2a91d8e4` follows `13eb10903bd7`. It does not alter a recorded
+`legacy_create_all` database. On the supported predecessor, it first refuses
+an upgrade if `favorites`, `subscriptions`, or `reminders` contains retained
+rows; an operator must reset a disposable database or use a separately reviewed
+bridge before changing that populated engagement data.
+
+For an empty engagement predecessor, the revision preserves each existing
+`reminder_settings` row and creates one missing row for every student. A row
+uses the legacy profile's `message_enabled` and `default_remind_days` when a
+profile exists, otherwise `true` and `3`; all created rows use the controlled
+default node-type order. Because this backfill assigns explicit setting IDs, it
+synchronizes PostgreSQL's `reminder_settings.id` sequence afterwards.
+
+The revision adds favorite and subscription uniqueness, the subscription
+confirmation timestamp and `0..30` reminder-day check, and reminder snapshot,
+logical-key, revision, cancellation, and delivery-attempt fields with the
+ordinary-plan uniqueness constraint. It then removes duplicate reminder columns
+from `student_profiles`.
+
+Its downgrade also refuses retained engagement rows. With no such rows it
+restores profile compatibility columns from authoritative `reminder_settings`
+rows, refusing the downgrade when any student profile lacks a setting row, then
+removes the Issue #38 engagement constraints and columns.
+
+`4d8b6e1a3f20` follows `7f3c2a91d8e4`. It normalizes every persisted
+`subscriptions.node_types` value to the controlled order
+`registration_deadline`, `submission_deadline`, `competition_start`. It refuses
+the upgrade and reports row IDs for malformed JSON, non-list/non-string,
+duplicate, or unknown values. Its downgrade is intentionally a no-op: ordering
+normalization is lossless because prior request order was never contractual.

@@ -108,6 +108,14 @@ and video are retained on failure. Reports and test results stay under
 `.cache/playwright`, are ignored by Git, and are uploaded by CI only when the
 browser job fails.
 
+The explicit **New Edition** workbench action is narrow acceptance evidence for
+the UI-driven publication E2E: the browser must create both editions through
+the real Save flow, so direct API creation is insufficient evidence. The action
+only resets the workbench to a new-edition creation state while preserving the
+selected competition series. It does not implement Issue #40 reconciliation or
+message-center behavior, Issue #41 personal-calendar behavior, or broaden
+Issue #38 student-engagement scope.
+
 ## Non-Functional Validation
 
 Non-functional checks should be small, repeatable, and tied to current product

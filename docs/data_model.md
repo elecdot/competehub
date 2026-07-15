@@ -697,15 +697,24 @@ Rules:
   default. Subscription creation, re-subscription, semantic preference updates,
   reminder reconciliation, and subscription summary reads fail without changing
   the subscription or any reminder plan.
-- A successor migration preserves an existing setting row. When none exists, it
-  backfills `enabled` and `default_remind_days` from the legacy profile fields
-  and supplies the controlled default node types, then removes the duplicate
-  profile columns. Downgrade restores compatibility values from this table.
+- Migration `7f3c2a91d8e4`, following `13eb10903bd7`, preserves an existing
+  setting row and creates a missing row for every student from legacy profile
+  values (or enabled/three-day defaults when no profile exists), with controlled
+  default node types. It only upgrades an empty engagement predecessor; retained
+  favorites, subscriptions, or reminders block before schema mutation. Explicit
+  backfill IDs require PostgreSQL sequence synchronization. Its downgrade also
+  requires empty engagement tables, restores profile compatibility values from
+  this table, and refuses when any profile has no setting row.
 - New settings default to enabled, three days, and the controlled primary core
   types `registration_deadline`, `submission_deadline`, and
   `competition_start`. These values prefill a confirmation and are not consent.
 - Subscription-level settings are copied from the student's confirmed choice
   and may differ from later global defaults.
+- Migration `4d8b6e1a3f20`, following `7f3c2a91d8e4`, normalizes persisted
+  subscription node types to the controlled order
+  `registration_deadline`, `submission_deadline`, `competition_start`. Invalid,
+  duplicate, or unknown persisted values block the upgrade. Its no-op downgrade
+  is lossless because request ordering was never a persisted contract.
 - Disabling global reminders cancels pending plans with a global-disabled
   reason while preserving subscriptions and calendar nodes. Global
   `message_enabled` false-to-true restoration remains Issue #40 scope.
@@ -1128,7 +1137,11 @@ Search can start with PostgreSQL filters and simple text matching. Add a dedicat
 - The reproducible chain starts at
   `apps/api/migrations/versions/c5e0e7e0560d_initial_schema_with_verified_identities.py`;
   `13eb10903bd7_add_immutable_competition_revisions.py` adds the series,
-  edition, revision, stage, single-instant node, review, and audit relationships.
+  edition, revision, stage, single-instant node, review, and audit relationships;
+  `7f3c2a91d8e4_add_student_following_reminder_integrity.py` and
+  `4d8b6e1a3f20_canonicalize_subscription_node_types.py` complete the current
+  Issue #38 persistence chain. The operator-facing revision order, backfill
+  steps, and guarded downgrade runbook are in `apps/api/migrations/README`.
   Fresh SQLite and PostgreSQL paths support repeatable upgrade, downgrade, and
   re-upgrade. The known `61f2c8e4a9bd` predecessor backfills owned mutable
   competitions, nodes, and tags into immutable revision snapshots while

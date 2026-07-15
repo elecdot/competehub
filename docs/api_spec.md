@@ -392,12 +392,12 @@ plans while preserving subscriptions and calendar nodes. Re-enabling changes
 only the global setting in #38. Its false-to-true restoration behavior remains
 Issue #40 scope.
 
-`reminder_settings` is authoritative when a row already exists. The #38
-successor migration creates a missing row from the legacy profile values and
-uses the controlled default node types, then removes duplicate reminder columns
-from `student_profiles`. Downgrade restores the compatibility columns from
-`reminder_settings`. The combined API shape remains stable across that storage
-move.
+`reminder_settings` is authoritative when a row exists; the combined API shape
+remains stable across its storage migration. Persistence invariants are owned by
+the [data model](data_model.md#reminder_settings), transaction and
+reconciliation behavior by the [technical specification](tech_spec.zh.md), and
+operator migration/backfill/downgrade procedures by
+`apps/api/migrations/README`.
 
 ## Competition APIs
 
