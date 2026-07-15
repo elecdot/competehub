@@ -7,10 +7,12 @@ from competehub_api.models import (
     Competition,
     CompetitionTimeNode,
     Favorite,
+    Message,
     Reminder,
     ReminderSetting,
     Subscription,
 )
+from competehub_api.models.enums import ReminderStatus, SubscriptionStatus
 
 
 def get_competition(competition_id: int) -> Competition | None:
@@ -56,6 +58,45 @@ def list_reminders(user_id: int, competition_id: int) -> list[Reminder]:
             select(Reminder)
             .where(Reminder.user_id == user_id, Reminder.competition_id == competition_id)
             .order_by(Reminder.id)
+        )
+    )
+
+
+def list_active_subscriptions_for_competition(competition_id: int) -> list[Subscription]:
+    return list(
+        db.session.scalars(
+            select(Subscription).where(
+                Subscription.competition_id == competition_id,
+                Subscription.status == SubscriptionStatus.ACTIVE,
+            )
+        )
+    )
+
+
+def list_pending_reminders_for_competition(
+    competition_id: int,
+    *,
+    snapshot_ids: set[int] | None = None,
+    for_update: bool = False,
+) -> list[Reminder]:
+    if snapshot_ids is not None and not snapshot_ids:
+        return []
+    statement = select(Reminder).where(
+        Reminder.competition_id == competition_id,
+        Reminder.status == ReminderStatus.PENDING,
+    )
+    if snapshot_ids is not None:
+        statement = statement.where(Reminder.time_node_snapshot_id.in_(snapshot_ids))
+    if for_update:
+        statement = statement.with_for_update()
+    return list(db.session.scalars(statement))
+
+
+def get_message_by_idempotency(user_id: int, idempotency_key: str) -> Message | None:
+    return db.session.scalar(
+        select(Message).where(
+            Message.user_id == user_id,
+            Message.idempotency_key == idempotency_key,
         )
     )
 
