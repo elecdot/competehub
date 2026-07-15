@@ -287,7 +287,11 @@ Response data example:
   "id": 3,
   "display_name": "Day 1 Admin",
   "role": "admin",
-  "capabilities": ["competition_editor", "recommendation_editor"]
+  "capabilities": [
+    "competition_editor",
+    "recommendation_editor",
+    "recommendation_reviewer"
+  ]
 }
 ```
 

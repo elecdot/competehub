@@ -78,7 +78,7 @@ numeric primary keys.
 | Symbolic ID | Role | Required fields | Purpose |
 |---|---|---|---|
 | `student.day1@example.edu` | `student` | Provisioned `active` account with a verified typed email identity; display name `Day 1 Student`; policy-compliant test passphrase or test login path. Seed provisioning must not imply that public registration bypasses verification. | Login, profile, public engagement, recommendation, calendar, and message checks. |
-| `admin.day1@example.edu` | `admin` | Display name `Day 1 Admin`; `competition_editor`, `recommendation_editor`; policy-compliant test passphrase or test login path. | Creates and submits赛事 revisions and recommendation rule-set candidates. |
+| `admin.day1@example.edu` | `admin` | Display name `Day 1 Admin`; `competition_editor`, `recommendation_editor`, `recommendation_reviewer`; policy-compliant test passphrase or test login path. | Creates and submits赛事 revisions and recommendation rule-set candidates; the dual recommendation capabilities prove that same-account rule-set review is rejected by submitter identity rather than a missing capability. |
 | `reviewer.day1@example.edu` | `admin` | Display name `Day 1 Reviewer`; `competition_reviewer`, `competition_maintainer`, `recommendation_reviewer`; policy-compliant test passphrase or test login path; distinct from each submitted target's author. | Reviews赛事/rule-set candidates, maintains published赛事 status, and inspects governance evidence. |
 | `owner.day1@example.edu` | `admin` | Display name `Day 1 Owner`; `user_administrator` only; active and distinct from governed targets. | Lists governed accounts, changes another account's controlled capabilities, and proves self-target and last-active-owner protection without participating in content review. |
 
