@@ -111,6 +111,29 @@ export async function createCompetitionEdition(payload: EditionDraftInput) {
   return response.data.data
 }
 
+export async function createCompetitionSuccessorRevision(
+  competitionId: number,
+  reason: string,
+) {
+  const response = await apiClient.post<ApiEnvelope<CompetitionRevision>>(
+    `/admin/competitions/${competitionId}/revisions`,
+    { reason },
+  )
+  return response.data.data
+}
+
+export async function maintainCompetitionLifecycle(
+  competitionId: number,
+  status: 'offline' | 'archived' | 'cancelled' | 'expired',
+  reason: string,
+) {
+  const response = await apiClient.patch<ApiEnvelope<{ status: string }>>(
+    `/admin/competitions/${competitionId}/status`,
+    { status, reason },
+  )
+  return response.data.data
+}
+
 export async function fetchCompetitionEditions() {
   const response = await apiClient.get<ApiEnvelope<{ items: EditionWorkspace[] }>>(
     '/admin/competitions',
@@ -132,6 +155,13 @@ export async function updateCompetitionRevision(
 export async function submitCompetitionRevision(revisionId: number) {
   const response = await apiClient.post<ApiEnvelope<CompetitionRevision>>(
     `/admin/competition_revisions/${revisionId}/submit_review`,
+  )
+  return response.data.data
+}
+
+export async function withdrawCompetitionRevision(revisionId: number) {
+  const response = await apiClient.post<ApiEnvelope<CompetitionRevision>>(
+    `/admin/competition_revisions/${revisionId}/withdraw`,
   )
   return response.data.data
 }

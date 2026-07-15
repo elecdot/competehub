@@ -17,10 +17,18 @@ from competehub_api.models import (
     CompetitionTagLink,
     CompetitionTimeNode,
 )
-from competehub_api.models.enums import CompetitionStatus
+from competehub_api.models.enums import CompetitionRevisionStatus, CompetitionStatus
 from competehub_api.timezones import product_date_start_utc
 
 PUBLIC_COMPETITION_STATUSES = frozenset({CompetitionStatus.PUBLISHED})
+PUBLIC_DETAIL_STATUSES = frozenset(
+    {
+        CompetitionStatus.PUBLISHED,
+        CompetitionStatus.CANCELLED,
+        CompetitionStatus.ARCHIVED,
+        CompetitionStatus.EXPIRED,
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -48,6 +56,15 @@ class PublicCompetitionPage:
 
 def get_competition(competition_id: int) -> Competition | None:
     return db.session.get(Competition, competition_id)
+
+
+def get_competition_by_series_edition(series_id: int, edition_label: str) -> Competition | None:
+    return db.session.scalar(
+        select(Competition).where(
+            Competition.series_id == series_id,
+            Competition.edition_label == edition_label,
+        )
+    )
 
 
 def get_edition_workspace(competition_id: int) -> Competition | None:
@@ -115,6 +132,51 @@ def get_competition_revision(revision_id: int) -> CompetitionRevision | None:
     return db.session.scalar(statement)
 
 
+def get_competition_for_update(competition_id: int) -> Competition | None:
+    return db.session.scalar(
+        select(Competition)
+        .where(Competition.id == competition_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+
+def get_competition_revision_for_update(revision_id: int) -> CompetitionRevision | None:
+    return db.session.scalar(
+        select(CompetitionRevision)
+        .where(CompetitionRevision.id == revision_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+
+def get_active_competition_revision(competition_id: int) -> CompetitionRevision | None:
+    return db.session.scalar(
+        select(CompetitionRevision).where(
+            CompetitionRevision.competition_id == competition_id,
+            CompetitionRevision.revision_status.in_(
+                [CompetitionRevisionStatus.DRAFT, CompetitionRevisionStatus.PENDING_REVIEW]
+            ),
+        )
+    )
+
+
+def get_latest_terminal_competition_revision(
+    competition_id: int,
+) -> CompetitionRevision | None:
+    return db.session.scalar(
+        select(CompetitionRevision)
+        .where(
+            CompetitionRevision.competition_id == competition_id,
+            CompetitionRevision.revision_status.in_(
+                [CompetitionRevisionStatus.REJECTED, CompetitionRevisionStatus.RETURNED]
+            ),
+        )
+        .order_by(CompetitionRevision.revision_number.desc())
+        .limit(1)
+    )
+
+
 def list_competition_revisions(status: str | None = None) -> list[CompetitionRevision]:
     statement = select(CompetitionRevision).options(
         selectinload(CompetitionRevision.stages).selectinload(CompetitionStage.time_nodes),
@@ -163,8 +225,12 @@ def search_public_competitions(query: PublicCompetitionQuery) -> PublicCompetiti
 
 def get_public_competition(competition_id: int) -> Competition | None:
     statement = (
-        public_competitions_statement()
-        .where(Competition.id == competition_id)
+        select(Competition)
+        .where(
+            Competition.id == competition_id,
+            Competition.status.in_(PUBLIC_DETAIL_STATUSES),
+            Competition.published_revision_id.is_not(None),
+        )
         .options(*_public_relation_options())
     )
     return db.session.scalar(statement)

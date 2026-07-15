@@ -7,6 +7,7 @@ test.use({ actorName: 'editor' })
 test('editor submits, distinct reviewer publishes, and student sees the edition', async ({
   actorPage,
 }, testInfo) => {
+  test.setTimeout(90_000)
   const retrySuffix = `retry-${testInfo.retry}`
   const seriesName = `Browser AI Innovation Challenge ${retrySuffix}`
   const competitionTitle = `Browser AI Innovation Challenge 2026 ${retrySuffix}`
@@ -201,6 +202,15 @@ test('editor submits, distinct reviewer publishes, and student sees the edition'
   await expect(actorPage.getByTestId('review-impact')).toHaveText('publish')
   await expect(actorPage.getByTestId('self-review-warning')).toBeVisible()
   await expect(actorPage.getByTestId('approve-revision')).toBeDisabled()
+  await actorPage.getByTestId('withdraw-revision').click()
+  await expect(actorPage.getByText('修订已撤回到草稿')).toBeVisible()
+  await actorPage.getByRole('tab').nth(0).click()
+  await selectEdition(actorPage, `2026 · ${competitionTitle}`)
+  await expect(actorPage.getByText('draft · r1')).toBeVisible()
+  await actorPage.getByTestId('submit-revision').click()
+  await expect(actorPage.getByText('pending_review · r1')).toBeVisible()
+  await actorPage.getByRole('tab', { name: '审核队列' }).click()
+  await actorPage.getByRole('button', { name: new RegExp(competitionTitle) }).click()
 
   await switchActor(actorPage, 'reviewer.day1@example.edu', 'silver orchard compass cloud 59')
   await actorPage.reload()
@@ -226,6 +236,66 @@ test('editor submits, distinct reviewer publishes, and student sees the edition'
     participant_forms: ['individual'],
     team_size: null,
   })
+
+  await switchActor(actorPage, 'admin.day1@example.edu', 'copper meadow signal river 82')
+  await actorPage.goto('/admin')
+  await selectEditionByTitle(actorPage, '2026', competitionTitle)
+  await actorPage
+    .getByTestId('successor-reason')
+    .fill('Official source postponed the registration deadline.')
+  const successorResponsePromise = actorPage.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      response.url().endsWith(`/api/v1/admin/competitions/${editionId}/revisions`),
+  )
+  await actorPage.getByTestId('create-successor-revision').click()
+  const successorResponse = await successorResponsePromise
+  expect(successorResponse.ok()).toBe(true)
+  const successorRevisionId = (await successorResponse.json()).data.id as number
+  await expect(actorPage.getByText(/draft.*r2/)).toBeVisible()
+  await actorPage.getByTestId('node-time-0-1').fill('2026-08-20T23:59')
+  await actorPage.getByTestId('save-revision').click()
+  await actorPage.getByTestId('submit-revision').click()
+  await expect(actorPage.getByText(/pending_review.*r2/)).toBeVisible()
+
+  const stillOldPublic = await actorPage.request.get(`/api/v1/competitions/${editionId}`)
+  expect((await stillOldPublic.json()).data.revision_id).toBe(revisionId)
+
+  await switchActor(actorPage, 'reviewer.day1@example.edu', 'silver orchard compass cloud 59')
+  await actorPage.reload()
+  await actorPage.getByRole('tab').nth(1).click()
+  await actorPage.getByRole('button', { name: new RegExp(competitionTitle) }).click()
+  await expect(actorPage.getByTestId('review-diff')).toContainText('registration-deadline')
+  await actorPage.getByTestId('review-comment').fill('Updated deadline verified at source.')
+  await actorPage.getByTestId('approve-revision').click()
+
+  const switchedPublic = await actorPage.request.get(`/api/v1/competitions/${editionId}`)
+  expect(switchedPublic).toBeOK()
+  expect((await switchedPublic.json()).data).toMatchObject({
+    revision_id: successorRevisionId,
+    status: 'published',
+  })
+
+  await switchActor(actorPage, 'admin.day1@example.edu', 'copper meadow signal river 82')
+  await actorPage.goto('/admin')
+  await selectEditionByTitle(actorPage, '2026', competitionTitle)
+  await actorPage.getByTestId('lifecycle-target').click()
+  await actorPage
+    .locator('.ant-select-dropdown:visible')
+    .getByText('Emergency offline', { exact: true })
+    .click()
+  await actorPage.getByTestId('lifecycle-reason').fill('Official link ownership is unsafe.')
+  const lifecycleResponsePromise = actorPage.waitForResponse(
+    (response) =>
+      response.request().method() === 'PATCH' &&
+      response.url().endsWith(`/api/v1/admin/competitions/${editionId}/status`),
+  )
+  await actorPage.getByTestId('maintain-lifecycle').click()
+  expect((await lifecycleResponsePromise).ok()).toBe(true)
+
+  await switchActor(actorPage, 'student.day1@example.edu', 'violet harbor lantern orbit 47')
+  const offlineDetail = await actorPage.request.get(`/api/v1/competitions/${editionId}`)
+  expect(offlineDetail.status()).toBe(404)
 
   await actorPage.goto('/admin')
   await expect(actorPage.getByText('无权访问赛事发布工作台', { exact: true })).toBeVisible()
@@ -258,4 +328,13 @@ async function selectScope(page: Page, testId: 'major-scope' | 'grade-scope') {
   await expect(selectedOption).toBeVisible()
   await selectedOption.click()
   await expect(select.locator('.ant-select-selection-item')).toHaveText('指定')
+}
+
+async function selectEditionByTitle(page: Page, editionLabel: string, title: string) {
+  await page.getByTestId('edition-select').click()
+  await page
+    .locator('.ant-select-dropdown:visible .ant-select-item-option')
+    .filter({ hasText: editionLabel })
+    .filter({ hasText: title })
+    .click()
 }
