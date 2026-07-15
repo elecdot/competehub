@@ -1,4 +1,5 @@
 import { expect, test } from './fixtures/actors'
+import type { StudentProfile } from '../src/types/auth'
 import type { SubscriptionNodeType } from '../src/types/competition'
 
 interface ReminderSettings {
@@ -215,8 +216,12 @@ test.describe('competition engagement', () => {
     await expect(consent.getByTestId('subscription-node-registration_deadline')).toBeChecked()
     await expect(consent.getByTestId('subscription-node-submission_deadline')).not.toBeChecked()
     await expect(consent.getByTestId('subscription-node-competition_start')).toHaveCount(0)
-    await expect(consent.locator('[data-testid^="subscription-node-"]')).toHaveCount(2)
-    expect(await consent.locator('[data-testid^="subscription-node-"]').evaluateAll(
+    const selectableNodeCheckboxes = consent.locator(
+      '[data-testid="subscription-node-registration_deadline"], ' +
+        '[data-testid="subscription-node-submission_deadline"]',
+    )
+    await expect(selectableNodeCheckboxes).toHaveCount(2)
+    expect(await selectableNodeCheckboxes.evaluateAll(
       (nodes) => nodes.map((node) => node.getAttribute('data-testid')),
     )).toEqual([
       'subscription-node-registration_deadline',
@@ -436,10 +441,14 @@ async function selectSubscriptionNodeTypes(
 async function fetchReminderSettings(page: import('@playwright/test').Page): Promise<ReminderSettings> {
   const response = await page.request.get('/api/v1/me/profile')
   expect(response).toBeOK()
-  const payload = (await response.json()) as {
-    data: ReminderSettings
+  const payload: {
+    data: StudentProfile
+  } = await response.json()
+  return {
+    message_enabled: payload.data.message_enabled,
+    default_remind_days: payload.data.default_remind_days,
+    default_reminder_node_types: [...payload.data.default_reminder_node_types],
   }
-  return payload.data
 }
 
 async function updateReminderSettings(
