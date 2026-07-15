@@ -52,9 +52,13 @@ class SubscriptionMutation:
 
 
 def favorite_competition(user: User, competition_id: int) -> FavoriteMutation:
-    competition = repository.get_competition(competition_id)
-    if competition is None or competition.published_revision_id is None:
-        raise ServiceError(HTTPStatus.NOT_FOUND, "not_found", "competition not found")
+    competition = _required_competition(competition_id)
+    if competition.published_revision_id is None:
+        raise ServiceError(
+            HTTPStatus.CONFLICT,
+            "engagement_unavailable",
+            "competition is unavailable for favorite",
+        )
     if competition.status not in {
         CompetitionStatus.PUBLISHED,
         CompetitionStatus.CANCELLED,
@@ -258,15 +262,23 @@ def apply_competition_detail_engagement_state(user: User | None, competition: Co
 
 
 def _published_competition(competition_id: int) -> Competition:
-    competition = repository.get_competition(competition_id)
-    if competition is None or competition.published_revision_id is None:
-        raise ServiceError(HTTPStatus.NOT_FOUND, "not_found", "competition not found")
-    if competition.status != CompetitionStatus.PUBLISHED:
+    competition = _required_competition(competition_id)
+    if (
+        competition.published_revision_id is None
+        or competition.status != CompetitionStatus.PUBLISHED
+    ):
         raise ServiceError(
             HTTPStatus.CONFLICT,
             "engagement_unavailable",
             "competition is unavailable for subscription",
         )
+    return competition
+
+
+def _required_competition(competition_id: int) -> Competition:
+    competition = repository.get_competition(competition_id)
+    if competition is None:
+        raise ServiceError(HTTPStatus.NOT_FOUND, "not_found", "competition not found")
     return competition
 
 

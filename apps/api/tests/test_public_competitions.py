@@ -258,6 +258,19 @@ def attach_approved_revision(competition: Competition, publisher_id: int) -> Com
     return revision
 
 
+def create_unpublished_edition() -> Competition:
+    competition = Competition(
+        id=130,
+        title="Unpublished Challenge",
+        source_name="School Notice",
+        source_url="https://example.edu/notices/unpublished",
+        status=CompetitionStatus.UNPUBLISHED,
+    )
+    db.session.add(competition)
+    db.session.commit()
+    return competition
+
+
 def test_public_competition_list_uses_envelope_and_hides_non_public_states(client) -> None:
     response = client.get("/api/v1/competitions")
 
@@ -471,15 +484,8 @@ def test_public_competition_detail_returns_404_for_non_public_competition(
 
 
 def test_public_competition_requires_published_revision_pointer(client) -> None:
-    competition = Competition(
-        id=130,
-        title="Legacy Published Challenge",
-        source_name="School Notice",
-        source_url="https://example.edu/notices/legacy-published",
-        status=CompetitionStatus.PUBLISHED,
-    )
-    db.session.add(competition)
-    db.session.commit()
+    create_unpublished_edition()
+
     response = client.get("/api/v1/competitions/130")
 
     assert response.status_code == 404
@@ -658,16 +664,26 @@ def test_favorite_lifecycle_alignment(client, app, status, expected_status) -> N
         assert response.get_json()["error"]["code"] == "engagement_unavailable"
 
 
-@pytest.mark.parametrize("competition_id", [130, 999])
-def test_favorite_missing_edition_or_competition_returns_not_found(
-    client, app, competition_id
-) -> None:
+def test_favorite_missing_competition_returns_not_found(client, app) -> None:
     sign_in_as(client, app)
 
-    response = client.post(f"/api/v1/competitions/{competition_id}/favorite")
+    response = client.post("/api/v1/competitions/999/favorite")
 
     assert response.status_code == 404
     assert response.get_json()["error"]["code"] == "not_found"
+
+
+def test_favorite_existing_edition_without_public_revision_is_unavailable(
+    client, app
+) -> None:
+    sign_in_as(client, app)
+    with app.app_context():
+        create_unpublished_edition()
+
+    response = client.post("/api/v1/competitions/130/favorite")
+
+    assert response.status_code == 409
+    assert response.get_json()["error"]["code"] == "engagement_unavailable"
 
 
 def subscription_payload(**overrides) -> dict:
@@ -907,19 +923,55 @@ def test_subscription_requires_student_and_currently_published_edition(client, a
     )
 
 
-@pytest.mark.parametrize("competition_id", [130, 999])
-def test_subscription_missing_competition_or_edition_returns_not_found(
-    client, app, competition_id
-) -> None:
+def test_subscription_missing_competition_returns_not_found(client, app) -> None:
     sign_in_as(client, app)
 
     response = client.post(
-        f"/api/v1/competitions/{competition_id}/subscription",
+        "/api/v1/competitions/999/subscription",
         json=subscription_payload(),
     )
 
     assert response.status_code == 404
     assert response.get_json()["error"]["code"] == "not_found"
+
+
+def test_subscription_existing_edition_without_public_revision_is_unavailable(client, app) -> None:
+    sign_in_as(client, app)
+    with app.app_context():
+        create_unpublished_edition()
+
+    response = client.post(
+        "/api/v1/competitions/130/subscription",
+        json=subscription_payload(),
+    )
+
+    assert response.status_code == 409
+    assert response.get_json()["error"]["code"] == "engagement_unavailable"
+
+
+def test_subscription_patch_existing_edition_without_public_revision_is_unavailable(
+    client, app
+) -> None:
+    student_id = sign_in_as(client, app)
+    created = client.post("/api/v1/competitions/101/subscription", json=subscription_payload())
+    assert created.status_code == 201
+    with app.app_context():
+        competition = db.session.get(Competition, 101)
+        competition.status = CompetitionStatus.UNPUBLISHED
+        competition.published_revision_id = None
+        db.session.commit()
+
+    response = client.patch(
+        "/api/v1/competitions/101/subscription", json=subscription_payload(remind_days=2)
+    )
+
+    assert response.status_code == 409
+    assert response.get_json()["error"]["code"] == "engagement_unavailable"
+    with app.app_context():
+        subscription = (
+            db.session.query(Subscription).filter_by(user_id=student_id, competition_id=101).one()
+        )
+        assert subscription.remind_days == 3
 
 
 @pytest.mark.parametrize("status", [CompetitionStatus.CANCELLED, CompetitionStatus.OFFLINE])
@@ -1376,6 +1428,27 @@ def test_subscription_delete_for_missing_competition_returns_not_found_without_m
     with app.app_context():
         assert db.session.query(Subscription).filter_by(user_id=student_id).count() == 0
         assert db.session.query(Reminder).filter_by(user_id=student_id).count() == 0
+
+
+@pytest.mark.parametrize("status", [CompetitionStatus.OFFLINE, CompetitionStatus.UNPUBLISHED])
+def test_owned_engagement_deletes_remain_available_without_public_revision(
+    client, app, status
+) -> None:
+    sign_in_as(client, app)
+    assert client.post("/api/v1/competitions/101/favorite").status_code == 201
+    created = client.post("/api/v1/competitions/101/subscription", json=subscription_payload())
+    assert created.status_code == 201
+    with app.app_context():
+        competition = db.session.get(Competition, 101)
+        competition.status = status
+        competition.published_revision_id = None
+        db.session.commit()
+
+    unfavorited = client.delete("/api/v1/competitions/101/favorite")
+    unsubscribed = client.delete("/api/v1/competitions/101/subscription")
+
+    assert unfavorited.status_code == 200
+    assert unsubscribed.status_code == 200
 
 
 def test_subscription_post_reactivates_relation_and_restores_controlled_cancelled_plans(
