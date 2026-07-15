@@ -68,14 +68,113 @@ def test_seed_is_idempotent(app) -> None:
         assert RecommendationRule.query.count() == len(CONTROLLED_RECOMMENDATION_RULE_CODES)
 
 
+def test_seed_accepts_exact_retired_v1_without_reactivating_it(app) -> None:
+    with app.app_context():
+        initial = seed_initial_recommendation_rule_set()
+        editor = _create_admin("retired-seed-editor@example.edu", "Retired Seed Editor")
+        reviewer = _create_admin("retired-seed-reviewer@example.edu", "Retired Seed Reviewer")
+        candidate = _changed_submitted_candidate(initial, editor)
+        active = review_recommendation_rule_set(
+            candidate.id,
+            reviewer,
+            "approve",
+            "activate the governed successor",
+        )
+        initial_rules_before = [
+            (
+                rule.id,
+                rule.code,
+                rule.name,
+                rule.weight,
+                dict(rule.conditions),
+                rule.reason_template,
+                rule.enabled,
+            )
+            for rule in initial.rules
+        ]
+        retired_at_before = initial.retired_at
+        counts_before = {
+            "rule_sets": RecommendationRuleSet.query.count(),
+            "rules": RecommendationRule.query.count(),
+            "reviews": ReviewRecord.query.count(),
+            "audits": AuditLog.query.count(),
+        }
+
+        repeated = seed_initial_recommendation_rule_set()
+
+        assert repeated.id == initial.id
+        assert repeated.status == RecommendationRuleSetStatus.RETIRED
+        assert repeated.retired_at == retired_at_before
+        assert repeated.base_rule_set_id is None
+        assert repeated.cloned_from_rule_set_id is None
+        assert [
+            (
+                rule.id,
+                rule.code,
+                rule.name,
+                rule.weight,
+                dict(rule.conditions),
+                rule.reason_template,
+                rule.enabled,
+            )
+            for rule in repeated.rules
+        ] == initial_rules_before
+        assert (
+            RecommendationRuleSet.query.filter_by(status=RecommendationRuleSetStatus.ACTIVE)
+            .one()
+            .id
+            == active.id
+        )
+        assert {
+            "rule_sets": RecommendationRuleSet.query.count(),
+            "rules": RecommendationRule.query.count(),
+            "reviews": ReviewRecord.query.count(),
+            "audits": AuditLog.query.count(),
+        } == counts_before
+
+
 def test_seed_cli_creates_the_reproducible_active_v1(app) -> None:
     result = app.test_cli_runner().invoke(args=["seed-recommendation-rules"])
 
     assert result.exit_code == 0
-    assert "active recommendation rule-set v1" in result.output
+    assert "v1" in result.output
+    assert "status: active" in result.output
     with app.app_context():
         assert RecommendationRuleSet.query.filter_by(version=1).one().status == (
             RecommendationRuleSetStatus.ACTIVE
+        )
+
+
+def test_seed_cli_reports_exact_retired_v1_without_calling_it_active(app) -> None:
+    with app.app_context():
+        initial = seed_initial_recommendation_rule_set()
+        editor = _create_admin("retired-cli-editor@example.edu", "Retired CLI Editor")
+        reviewer = _create_admin("retired-cli-reviewer@example.edu", "Retired CLI Reviewer")
+        candidate = _changed_submitted_candidate(initial, editor)
+        active = review_recommendation_rule_set(
+            candidate.id,
+            reviewer,
+            "approve",
+            "activate before repeating the CLI seed",
+        )
+        initial_id = initial.id
+        active_id = active.id
+
+    result = app.test_cli_runner().invoke(args=["seed-recommendation-rules"])
+
+    assert result.exit_code == 0
+    assert "v1" in result.output
+    assert "status: retired" in result.output
+    assert "active recommendation rule-set v1" not in result.output
+    with app.app_context():
+        assert db.session.get(RecommendationRuleSet, initial_id).status == (
+            RecommendationRuleSetStatus.RETIRED
+        )
+        assert (
+            RecommendationRuleSet.query.filter_by(status=RecommendationRuleSetStatus.ACTIVE)
+            .one()
+            .id
+            == active_id
         )
 
 

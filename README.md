@@ -85,9 +85,12 @@ just api-db-upgrade
 just seed-recommendation-rules
 ```
 
-The seed is safe to repeat only for an exact reproducible v1 and never
-overwrites a conflicting version. See [setup](./docs/setup.md#start-local-services)
-for the fail-closed legacy-rule migration procedure.
+The first seed creates immutable active v1. Repeating it for an exact
+reproducible v1 is safe even after governance has normally retired that version:
+the command reports the persisted status without reactivating or overwriting v1.
+A conflicting version still fails closed. See
+[setup](./docs/setup.md#start-local-services) for the fail-closed legacy-rule
+migration procedure.
 
 Start the backend and frontend in separate terminals:
 

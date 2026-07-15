@@ -16,7 +16,10 @@ def register_cli_commands(app: Flask) -> None:
             rule_set = seed_initial_recommendation_rule_set()
         except InitialRecommendationRuleSetConflict as exc:
             raise click.ClickException(str(exc)) from exc
-        click.echo(f"Seeded active recommendation rule-set v{rule_set.version}.")
+        click.echo(
+            "Verified reproducible recommendation rule-set "
+            f"v{rule_set.version} (status: {rule_set.status.value})."
+        )
 
 
 def main() -> None:

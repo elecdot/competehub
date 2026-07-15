@@ -113,8 +113,12 @@ before destructive DDL, leaves the legacy table and data intact, and does not
 promote unaudited mutable rules into active v1. Back up that database and make
 an explicit, reviewed data-migration decision before retrying. After a fresh or
 empty-predecessor upgrade, `just seed-recommendation-rules` invokes the standard
-Flask CLI seed. Re-running it is idempotent only when persisted active v1 exactly
-matches the reproducible snapshot; a conflicting v1 fails without overwrite.
+Flask CLI seed. The first run creates immutable active v1. Re-running it is
+idempotent when persisted v1 exactly matches the reproducible snapshot and null
+seed lineage, whether v1 is still active or has been normally retired by a
+governed successor. The command reports the persisted status and never
+reactivates, overwrites, or rolls back v1; a conflicting v1 fails without
+overwrite.
 
 Stop them when finished:
 

@@ -128,7 +128,11 @@ def _assert_matches_initial_seed(rule_set: RecommendationRuleSet) -> None:
         for rule in INITIAL_RECOMMENDATION_RULES
     }
     if (
-        rule_set.status != RecommendationRuleSetStatus.ACTIVE
+        rule_set.status
+        not in {
+            RecommendationRuleSetStatus.ACTIVE,
+            RecommendationRuleSetStatus.RETIRED,
+        }
         or rule_set.base_rule_set_id is not None
         or rule_set.cloned_from_rule_set_id is not None
         or persisted != expected
