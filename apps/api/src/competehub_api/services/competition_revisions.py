@@ -191,39 +191,42 @@ def create_successor_revision(
     base = db.session.get(CompetitionRevision, edition.published_revision_id)
     if base is None:
         raise ServiceError(HTTPStatus.CONFLICT, "conflict", "published revision is missing")
-    revision = CompetitionRevision(
-        competition=edition,
-        revision_number=max(item.revision_number for item in edition.revisions) + 1,
-        base_revision_id=base.id,
-        change_reason=reason,
-        revision_status=CompetitionRevisionStatus.DRAFT,
-        created_by_id=actor.id,
-        **{field: getattr(base, field) for field in REVISION_FIELDS},
-    )
-    db.session.add(revision)
     edition_id = edition.id
-    for base_stage in base.stages:
-        stage = CompetitionStage(
-            stage_key=base_stage.stage_key,
-            stage_type=base_stage.stage_type,
-            label=base_stage.label,
-            stage_order=base_stage.stage_order,
+    # Relationship loads while cloning can otherwise autoflush the new revision before
+    # the explicit flush below, bypassing the unique-conflict translation.
+    with db.session.no_autoflush:
+        revision = CompetitionRevision(
+            competition=edition,
+            revision_number=max(item.revision_number for item in edition.revisions) + 1,
+            base_revision_id=base.id,
+            change_reason=reason,
+            revision_status=CompetitionRevisionStatus.DRAFT,
+            created_by_id=actor.id,
+            **{field: getattr(base, field) for field in REVISION_FIELDS},
         )
-        for base_node in base_stage.time_nodes:
-            stage.time_nodes.append(
-                CompetitionTimeNode(
-                    logical_node_key=base_node.logical_node_key,
-                    node_revision=base_node.node_revision,
-                    node_type=base_node.node_type,
-                    occurs_at=base_node.occurs_at,
-                    prominence=base_node.prominence,
-                    prominence_override_reason=base_node.prominence_override_reason,
-                    description=base_node.description,
-                )
+        db.session.add(revision)
+        for base_stage in base.stages:
+            stage = CompetitionStage(
+                stage_key=base_stage.stage_key,
+                stage_type=base_stage.stage_type,
+                label=base_stage.label,
+                stage_order=base_stage.stage_order,
             )
-        revision.stages.append(stage)
-    for base_link in base.tag_links:
-        revision.tag_links.append(CompetitionTagLink(tag=base_link.tag))
+            for base_node in base_stage.time_nodes:
+                stage.time_nodes.append(
+                    CompetitionTimeNode(
+                        logical_node_key=base_node.logical_node_key,
+                        node_revision=base_node.node_revision,
+                        node_type=base_node.node_type,
+                        occurs_at=base_node.occurs_at,
+                        prominence=base_node.prominence,
+                        prominence_override_reason=base_node.prominence_override_reason,
+                        description=base_node.description,
+                    )
+                )
+            revision.stages.append(stage)
+        for base_link in base.tag_links:
+            revision.tag_links.append(CompetitionTagLink(tag=base_link.tag))
     try:
         db.session.flush()
         _write_audit(
