@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from threading import Barrier
 
 import pytest
 from marshmallow import ValidationError
 from sqlalchemy.exc import IntegrityError
 
+from competehub_api import create_app
 from competehub_api.extensions import db
 from competehub_api.models import (
     AuditLog,
@@ -500,6 +503,90 @@ def test_stale_approve_returns_conflict_without_terminal_review_record(app) -> N
             RecommendationRuleSetStatus.PENDING_REVIEW
         )
         assert ReviewRecord.query.filter_by(target_id=stale_candidate.id).count() == 0
+
+
+def test_postgresql_concurrent_approvals_allow_one_success_without_duplicate_evidence(
+    postgresql_database_uri,
+) -> None:
+    app = create_app(
+        {
+            "TESTING": True,
+            "SQLALCHEMY_DATABASE_URI": postgresql_database_uri,
+        }
+    )
+    barrier = Barrier(2)
+
+    with app.app_context():
+        db.create_all()
+        initial = seed_initial_recommendation_rule_set()
+        first_editor = _create_admin("concurrent-first-editor@example.edu", "First Editor")
+        second_editor = _create_admin("concurrent-second-editor@example.edu", "Second Editor")
+        reviewer = _create_admin("concurrent-reviewer@example.edu", "Concurrent Reviewer")
+        first_candidate = _changed_submitted_candidate(initial, first_editor)
+        second_candidate = _changed_submitted_candidate(initial, second_editor)
+        initial_id = initial.id
+        reviewer_id = reviewer.id
+        candidate_ids = {first_candidate.id, second_candidate.id}
+
+    def approve(candidate_id: int) -> tuple[str, int]:
+        with app.app_context():
+            try:
+                actor = db.session.get(User, reviewer_id)
+                barrier.wait()
+                reviewed = review_recommendation_rule_set(
+                    candidate_id,
+                    actor,
+                    "approve",
+                    f"approve candidate {candidate_id}",
+                )
+                return "success", reviewed.id
+            except ServiceError as error:
+                db.session.rollback()
+                return error.code, candidate_id
+            finally:
+                db.session.remove()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(approve, candidate_ids))
+
+    assert sorted(result for result, _candidate_id in results) == ["stale_rule_set", "success"]
+    successful_id = next(candidate_id for result, candidate_id in results if result == "success")
+    stale_id = next(candidate_id for result, candidate_id in results if result == "stale_rule_set")
+
+    with app.app_context():
+        active_rule_sets = RecommendationRuleSet.query.filter_by(
+            status=RecommendationRuleSetStatus.ACTIVE
+        ).all()
+        assert [rule_set.id for rule_set in active_rule_sets] == [successful_id]
+        assert successful_id in candidate_ids
+        assert db.session.get(RecommendationRuleSet, initial_id).status == (
+            RecommendationRuleSetStatus.RETIRED
+        )
+        assert db.session.get(RecommendationRuleSet, stale_id).status == (
+            RecommendationRuleSetStatus.PENDING_REVIEW
+        )
+
+        terminal_reviews = ReviewRecord.query.filter_by(target_type="recommendation_rule_set").all()
+        assert [review.target_id for review in terminal_reviews] == [successful_id]
+        assert ReviewRecord.query.filter_by(target_id=stale_id).count() == 0
+
+        terminal_actions = {
+            "recommendation_rule_set.approve",
+            "recommendation_rule_set.activate",
+            "recommendation_rule_set.retire",
+        }
+        terminal_audits = AuditLog.query.filter(AuditLog.action.in_(terminal_actions)).all()
+        assert {
+            action: sum(audit.action == action for audit in terminal_audits)
+            for action in terminal_actions
+        } == {action: 1 for action in terminal_actions}
+        assert {audit.action: audit.target_id for audit in terminal_audits} == {
+            "recommendation_rule_set.approve": successful_id,
+            "recommendation_rule_set.activate": successful_id,
+            "recommendation_rule_set.retire": initial_id,
+        }
+        db.session.remove()
+        db.engine.dispose()
 
 
 def test_clone_api_requires_editor_capability_and_returns_lineage(

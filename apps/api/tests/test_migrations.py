@@ -1,17 +1,13 @@
 from __future__ import annotations
 
 import json
-import os
-import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
 from flask_migrate import check, downgrade, upgrade
-from psycopg import connect, sql
 from sqlalchemy import inspect, text
-from sqlalchemy.engine import make_url
 from werkzeug.security import generate_password_hash
 
 from competehub_api import create_app
@@ -795,29 +791,6 @@ def _create_legacy_schema() -> None:
         ],
     )
     db.session.commit()
-
-
-@pytest.fixture()
-def postgresql_database_uri():
-    admin_dsn = os.getenv("POSTGRES_TEST_ADMIN_URL")
-    if not admin_dsn:
-        pytest.skip("POSTGRES_TEST_ADMIN_URL is required for PostgreSQL migration evidence")
-
-    database_name = f"competehub_migration_test_{uuid.uuid4().hex}"
-    with connect(admin_dsn, autocommit=True) as connection:
-        connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database_name)))
-
-    admin_url = make_url(admin_dsn)
-    database_url = admin_url.set(
-        drivername="postgresql+psycopg", database=database_name
-    ).render_as_string(hide_password=False)
-    try:
-        yield database_url
-    finally:
-        with connect(admin_dsn, autocommit=True) as connection:
-            connection.execute(
-                sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(database_name))
-            )
 
 
 def _tables() -> set[str]:
