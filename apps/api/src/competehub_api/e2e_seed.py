@@ -75,7 +75,11 @@ E2E_ACTORS = (
         password="copper meadow signal river 82",
         display_name="Day 1 Admin",
         role=UserRole.ADMIN,
-        capabilities=("competition_editor", "recommendation_editor"),
+        capabilities=(
+            "competition_editor",
+            "recommendation_editor",
+            "recommendation_reviewer",
+        ),
     ),
     E2EActor(
         id=1003,

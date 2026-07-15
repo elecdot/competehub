@@ -68,6 +68,9 @@ def test_e2e_seed_rebuilds_the_expected_actor_set() -> None:
         assert [user.capabilities for user in users] == [
             list(actor.capabilities) for actor in expected_actors
         ]
+        submitter = next(user for user in users if user.email == "admin.day1@example.edu")
+        assert "recommendation_editor" in submitter.capabilities
+        assert "recommendation_reviewer" in submitter.capabilities
         assert [identity.display_value for identity in identities] == [
             actor.email for actor in expected_actors
         ]

@@ -56,6 +56,14 @@ test('editor previews and submits, then a distinct reviewer activates the candid
 
   await actorPage.getByTestId('submit-rule-set').click()
   await expect(actorPage.getByTestId('rule-set-v2')).toContainText('待审核')
+
+  const submitterResponse = await actorPage.request.get('/api/v1/me')
+  expect(submitterResponse).toBeOK()
+  const submitter = (await submitterResponse.json()).data
+  expect(submitter.capabilities).toEqual(
+    expect.arrayContaining(['recommendation_editor', 'recommendation_reviewer']),
+  )
+
   await expect(actorPage.getByText('提交者不能审核自己的候选版本')).toBeVisible()
   await expect(actorPage.getByTestId('approve-rule-set')).toBeDisabled()
 
@@ -64,6 +72,21 @@ test('editor previews and submits, then a distinct reviewer activates the candid
     { data: { action: 'approve', comment: 'Self approval must be forbidden.' } },
   )
   expect(selfReview.status()).toBe(403)
+  expect((await selfReview.json()).error.code).toBe('forbidden')
+
+  const pendingHistoryResponse = await actorPage.request.get(
+    '/api/v1/admin/recommendation_rule_sets',
+  )
+  expect(pendingHistoryResponse).toBeOK()
+  const pendingCandidate = (await pendingHistoryResponse.json()).data.items.find(
+    (item: { rule_set_id: number }) => item.rule_set_id === 2,
+  )
+  expect(pendingCandidate).toMatchObject({
+    status: 'pending_review',
+    reviewed_by: null,
+    decided_at: null,
+    terminal_review_status: null,
+  })
 
   await switchActor(
     actorPage,
