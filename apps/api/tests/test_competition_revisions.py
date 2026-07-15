@@ -803,6 +803,70 @@ def test_presentation_only_revision_moves_pending_reminder_without_schedule_mess
         )
 
 
+def test_replacement_approval_is_atomic_when_reminder_setting_is_missing(client, app) -> None:
+    with app.app_context():
+        editor_id = create_user(
+            38, UserRole.ADMIN, "missing-setting-editor@example.edu", ["competition_editor"]
+        )
+        reviewer_id = create_user(
+            39, UserRole.ADMIN, "missing-setting-reviewer@example.edu", ["competition_reviewer"]
+        )
+        student_id = create_user(40, UserRole.STUDENT, "missing-setting-student@example.edu")
+    login(client, editor_id)
+    edition = create_published_edition(client, editor_id, reviewer_id)
+    edition_id = edition["id"]
+    initial_revision_id = edition["revision"]["id"]
+    with app.app_context():
+        db.session.add(
+            Subscription(
+                id=4,
+                user_id=student_id,
+                competition_id=edition_id,
+                reminder_enabled=True,
+                remind_days=3,
+                node_types=["registration_deadline"],
+            )
+        )
+        db.session.add(ReminderSetting(id=4, user_id=student_id, enabled=True))
+        db.session.commit()
+
+    successor = client.post(
+        f"/api/v1/admin/competitions/{edition_id}/revisions",
+        json={"reason": "Clarify source-backed summary."},
+    ).get_json()["data"]
+    successor_id = successor["id"]
+    assert (
+        client.patch(
+            f"/api/v1/admin/competition_revisions/{successor_id}",
+            json={"summary": "Clarified source-backed summary."},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(f"/api/v1/admin/competition_revisions/{successor_id}/submit_review").status_code
+        == 200
+    )
+    with app.app_context():
+        setting = ReminderSetting.query.filter_by(user_id=student_id).one()
+        db.session.delete(setting)
+        db.session.commit()
+
+    login(client, reviewer_id)
+    response = client.post(
+        f"/api/v1/admin/competition_revisions/{successor_id}/review",
+        json={"action": "approve", "comment": "Attempt approval with corrupt profile state."},
+    )
+
+    assert response.status_code == 500
+    assert response.get_json()["error"]["code"] == "internal_server_error"
+    with app.app_context():
+        competition = db.session.get(Competition, edition_id)
+        candidate = db.session.get(CompetitionRevision, successor_id)
+        assert competition.published_revision_id == initial_revision_id
+        assert candidate.revision_status.value == "pending_review"
+        assert ReviewRecord.query.filter_by(target_id=successor_id).count() == 0
+
+
 def test_historical_lifecycle_detail_keeps_warning_while_offline_returns_404(client, app) -> None:
     with app.app_context():
         editor_id = create_user(

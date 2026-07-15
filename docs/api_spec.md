@@ -1055,6 +1055,8 @@ Each `time_node_changes` item classifies `change_kind` and
 addition/removal are schedule-semantic; stage, prominence, and description-only
 changes are not. Message estimates include only affected active subscriptions
 whose selected old or new node types intersect a schedule-semantic change.
+Future-reminder estimates additionally require both the subscription reminder
+switch and the student's current global `reminder_settings.enabled` switch.
 
 For an initial revision, `base_revision_id` and
 `current_published_revision_id` are both `null` until approval. Its comparison
@@ -1220,6 +1222,12 @@ candidate's `base_revision_id` still equals the edition's
 mismatch returns `409 stale_revision`, changes no public pointer, and appends no
 terminal review decision. The reviewer must reload the comparison and an editor
 must create a successor from the current public revision.
+
+Replacement approval locks and requires each affected subscriber's global
+reminder setting before changing the public pointer. Missing student-owned
+settings fail the transaction with `500 internal_server_error`; a disabled
+global switch prevents new ordinary reminder plans without suppressing the
+schedule-change message.
 
 When the edition is `offline`, approval restores publication only if the
 candidate was submitted after the current `lifecycle_changed_at` withdrawal
