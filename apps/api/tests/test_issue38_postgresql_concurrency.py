@@ -16,7 +16,7 @@ from test_public_competitions import seed_day1_competitions, sign_in_as, subscri
 from competehub_api import create_app
 from competehub_api.extensions import db
 from competehub_api.models import Favorite, Reminder, ReminderSetting, Subscription, User
-from competehub_api.models.enums import ReminderStatus, UserRole
+from competehub_api.models.enums import ReminderStatus, SubscriptionStatus, UserRole
 from competehub_api.services.profiles import provision_student_owned_rows
 
 MIGRATIONS_DIR = os.path.join(os.path.dirname(__file__), "..", "migrations")
@@ -165,6 +165,112 @@ def test_postgresql_simultaneous_first_subscription_post_preserves_winner_consen
             db.session.query(Subscription).filter_by(user_id=student_id, competition_id=101).count()
             == 1
         )
+
+
+@pytest.mark.parametrize("initial_relation", ["absent", "cancelled"])
+def test_postgresql_subscription_post_and_delete_serialize_without_duplicate_plans(
+    postgresql_app, initial_relation
+) -> None:
+    student_id, first, second = _clients_for_same_student(postgresql_app)
+    if initial_relation == "cancelled":
+        created = first.post("/api/v1/competitions/101/subscription", json=subscription_payload())
+        assert created.status_code == 201
+        assert first.delete("/api/v1/competitions/101/subscription").status_code == 200
+
+    responses = _run_together(
+        lambda: first.post("/api/v1/competitions/101/subscription", json=subscription_payload()),
+        lambda: second.delete("/api/v1/competitions/101/subscription"),
+    )
+
+    post_response, delete_response = responses
+    assert delete_response.status_code == 200
+    assert post_response.status_code == (201 if initial_relation == "absent" else 200)
+    with postgresql_app.app_context():
+        subscription = (
+            db.session.query(Subscription).filter_by(user_id=student_id, competition_id=101).one()
+        )
+        reminders = (
+            db.session.query(Reminder)
+            .filter_by(user_id=student_id, competition_id=101)
+            .order_by(Reminder.id)
+            .all()
+        )
+        assert subscription.status in {SubscriptionStatus.ACTIVE, SubscriptionStatus.CANCELLED}
+        assert len(reminders) == 2
+        assert len(
+            {
+                (reminder.logical_node_key, reminder.time_node_revision)
+                for reminder in reminders
+            }
+        ) == 2
+        if subscription.status == SubscriptionStatus.ACTIVE:
+            assert all(reminder.status == ReminderStatus.PENDING for reminder in reminders)
+        else:
+            assert [(reminder.status, reminder.cancel_reason) for reminder in reminders] == [
+                (ReminderStatus.CANCELLED, "subscription_cancelled"),
+                (ReminderStatus.CANCELLED, "subscription_cancelled"),
+            ]
+
+
+def test_postgresql_subscription_patch_and_delete_serialize_without_partial_consent(
+    postgresql_app,
+) -> None:
+    student_id, first, second = _clients_for_same_student(postgresql_app)
+    created = first.post("/api/v1/competitions/101/subscription", json=subscription_payload())
+    assert created.status_code == 201
+    with postgresql_app.app_context():
+        sent_reminder = (
+            db.session.query(Reminder)
+            .filter_by(user_id=student_id, competition_id=101, node_type="registration_deadline")
+            .one()
+        )
+        sent_reminder.status = ReminderStatus.SENT
+        sent_reminder.sent_at = datetime(2026, 8, 12, 16, 0, tzinfo=UTC)
+        db.session.commit()
+        sent_snapshot = (
+            sent_reminder.id,
+            sent_reminder.due_at,
+            sent_reminder.title,
+            sent_reminder.sent_at,
+        )
+
+    responses = _run_together(
+        lambda: first.patch(
+            "/api/v1/competitions/101/subscription", json=subscription_payload(remind_days=2)
+        ),
+        lambda: second.delete("/api/v1/competitions/101/subscription"),
+    )
+
+    patch_response, delete_response = responses
+    assert delete_response.status_code == 200
+    assert patch_response.status_code in {200, 409}
+    if patch_response.status_code == 409:
+        assert patch_response.get_json()["error"]["code"] == "engagement_unavailable"
+    with postgresql_app.app_context():
+        subscription = (
+            db.session.query(Subscription).filter_by(user_id=student_id, competition_id=101).one()
+        )
+        reminders = (
+            db.session.query(Reminder)
+            .filter_by(user_id=student_id, competition_id=101)
+            .order_by(Reminder.id)
+            .all()
+        )
+        assert subscription.status == SubscriptionStatus.CANCELLED
+        assert subscription.remind_days == (2 if patch_response.status_code == 200 else 3)
+        assert len(reminders) == 2
+        assert len(
+            {
+                (reminder.logical_node_key, reminder.time_node_revision)
+                for reminder in reminders
+            }
+        ) == 2
+        sent = next(reminder for reminder in reminders if reminder.id == sent_snapshot[0])
+        assert (sent.id, sent.due_at, sent.title, sent.sent_at) == sent_snapshot
+        pending = [reminder for reminder in reminders if reminder.id != sent.id]
+        assert [(reminder.status, reminder.cancel_reason) for reminder in pending] == [
+            (ReminderStatus.CANCELLED, "subscription_cancelled")
+        ]
 
 
 def test_postgresql_global_disable_locks_settings_then_pending_reminders_and_rolls_back(
