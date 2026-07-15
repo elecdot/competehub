@@ -341,7 +341,7 @@ Redis 不用于：
 
 ### 8.3 推荐任务
 
-规则推荐可同步计算并缓存短时间结果。个性化计算只读取单一 `active` 推荐规则集，缓存键必须包含规则集版本；响应返回版本和可追溯理由，不返回内部得分。无激活版本时降级为通用可行动结果并暴露管理配置异常，不使用 service 常量。候选预览仅使用合成画像和选定公开赛事，不读取任意真实学生画像，也不持久化结果。
+规则推荐可同步计算并缓存短时间结果。个性化计算只读取单一 `active` 推荐规则集，缓存键必须包含规则集版本；响应返回版本和可追溯理由，不返回内部得分。无激活版本时降级为通用可行动结果并暴露管理配置异常，不使用 service 常量。候选预览仅使用合成画像和选定公开赛事，不读取任意真实学生画像，也不持久化结果。合成画像复用真实画像更新与 readiness 的受控学院—专业、年级和兴趣字典。赛事专业、年级、标签、报名截止与时间节点等推荐事实统一来自 `competition.published_revision_id` 指向的当前不可变公开修订，不读取展平旧字段，也不回退到非 current 历史修订。
 
 每次推荐响应为返回项创建随机 request ID 下的 90 天服务端快照。前端实际渲染后批量尽力记录曝光，从推荐页导航详情时尽力记录点击；统计失败不影响展示或导航。事件 API 只接受 request ID、事件类型和赛事 ID，从服务端快照读取位置、模式、规则版本、理由代码和登录状态类别。曝光和点击分别按 request item 幂等，点击要求已有曝光。原始行不保存用户、账号、画像、IP、User-Agent 或跨 request 标识，也不用于自动个性化。
 
@@ -412,6 +412,7 @@ Redis 不用于：
 - `POST /api/v1/recommendation_events`
 - `GET /api/v1/admin/recommendation_rule_sets`
 - `POST /api/v1/admin/recommendation_rule_sets`
+- `PATCH /api/v1/admin/recommendation_rule_sets/{id}`
 - `POST /api/v1/admin/recommendation_rule_sets/{id}/preview`
 - `POST /api/v1/admin/recommendation_rule_sets/{id}/submit_review`
 - `POST /api/v1/admin/recommendation_rule_sets/{id}/review`
@@ -481,7 +482,7 @@ owned by #37.
 - `GET /me` 返回角色和受控 capability 列表供前端发现工作台入口；学生列表为空，后端不得把该响应或前端隐藏当成授权检查。
 - 用户列表及角色、状态、capability 变更要求 `user_administrator`；禁止自我变更，并以事务约束保留至少一个 active 用户治理管理员。成功变更目标账号时递增其 `session_version`，记录原因和受控新旧值。
 - 赛事录入、赛事审核和发布后状态维护分别使用 `competition_editor`、`competition_reviewer` 和 `competition_maintainer` 管理员权限，不新增正式用户角色；当前修订的提交者不得审核该修订，维护权限不允许编辑、审核或直接恢复公开修订。
-- 推荐规则使用 `recommendation_editor` 和 `recommendation_reviewer` 管理员权限，不新增正式角色；候选规则集提交者不得审核该版本，激活必须原子退役旧版本。
+- 推荐规则使用 `recommendation_editor` 和 `recommendation_reviewer` 管理员权限，不新增正式角色；普通 `admin` 角色本身不授予推荐治理能力。创建规则集草稿要求 `recommendation_editor`；修改和提交草稿要求当前账号同时是 `created_by_id` 且仍具有 `recommendation_editor`。其他 editor 和 reviewer 可以按治理读模型读取或只读 preview，但不能接管、共同编辑、代提交或审核自己提交的版本。激活必须在同一事务内验证治理基线仍为当前 active，原子激活候选并退役旧版本；stale approve 返回 `409 stale_rule_set` 且不创建终态审核记录。
 - 后端必须对每个后台接口做权限检查。
 
 ### 10.3 审计

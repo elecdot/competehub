@@ -1,7 +1,7 @@
 """add student following and reminder integrity
 
 Revision ID: 7f3c2a91d8e4
-Revises: 13eb10903bd7
+Revises: be7dfc45f976
 Create Date: 2026-07-12 18:00:00
 """
 
@@ -14,7 +14,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "7f3c2a91d8e4"
-down_revision = "13eb10903bd7"
+down_revision = "be7dfc45f976"
 branch_labels = None
 depends_on = None
 

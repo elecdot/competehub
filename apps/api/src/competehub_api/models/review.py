@@ -2,7 +2,16 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import JSON, BigInteger, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -16,11 +25,21 @@ BIGINT_PK = BigInteger().with_variant(Integer, "sqlite")
 
 class ReviewRecord(db.Model, TimestampMixin):
     __tablename__ = "review_records"
+    __table_args__ = (
+        UniqueConstraint(
+            "target_type",
+            "target_id",
+            "target_revision",
+            name="uq_review_records_target_version",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BIGINT_PK, primary_key=True)
     target_type: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
     target_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    target_revision: Mapped[int | None] = mapped_column(Integer)
     submitted_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     reviewed_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     status: Mapped[ReviewStatus] = mapped_column(
         SAEnum(ReviewStatus, values_callable=enum_values, name="review_status"),
@@ -31,7 +50,8 @@ class ReviewRecord(db.Model, TimestampMixin):
     comment: Mapped[str | None] = mapped_column(Text)
     differences: Mapped[list | None] = mapped_column(JSON)
     impact: Mapped[dict | None] = mapped_column(JSON)
-    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    difference_snapshot: Mapped[dict | None] = mapped_column(JSON)
+    impact_summary: Mapped[dict | None] = mapped_column(JSON)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 

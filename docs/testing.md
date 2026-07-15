@@ -108,6 +108,14 @@ and video are retained on failure. Reports and test results stay under
 `.cache/playwright`, are ignored by Git, and are uploaded by CI only when the
 browser job fails.
 
+The recommendation-governance acceptance path logs in through real Cookie
+sessions as the seeded editor, clones active v1, edits and previews against a
+current published revision, submits, proves self-review denial, switches to a
+distinct reviewer, inspects difference/impact and actor/time evidence, approves,
+and verifies active/retired history after reload. It also proves that a normal
+admin without recommendation capability and a student cannot access the API or
+workbench, and that preview exposes reasons but no score-like fields.
+
 The explicit **New Edition** workbench action is narrow acceptance evidence for
 the UI-driven publication E2E: the browser must create both editions through
 the real Save flow, so direct API creation is insufficient evidence. The action
@@ -115,6 +123,12 @@ only resets the workbench to a new-edition creation state while preserving the
 selected competition series. It does not implement Issue #40 reconciliation or
 message-center behavior, Issue #41 personal-calendar behavior, or broaden
 Issue #38 student-engagement scope.
+
+Migration tests always exercise fresh, empty-predecessor, and populated
+fail-closed paths on SQLite. The equivalent disposable PostgreSQL cases run only
+when the configured PostgreSQL test service is reachable; a missing URL/service
+is a reported skip, not passing PostgreSQL evidence. Likewise, Playwright is not
+reported as passed when Chromium is unavailable or its installation is blocked.
 
 ## Non-Functional Validation
 

@@ -12,6 +12,8 @@ from competehub_api.models import (
     CompetitionRevision,
     CompetitionSeries,
     CompetitionStage,
+    CompetitionTag,
+    CompetitionTagLink,
     CompetitionTimeNode,
     Favorite,
     ReminderSetting,
@@ -30,6 +32,7 @@ from competehub_api.models.enums import (
     UserRole,
     UserStatus,
 )
+from competehub_api.seeds.recommendation_rules import seed_initial_recommendation_rule_set
 from competehub_api.services.auth import hash_password, normalize_identity
 from competehub_api.services.profiles import DEFAULT_REMINDER_NODE_TYPES
 
@@ -77,7 +80,11 @@ E2E_ACTORS = (
         password="copper meadow signal river 82",
         display_name="Day 1 Admin",
         role=UserRole.ADMIN,
-        capabilities=("competition_editor",),
+        capabilities=(
+            "competition_editor",
+            "recommendation_editor",
+            "recommendation_reviewer",
+        ),
     ),
     E2EActor(
         id=1003,
@@ -85,7 +92,19 @@ E2E_ACTORS = (
         password="silver orchard compass cloud 59",
         display_name="Day 1 Reviewer",
         role=UserRole.ADMIN,
-        capabilities=("competition_reviewer", "competition_maintainer"),
+        capabilities=(
+            "competition_reviewer",
+            "competition_maintainer",
+            "recommendation_reviewer",
+        ),
+    ),
+    E2EActor(
+        id=1006,
+        email="admin.no-recommendation@example.edu",
+        password="granite garden ordinary admin 28",
+        display_name="Admin Without Recommendation Capability",
+        role=UserRole.ADMIN,
+        capabilities=("competition_maintainer",),
     ),
 )
 
@@ -174,6 +193,7 @@ def register_e2e_commands(app: Flask) -> None:
         _seed_publication_fixture()
         _seed_owned_lifecycle_engagement()
         db.session.commit()
+        seed_initial_recommendation_rule_set()
 
         click.echo(f"Provisioned {len(SEEDED_E2E_ACTORS)} deterministic E2E actors.")
 
@@ -201,8 +221,8 @@ def _seed_publication_fixture() -> None:
         participant_forms=["individual"],
         major_scope="selected",
         grade_scope="selected",
-        suitable_majors=["Computer Science"],
-        suitable_grades=["Year 2"],
+        suitable_majors=["软件工程"],
+        suitable_grades=["大二"],
         status=CompetitionStatus.PUBLISHED,
         created_by_id=1002,
     )
@@ -252,11 +272,24 @@ def _seed_publication_fixture() -> None:
         )
     )
     revision.stages.append(stage)
+    tag = CompetitionTag(
+        id=2001,
+        code="seeded-ai",
+        name="人工智能",
+        tag_type="topic",
+    )
+    revision.tag_links.append(
+        CompetitionTagLink(
+            competition=edition,
+            tag=tag,
+        )
+    )
     edition.published_revision = revision
     db.session.add_all(
         [
             series,
             edition,
+            tag,
             ReviewRecord(
                 target_type="competition_revision",
                 target_id=2001,

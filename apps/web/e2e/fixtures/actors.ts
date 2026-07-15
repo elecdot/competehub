@@ -4,7 +4,13 @@ import {
   type Page,
 } from '@playwright/test'
 
-export const actorNames = ['student', 'profileReady', 'editor', 'reviewer'] as const
+export const actorNames = [
+  'student',
+  'profileReady',
+  'editor',
+  'reviewer',
+  'adminNoRecommendation',
+] as const
 
 export type ActorName = (typeof actorNames)[number]
 
@@ -33,6 +39,11 @@ const actors: Record<ActorName, ActorDefinition> = {
   reviewer: {
     email: 'reviewer.day1@example.edu',
     password: 'silver orchard compass cloud 59',
+    role: 'admin',
+  },
+  adminNoRecommendation: {
+    email: 'admin.no-recommendation@example.edu',
+    password: 'granite garden ordinary admin 28',
     role: 'admin',
   },
 }

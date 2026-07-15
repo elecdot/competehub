@@ -180,17 +180,25 @@ def validate_profile_update(profile: StudentProfile, updates: dict) -> None:
             if key in {"college", "major", "grade", "interest_tags"}
         }
     )
-    if candidate["college"] is not None and not _is_allowed_college(candidate["college"]):
+    validate_controlled_profile_fields(candidate, require_complete=False)
+
+
+def validate_controlled_profile_fields(profile: dict, *, require_complete: bool) -> None:
+    """Validate real and synthetic recommendation profile facts from one dictionary."""
+    college = profile.get("college")
+    major = profile.get("major")
+    grade = profile.get("grade")
+    interest_tags = profile.get("interest_tags")
+    if (require_complete or college is not None) and not _is_allowed_college(college):
         raise _profile_validation_error("college")
-    if candidate["major"] is not None and not _is_present_and_valid_major(
-        candidate["college"], candidate["major"]
-    ):
+    if (require_complete or major is not None) and not _is_present_and_valid_major(college, major):
         raise _profile_validation_error("major")
-    if candidate["grade"] is not None and not _is_allowed_grade(candidate["grade"]):
+    if (require_complete or grade is not None) and not _is_allowed_grade(grade):
         raise _profile_validation_error("grade")
-    if candidate["interest_tags"] is not None and not _has_only_allowed_interest_tags(
-        candidate["interest_tags"]
-    ):
+    if require_complete:
+        if not recommendation_ready_interest_tags(interest_tags):
+            raise _profile_validation_error("interest_tags")
+    elif interest_tags is not None and not _has_only_allowed_interest_tags(interest_tags):
         raise _profile_validation_error("interest_tags")
 
 

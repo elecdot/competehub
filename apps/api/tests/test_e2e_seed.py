@@ -8,6 +8,7 @@ from competehub_api.models import (
     CompetitionRevision,
     CompetitionSeries,
     Favorite,
+    RecommendationRuleSet,
     ReminderSetting,
     StudentProfile,
     Subscription,
@@ -44,7 +45,7 @@ def test_e2e_seed_rebuilds_the_expected_actor_set() -> None:
     result = runner.invoke(args=["seed-e2e", "--reset"])
 
     assert result.exit_code == 0
-    assert "Provisioned 5 deterministic E2E actors." in result.output
+    assert "Provisioned 6 deterministic E2E actors." in result.output
 
     with app.app_context():
         db.session.add(
@@ -77,6 +78,9 @@ def test_e2e_seed_rebuilds_the_expected_actor_set() -> None:
         assert [user.capabilities for user in users] == [
             list(actor.capabilities) for actor in expected_actors
         ]
+        submitter = next(user for user in users if user.email == "admin.day1@example.edu")
+        assert "recommendation_editor" in submitter.capabilities
+        assert "recommendation_reviewer" in submitter.capabilities
         assert [identity.display_value for identity in identities] == [
             actor.email for actor in expected_actors
         ]
@@ -104,6 +108,10 @@ def test_e2e_seed_rebuilds_the_expected_actor_set() -> None:
         assert revision.stages[0].time_nodes[0].occurs_at is not None
         assert revision.stages[0].time_nodes[0].starts_at is None
         assert revision.stages[0].time_nodes[0].due_at is None
+        assert [link.tag.name for link in revision.tag_links] == ["人工智能"]
+        recommendation_rule_set = db.session.query(RecommendationRuleSet).one()
+        assert recommendation_rule_set.version == 1
+        assert recommendation_rule_set.status.value == "active"
         offline = db.session.get(Competition, 2002)
         unpublished = db.session.get(Competition, 2003)
         assert offline.status == CompetitionStatus.OFFLINE
