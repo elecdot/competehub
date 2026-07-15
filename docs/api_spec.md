@@ -1154,6 +1154,11 @@ edition. If one exists, return `409 active_revision_exists` with its revision id
 instead of creating a parallel candidate. A replacement stores the exact copied
 public revision as `base_revision_id`.
 
+Successor creation is available only while the edition lifecycle is
+`unpublished`, `published`, or `offline`. `cancelled`, `archived`, and `expired`
+editions return `409 conflict`; those terminal lifecycle states cannot start a
+new publication workflow.
+
 If the latest candidate is `rejected` or `returned`, this endpoint copies that
 immutable terminal candidate so editing can continue in a new draft. The new
 draft still records the current public revision as `base_revision_id`; before
@@ -1174,9 +1179,10 @@ reason on the single revision-scoped reconciliation audit event.
 
 ### `PATCH /admin/competition_revisions/{revision_id}`
 
-Update one draft revision. Submitted and decided revisions are immutable.
-Stage and time-node editing is identity-aware and must not use blind list
-replacement after reminder-dependent state exists.
+Update one draft revision. A `pending_review` revision is content-frozen until
+it is explicitly withdrawn to `draft`; decided revisions are immutable. Stage
+and time-node editing is identity-aware and must not use blind list replacement
+after reminder-dependent state exists.
 
 ### `POST /admin/competition_revisions/{revision_id}/submit_review`
 
@@ -1222,6 +1228,13 @@ candidate's `base_revision_id` still equals the edition's
 mismatch returns `409 stale_revision`, changes no public pointer, and appends no
 terminal review decision. The reviewer must reload the comparison and an editor
 must create a successor from the current public revision.
+
+Approval is rejected with `409 conflict` when the edition is already
+`cancelled`, `archived`, or `expired`, including when the candidate was
+submitted before the terminal lifecycle transition. The candidate remains
+pending and the public pointer and engagement state remain unchanged; a
+reviewer may still reject or return it, or an editor may explicitly withdraw
+it to draft.
 
 Replacement approval locks and requires each affected subscriber's global
 reminder setting before changing the public pointer. Missing student-owned

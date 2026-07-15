@@ -316,8 +316,12 @@ Rules:
   `all` and `unknown` are explicit and are never inferred from an empty list.
 - Source, official, and attachment URLs accept only valid HTTP(S) URLs when
   present.
-- Draft revisions are editable. Submitted, approved, rejected, and returned
-  snapshots are immutable; continued work creates a successor draft.
+- Draft revisions are editable. A `pending_review` revision is content-frozen
+  while submitted, but an editor may explicitly withdraw it to `draft`; the
+  current submission actor and instant are cleared while an append-only
+  `competition_revision.withdraw` audit event retains those prior submission
+  facts. Approved, rejected, and returned revisions are immutable; continued
+  work creates a successor draft.
 - P1 permits at most one active workflow revision (`draft` or `pending_review`)
   per赛事届次. A partial unique constraint on `competition_id` for those states
   enforces the boundary; creating another returns the existing active revision
@@ -334,6 +338,11 @@ Rules:
   initial publication), then atomically selects the revision and refreshes
   public search, recommendation, and detail reads. A mismatch returns
   `409 stale_revision` and creates no terminal review decision.
+- Successor creation and approval are unavailable after the edition enters
+  `cancelled`, `archived`, or `expired`. A candidate submitted before that
+  terminal lifecycle transition remains non-public and cannot be approved; it
+  may still be rejected, returned, or explicitly withdrawn. It cannot switch
+  the public pointer or rebuild engagement state.
 - Replacement approval appends one `competition_revision.reconcile` audit event
   containing the immutable base/successor node differences and review reason.
   Schedule-semantic changes cancel superseded pending plans, create only future
@@ -877,7 +886,9 @@ Key fields:
 
 Required audit actions:
 
-- Competition create, update, submit review, approve, reject, return, offline, archive, cancel.
+- Competition series create; competition revision create, successor create,
+  update, submit, withdraw, approve, reject, return, and reconciliation.
+- Competition lifecycle offline, archive, cancel, and expire.
 - Config changes.
 - Recommendation rule-set submit, review, activation, and retirement.
 - User role, account status, or capability changes.
@@ -1081,6 +1092,7 @@ Public visibility policy:
 
 ```text
 draft -> pending_review
+pending_review -> draft  # explicit audited withdrawal before a decision
 pending_review -> approved | rejected | returned
 rejected | returned -> successor draft
 ```
@@ -1088,7 +1100,11 @@ rejected | returned -> successor draft
 Rules:
 
 - Draft content may change until submission.
-- Submitted and decided snapshots are immutable.
+- Pending content is frozen while submitted. Explicit withdrawal returns that
+  same revision to editable `draft`, clears its current submission actor and
+  instant, and preserves the prior actor/time in append-only audit evidence; it
+  creates no terminal decision row in `review_records`.
+- Approved, rejected, and returned revisions are immutable.
 - Approved initial revisions publish an unpublished edition; approved
   replacements atomically switch the public revision.
 

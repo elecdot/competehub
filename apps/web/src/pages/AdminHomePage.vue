@@ -114,9 +114,20 @@ const activeEditionWorkspaces = computed(() => editionWorkspaces.value)
 const selectedWorkspace = computed(() =>
   editionWorkspaces.value.find((workspace) => workspace.id === selectedEditionId.value),
 )
+const selectedRevisionWorkspace = computed(() =>
+  editionWorkspaces.value.find(
+    (workspace) => workspace.id === selectedRevision.value?.competition_id,
+  ),
+)
+const isTerminalReviewLifecycle = computed(() =>
+  ['cancelled', 'archived', 'expired'].includes(
+    selectedRevisionWorkspace.value?.lifecycle_status ?? '',
+  ),
+)
 const canCreateSuccessor = computed(
   () =>
     selectedWorkspace.value != null &&
+    ['unpublished', 'published', 'offline'].includes(selectedWorkspace.value.lifecycle_status) &&
     ['approved', 'rejected', 'returned'].includes(
       selectedWorkspace.value.active_revision.revision_status,
     ),
@@ -235,8 +246,12 @@ async function loadSeries() {
   }
 }
 
-async function loadEditions(preferredEditionId?: number) {
+async function refreshEditionWorkspaces() {
   editionWorkspaces.value = await fetchCompetitionEditions()
+}
+
+async function loadEditions(preferredEditionId?: number) {
+  await refreshEditionWorkspaces()
   const editionId = preferredEditionId ?? selectedEditionId.value
   const workspace =
     activeEditionWorkspaces.value.find((item) => item.id === editionId) ??
@@ -473,6 +488,10 @@ async function loadPending() {
       (revision) => revision.id === selectedRevision.value?.id,
     )
   }
+}
+
+async function refreshReviewQueue() {
+  await Promise.all([loadPending(), refreshEditionWorkspaces()])
 }
 
 async function decide(action: 'approve' | 'reject' | 'return') {
@@ -795,7 +814,7 @@ function displayValue(value: unknown) {
         <Spin :spinning="loading">
           <div class="review-toolbar">
             <span>待审核 {{ pendingRevisions.length }} 项</span>
-            <Button aria-label="刷新审核队列" @click="loadPending"><template #icon><ReloadOutlined /></template></Button>
+            <Button aria-label="刷新审核队列" @click="refreshReviewQueue"><template #icon><ReloadOutlined /></template></Button>
           </div>
           <div v-if="pendingRevisions.length" class="review-layout">
             <aside class="revision-list" aria-label="待审核修订">
@@ -832,6 +851,7 @@ function displayValue(value: unknown) {
                   <span>{{ displayValue(difference.after) }}</span>
                 </div>
               </div>
+              <Alert v-if="isTerminalReviewLifecycle" data-testid="terminal-review-warning" type="warning" show-icon message="届次已进入终态，候选修订不能批准；可拒绝、退回或由编辑撤回" />
               <Alert v-if="isSelfReview" data-testid="self-review-warning" type="warning" show-icon message="提交者不能审核自己的修订" />
               <Button
                 v-if="isSelfReview"
@@ -842,7 +862,7 @@ function displayValue(value: unknown) {
               </Button>
               <Textarea v-model:value="reviewComment" data-testid="review-comment" :rows="3" placeholder="填写审核依据与结论" />
               <Space>
-                <Button data-testid="approve-revision" type="primary" :disabled="isSelfReview || !reviewComment.trim()" @click="decide('approve')"><template #icon><CheckOutlined /></template>批准发布</Button>
+                <Button data-testid="approve-revision" type="primary" :disabled="isSelfReview || isTerminalReviewLifecycle || !reviewComment.trim()" @click="decide('approve')"><template #icon><CheckOutlined /></template>批准发布</Button>
                 <Button danger :disabled="isSelfReview || !reviewComment.trim()" @click="decide('reject')"><template #icon><CloseOutlined /></template>拒绝</Button>
                 <Button :disabled="isSelfReview || !reviewComment.trim()" @click="decide('return')">退回</Button>
               </Space>

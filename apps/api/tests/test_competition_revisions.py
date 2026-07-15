@@ -119,8 +119,21 @@ def create_edition(client, series_id: int) -> dict:
     return response.get_json()["data"]
 
 
-def create_published_edition(client, editor_id: int, reviewer_id: int) -> dict:
-    edition = create_edition(client, create_series(client))
+def create_published_edition(
+    client,
+    editor_id: int,
+    reviewer_id: int,
+    *,
+    elapsed_nodes: bool = False,
+) -> dict:
+    series_id = create_series(client)
+    payload = complete_edition_payload(series_id)
+    if elapsed_nodes:
+        payload["stages"][0]["time_nodes"][0]["occurs_at"] = "2020-07-01T16:00:00Z"
+        payload["stages"][0]["time_nodes"][1]["occurs_at"] = "2020-07-15T16:00:00Z"
+    response = client.post("/api/v1/admin/competitions", json=payload)
+    assert response.status_code == 201
+    edition = response.get_json()["data"]
     revision_id = edition["revision"]["id"]
     assert (
         client.post(f"/api/v1/admin/competition_revisions/{revision_id}/submit_review").status_code
@@ -612,6 +625,9 @@ def test_successor_revision_keeps_public_snapshot_until_approval_and_reconciles_
         assert audit_change["change"] == "changed"
         assert audit_change["before"] == {
             "stage_key": "registration",
+            "stage_type": "registration",
+            "stage_label": "Registration",
+            "stage_order": 1,
             "node_type": "registration_deadline",
             "occurs_at": old_deadline["occurs_at"],
             "description": "Registration closes",
@@ -643,8 +659,9 @@ def test_successor_revision_keeps_public_snapshot_until_approval_and_reconciles_
         assert {message.user_id for message in messages} == {student_id, disabled_student_id}
 
 
+@pytest.mark.parametrize("presentation_change", ["stage_metadata", "description"])
 def test_presentation_only_revision_moves_pending_reminder_without_schedule_message(
-    client, app
+    client, app, presentation_change: str
 ) -> None:
     with app.app_context():
         editor_id = create_user(
@@ -715,14 +732,18 @@ def test_presentation_only_revision_moves_pending_reminder_without_schedule_mess
     ).get_json()["data"]
     successor_id = successor["id"]
     stages = successor["stages"]
-    stages[0]["stage_key"] = "main-registration"
     deadline_payload = next(
         node
         for stage in stages
         for node in stage["time_nodes"]
         if node["logical_node_key"] == "registration-deadline"
     )
-    deadline_payload["description"] = "Registration closes at the published instant"
+    if presentation_change == "stage_metadata":
+        stages[0]["stage_type"] = "submission"
+        stages[0]["label"] = "Main registration round"
+        stages[0]["order"] = 2
+    else:
+        deadline_payload["description"] = "Registration closes at the published instant"
     for stage in stages:
         stage.pop("id", None)
         for node in stage["time_nodes"]:
@@ -734,9 +755,28 @@ def test_presentation_only_revision_moves_pending_reminder_without_schedule_mess
         json={"stages": stages},
     )
     assert updated.status_code == 200
-    assert updated.get_json()["data"]["impact"]["pending_reminders_to_supersede"] == 1
-    assert updated.get_json()["data"]["impact"]["future_reminders_to_create"] == 1
-    assert updated.get_json()["data"]["impact"]["schedule_change_messages_estimate"] == 0
+    updated_data = updated.get_json()["data"]
+    preview_change = next(
+        change
+        for change in updated_data["comparison"]["time_node_changes"]
+        if change["logical_node_key"] == "registration-deadline"
+    )
+    assert preview_change["before"]["stage_type"] == "registration"
+    assert preview_change["before"]["stage_label"] == "Registration"
+    assert preview_change["before"]["stage_order"] == 1
+    assert preview_change["before"]["node_revision"] == old_node_revision
+    assert preview_change["after"]["node_revision"] == old_node_revision
+    if presentation_change == "stage_metadata":
+        assert preview_change["after"]["stage_type"] == "submission"
+        assert preview_change["after"]["stage_label"] == "Main registration round"
+        assert preview_change["after"]["stage_order"] == 2
+    else:
+        assert preview_change["after"]["description"] == (
+            "Registration closes at the published instant"
+        )
+    assert updated_data["impact"]["pending_reminders_to_supersede"] == 1
+    assert updated_data["impact"]["future_reminders_to_create"] == 1
+    assert updated_data["impact"]["schedule_change_messages_estimate"] == 0
     assert (
         client.post(f"/api/v1/admin/competition_revisions/{successor_id}/submit_review").status_code
         == 200
@@ -781,6 +821,9 @@ def test_presentation_only_revision_moves_pending_reminder_without_schedule_mess
         )
         assert deadline_change["before"] == {
             "stage_key": "registration",
+            "stage_type": "registration",
+            "stage_label": "Registration",
+            "stage_order": 1,
             "node_type": "registration_deadline",
             "occurs_at": "2026-08-15T16:00:00+00:00",
             "description": "Registration closes",
@@ -788,12 +831,28 @@ def test_presentation_only_revision_moves_pending_reminder_without_schedule_mess
             "prominence_override_reason": None,
             "node_revision": old_node_revision,
         }
-        assert deadline_change["after"] == {
+        expected_after = {
             **deadline_change["before"],
-            "stage_key": "main-registration",
-            "description": "Registration closes at the published instant",
             "node_revision": old_node_revision + 1,
         }
+        if presentation_change == "stage_metadata":
+            expected_after.update(
+                {
+                    "stage_type": "submission",
+                    "stage_label": "Main registration round",
+                    "stage_order": 2,
+                }
+            )
+        else:
+            expected_after["description"] = "Registration closes at the published instant"
+        assert deadline_change["after"] == expected_after
+        review = ReviewRecord.query.filter_by(target_id=successor_id).one()
+        review_change = next(
+            change
+            for change in review.differences
+            if change.get("logical_node_key") == "registration-deadline"
+        )
+        assert review_change == deadline_change
         assert (
             Message.query.filter_by(
                 competition_id=edition_id,
@@ -1151,6 +1210,205 @@ def test_archive_and_expire_reject_current_public_future_nodes(client, app) -> N
         }
 
 
+@pytest.mark.parametrize("lifecycle_status", ["cancelled", "archived", "expired"])
+def test_terminal_lifecycle_rejects_successor_creation(client, app, lifecycle_status: str) -> None:
+    with app.app_context():
+        editor_id = create_user(
+            81,
+            UserRole.ADMIN,
+            f"terminal-create-{lifecycle_status}-editor@example.edu",
+            ["competition_editor", "competition_maintainer"],
+        )
+        reviewer_id = create_user(
+            82,
+            UserRole.ADMIN,
+            f"terminal-create-{lifecycle_status}-reviewer@example.edu",
+            ["competition_reviewer"],
+        )
+    login(client, editor_id)
+    edition = create_published_edition(
+        client,
+        editor_id,
+        reviewer_id,
+        elapsed_nodes=True,
+    )
+    edition_id = edition["id"]
+    transition = client.patch(
+        f"/api/v1/admin/competitions/{edition_id}/status",
+        json={
+            "status": lifecycle_status,
+            "reason": "The edition reached a terminal lifecycle state.",
+        },
+    )
+    assert transition.status_code == 200
+
+    response = client.post(
+        f"/api/v1/admin/competitions/{edition_id}/revisions",
+        json={"reason": "An invalid correction after terminal maintenance."},
+    )
+
+    assert response.status_code == 409
+    assert response.get_json()["error"]["code"] == "conflict"
+    assert response.get_json()["error"]["details"]["lifecycle_status"] == lifecycle_status
+    with app.app_context():
+        assert CompetitionRevision.query.filter_by(competition_id=edition_id).count() == 1
+        assert AuditLog.query.filter_by(action="competition_revision.create_successor").count() == 0
+
+
+@pytest.mark.parametrize("lifecycle_status", ["cancelled", "archived", "expired"])
+def test_candidate_submitted_before_terminal_lifecycle_cannot_be_approved(
+    client, app, lifecycle_status: str
+) -> None:
+    with app.app_context():
+        editor_id = create_user(
+            83,
+            UserRole.ADMIN,
+            f"terminal-approve-{lifecycle_status}-editor@example.edu",
+            ["competition_editor", "competition_maintainer"],
+        )
+        reviewer_id = create_user(
+            84,
+            UserRole.ADMIN,
+            f"terminal-approve-{lifecycle_status}-reviewer@example.edu",
+            ["competition_reviewer"],
+        )
+        student_id = create_user(
+            85,
+            UserRole.STUDENT,
+            f"terminal-approve-{lifecycle_status}-student@example.edu",
+        )
+    login(client, editor_id)
+    edition = create_published_edition(
+        client,
+        editor_id,
+        reviewer_id,
+        elapsed_nodes=True,
+    )
+    edition_id = edition["id"]
+    initial_revision_id = edition["revision"]["id"]
+    with app.app_context():
+        initial = db.session.get(CompetitionRevision, initial_revision_id)
+        assert initial is not None
+        deadline = next(
+            node for node in initial.time_nodes if node.logical_node_key == "registration-deadline"
+        )
+        db.session.add_all(
+            [
+                ReminderSetting(id=10, user_id=student_id, enabled=True),
+                Subscription(
+                    id=10,
+                    user_id=student_id,
+                    competition_id=edition_id,
+                    reminder_enabled=True,
+                    remind_days=3,
+                    node_types=["registration_deadline"],
+                ),
+                Reminder(
+                    id=10,
+                    user_id=student_id,
+                    competition_id=edition_id,
+                    time_node_snapshot_id=deadline.id,
+                    logical_node_key=deadline.logical_node_key,
+                    time_node_revision=deadline.node_revision,
+                    node_type=deadline.node_type,
+                    due_at=datetime(2020, 7, 12, 16, tzinfo=UTC),
+                    title="Terminal lifecycle baseline reminder",
+                    status=ReminderStatus.PENDING,
+                ),
+            ]
+        )
+        db.session.commit()
+    successor = client.post(
+        f"/api/v1/admin/competitions/{edition_id}/revisions",
+        json={"reason": "Prepare a source-backed clarification."},
+    ).get_json()["data"]
+    successor_id = successor["id"]
+    stages = successor["stages"]
+    successor_deadline = next(
+        node
+        for stage in stages
+        for node in stage["time_nodes"]
+        if node["logical_node_key"] == "registration-deadline"
+    )
+    successor_deadline["occurs_at"] = "2026-08-20T16:00:00Z"
+    for stage in stages:
+        stage.pop("id", None)
+        for node in stage["time_nodes"]:
+            node.pop("id", None)
+            node.pop("node_revision", None)
+    assert (
+        client.patch(
+            f"/api/v1/admin/competition_revisions/{successor_id}",
+            json={"stages": stages},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(f"/api/v1/admin/competition_revisions/{successor_id}/submit_review").status_code
+        == 200
+    )
+    assert (
+        client.patch(
+            f"/api/v1/admin/competitions/{edition_id}/status",
+            json={
+                "status": lifecycle_status,
+                "reason": "The edition became terminal after candidate submission.",
+            },
+        ).status_code
+        == 200
+    )
+    with app.app_context():
+        reminders_before_approval = [
+            (reminder.id, reminder.status.value, reminder.cancel_reason)
+            for reminder in Reminder.query.filter_by(competition_id=edition_id)
+            .order_by(Reminder.id)
+            .all()
+        ]
+        messages_before_approval = Message.query.filter_by(competition_id=edition_id).count()
+
+    login(client, reviewer_id)
+    response = client.post(
+        f"/api/v1/admin/competition_revisions/{successor_id}/review",
+        json={"action": "approve", "comment": "The candidate predates terminal state."},
+    )
+
+    assert response.status_code == 409
+    assert response.get_json()["error"]["code"] == "conflict"
+    assert response.get_json()["error"]["details"]["lifecycle_status"] == lifecycle_status
+    with app.app_context():
+        competition = db.session.get(Competition, edition_id)
+        candidate = db.session.get(CompetitionRevision, successor_id)
+        assert competition is not None
+        assert candidate is not None
+        assert competition.status.value == lifecycle_status
+        assert competition.published_revision_id == initial_revision_id
+        assert candidate.revision_status.value == "pending_review"
+        assert candidate.published_at is None
+        assert candidate.decided_at is None
+        assert ReviewRecord.query.filter_by(target_id=successor_id).count() == 0
+        assert [
+            (reminder.id, reminder.status.value, reminder.cancel_reason)
+            for reminder in Reminder.query.filter_by(competition_id=edition_id)
+            .order_by(Reminder.id)
+            .all()
+        ] == reminders_before_approval
+        assert (
+            Message.query.filter_by(competition_id=edition_id).count() == messages_before_approval
+        )
+        assert (
+            AuditLog.query.filter_by(
+                action="competition_revision.approve", target_id=successor_id
+            ).count()
+            == 0
+        )
+        assert (
+            AuditLog.query.filter_by(
+                action="competition_revision.reconcile", target_id=successor_id
+            ).count()
+            == 0
+        )
+
+
 def test_student_cannot_use_editor_or_reviewer_endpoints(client, app) -> None:
     with app.app_context():
         student_id = create_user(14, UserRole.STUDENT, "student@example.edu")
@@ -1272,10 +1530,11 @@ def test_editor_withdraws_pending_revision_back_to_editable_draft(client, app) -
     login(client, editor_id)
     edition = create_edition(client, create_series(client))
     revision_id = edition["revision"]["id"]
-    assert (
-        client.post(f"/api/v1/admin/competition_revisions/{revision_id}/submit_review").status_code
-        == 200
-    )
+    submitted = client.post(f"/api/v1/admin/competition_revisions/{revision_id}/submit_review")
+    assert submitted.status_code == 200
+    submitted_at = datetime.fromisoformat(submitted.get_json()["data"]["submitted_at"])
+    if submitted_at.tzinfo is None:
+        submitted_at = submitted_at.replace(tzinfo=UTC)
 
     withdrawn = client.post(f"/api/v1/admin/competition_revisions/{revision_id}/withdraw")
 
@@ -1296,3 +1555,5 @@ def test_editor_withdraws_pending_revision_back_to_editable_draft(client, app) -
             action="competition_revision.withdraw", target_id=revision_id
         ).one()
         assert event.actor_id == editor_id
+        assert event.detail["submitted_by_id"] == editor_id
+        assert datetime.fromisoformat(event.detail["submitted_at"]) == submitted_at

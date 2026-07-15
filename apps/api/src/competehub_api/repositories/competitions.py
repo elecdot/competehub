@@ -134,7 +134,10 @@ def get_competition_revision(revision_id: int) -> CompetitionRevision | None:
 
 def get_competition_for_update(competition_id: int) -> Competition | None:
     return db.session.scalar(
-        select(Competition).where(Competition.id == competition_id).with_for_update()
+        select(Competition)
+        .where(Competition.id == competition_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
 
 

@@ -90,6 +90,13 @@ PRIMARY_NODE_TYPES = {
     "submission_deadline",
     "competition_start",
 }
+REVISION_WORKFLOW_LIFECYCLE_STATUSES = frozenset(
+    {
+        CompetitionStatus.UNPUBLISHED,
+        CompetitionStatus.PUBLISHED,
+        CompetitionStatus.OFFLINE,
+    }
+)
 
 
 def create_series(payload: dict[str, Any], actor: User) -> CompetitionSeries:
@@ -165,14 +172,17 @@ def create_successor_revision(
     actor: User,
     reason: str,
 ) -> CompetitionRevision:
-    active = get_active_competition_revision(edition.id)
-    if active is not None:
-        raise ServiceError(
-            HTTPStatus.CONFLICT,
-            "active_revision_exists",
-            "the edition already has an active revision",
-            {"revision_id": active.id, "revision_status": active.revision_status.value},
-        )
+    edition_id = edition.id
+    _require_revision_workflow_lifecycle(edition)
+    # Avoid taking the edition lock for a known conflict, then re-check after
+    # locking so concurrent creation and lifecycle changes cannot stale this decision.
+    _require_no_active_revision(edition_id)
+
+    edition = get_competition_for_update(edition_id)
+    if edition is None:
+        raise ServiceError(HTTPStatus.NOT_FOUND, "not_found", "competition edition not found")
+    _require_revision_workflow_lifecycle(edition)
+    _require_no_active_revision(edition_id)
 
     public_base = (
         db.session.get(CompetitionRevision, edition.published_revision_id)
@@ -191,7 +201,6 @@ def create_successor_revision(
             "conflict",
             "a successor revision requires a published or decided source revision",
         )
-    edition_id = edition.id
     # Relationship loads while cloning can otherwise autoflush the new revision before
     # the explicit flush below, bypassing the unique-conflict translation.
     with db.session.no_autoflush:
@@ -390,6 +399,11 @@ def review_revision(
             "forbidden",
             "the submitter cannot review the same revision",
         )
+    edition = get_competition_for_update(revision.competition_id)
+    if edition is None:
+        raise ServiceError(HTTPStatus.NOT_FOUND, "not_found", "competition edition not found")
+    if action == "approve":
+        _require_revision_workflow_lifecycle(edition)
     now = datetime.now(UTC)
     comparison = revision_comparison(revision)
     differences = [
@@ -404,9 +418,6 @@ def review_revision(
         "return": (CompetitionRevisionStatus.RETURNED, ReviewStatus.RETURNED),
     }
     revision_status, review_status = status_by_action[action]
-    edition = get_competition_for_update(revision.competition_id)
-    if edition is None:
-        raise ServiceError(HTTPStatus.NOT_FOUND, "not_found", "competition edition not found")
     if action == "approve":
         if edition.status == CompetitionStatus.OFFLINE and (
             revision.submitted_at is None
@@ -665,6 +676,9 @@ def _stage_facts(stage: CompetitionStage) -> dict[str, Any]:
 def _node_facts(stage: CompetitionStage, node: CompetitionTimeNode) -> dict[str, Any]:
     return {
         "stage_key": stage.stage_key,
+        "stage_type": stage.stage_type,
+        "stage_label": stage.label,
+        "stage_order": stage.stage_order,
         "node_type": node.node_type,
         "occurs_at": _utc_iso(node.occurs_at),
         "description": node.description,
@@ -958,6 +972,29 @@ def _aware_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
+
+
+def _require_revision_workflow_lifecycle(edition: Competition) -> None:
+    if edition.status in REVISION_WORKFLOW_LIFECYCLE_STATUSES:
+        return
+    raise ServiceError(
+        HTTPStatus.CONFLICT,
+        "conflict",
+        "competition lifecycle does not allow revision workflow",
+        {"lifecycle_status": edition.status.value},
+    )
+
+
+def _require_no_active_revision(competition_id: int) -> None:
+    active = get_active_competition_revision(competition_id)
+    if active is None:
+        return
+    raise ServiceError(
+        HTTPStatus.CONFLICT,
+        "active_revision_exists",
+        "the edition already has an active revision",
+        {"revision_id": active.id, "revision_status": active.revision_status.value},
+    )
 
 
 def _is_unique_constraint(error: IntegrityError, name: str) -> bool:
