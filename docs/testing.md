@@ -51,6 +51,12 @@ project conventions.
 | E2E or manual acceptance | Course demo main workflow and cross-role handoff. | Use the shared Playwright Chromium harness through `just web-e2e`. It starts with deterministic student/editor/reviewer Cookie sessions and a nonblank smoke path, then feature issues add distinct editor/reviewer publication, calendar, recommendation, and governance scenarios. Use manual acceptance for exploratory and visual checks. | `just web-e2e` plus an acceptance record with date, actor, environment, result, and linked defects. |
 | Documentation and workflow checks | MkDocs navigation, source-of-truth alignment, PR checklist completeness. | Use `just docs-build`; require issue/PR validation evidence before marking done. | `just docs-build` and PR checklist review. |
 
+Issue #38 adds SQLite-backed API and migration coverage plus a PostgreSQL-only
+concurrency suite. The latter is not interchangeable with SQLite: run
+`just api-migration-test-postgres` and
+`apps/api/tests/test_issue38_postgresql_concurrency.py` against a real
+PostgreSQL environment before claiming the slice or issue complete.
+
 ## TDD Usage
 
 Use TDD when the change affects observable behavior and a reasonable automated
@@ -109,6 +115,14 @@ distinct reviewer, inspects difference/impact and actor/time evidence, approves,
 and verifies active/retired history after reload. It also proves that a normal
 admin without recommendation capability and a student cannot access the API or
 workbench, and that preview exposes reasons but no score-like fields.
+
+The explicit **New Edition** workbench action is narrow acceptance evidence for
+the UI-driven publication E2E: the browser must create both editions through
+the real Save flow, so direct API creation is insufficient evidence. The action
+only resets the workbench to a new-edition creation state while preserving the
+selected competition series. It does not implement Issue #40 reconciliation or
+message-center behavior, Issue #41 personal-calendar behavior, or broaden
+Issue #38 student-engagement scope.
 
 Migration tests always exercise fresh, empty-predecessor, and populated
 fail-closed paths on SQLite. The equivalent disposable PostgreSQL cases run only

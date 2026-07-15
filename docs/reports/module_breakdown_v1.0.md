@@ -300,7 +300,7 @@ API 接口：`POST /api/v1/competitions/{id}/outbound_clicks`。
 
 接口：
 页面接口：收藏按钮、订阅按钮、我的收藏页、我的订阅页、消息中心、个人赛事日历页。
-API 接口：`POST /api/v1/competitions/{id}/favorite`、`DELETE /api/v1/competitions/{id}/favorite`、`POST /api/v1/competitions/{id}/subscribe`、`DELETE /api/v1/competitions/{id}/subscribe`、`GET /api/v1/me/calendar`、`GET /api/v1/me/messages`、`POST /api/v1/me/messages/{id}/read`。
+API 接口：`POST /api/v1/competitions/{id}/favorite`、`DELETE /api/v1/competitions/{id}/favorite`、`POST/PATCH/DELETE /api/v1/competitions/{id}/subscription`、`GET /api/v1/me/calendar`、`GET /api/v1/me/messages`、`POST /api/v1/me/messages/{id}/read`。
 内部任务接口：`competehub.reminders.dispatch_due`。
 数据接口：`favorites`、`subscriptions`、`reminder_settings`、`reminders`、`messages`、`competition_time_nodes`。
 
@@ -326,7 +326,7 @@ API 接口：`POST /api/v1/competitions/{id}/favorite`、`DELETE /api/v1/competi
 
 接口：
 页面接口：列表页订阅按钮、详情页订阅按钮、我的订阅页。
-API 接口：`POST /api/v1/competitions/{id}/subscribe`、`DELETE /api/v1/competitions/{id}/subscribe`。
+API 接口：`POST/PATCH/DELETE /api/v1/competitions/{id}/subscription`。
 数据接口：`subscriptions`、`reminders`。
 
 负责人：e

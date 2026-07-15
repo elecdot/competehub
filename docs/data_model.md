@@ -641,6 +641,10 @@ Key fields:
 - `node_types`
 - `reminder_confirmed_at`
 
+Unique constraints:
+
+- `(user_id, competition_id)`
+
 Rules:
 
 - Active subscription can generate reminders.
@@ -659,6 +663,13 @@ Rules:
   one ordinary plan per selected time node; when disabled, no plan is created.
 - Reminder-disabled subscriptions retain their confirmed offset and node
   selection and remain in follow lists and calendars.
+- A cancelled relation may return to active only through an explicit
+  re-subscription with a fresh complete reminder confirmation. The same row is
+  reused and stores the latest configuration and `reminder_confirmed_at`; P1
+  does not retain immutable consent generations.
+- An active repeated POST is idempotent and does not replace consent. Initial
+  row creation returns `201`; active repetition and cancelled-to-active
+  re-subscription return `200`.
 - Calendar projection reads active subscriptions only, never favorites, and
   includes selected nodes independently of reminder-plan state.
 - Calendar grouping uses `Asia/Shanghai`; current stage, prominence, and pair
@@ -682,14 +693,26 @@ Rules:
 
 - This table is the single source of truth for global reminder settings; profile
   rows do not duplicate them.
+- A missing row for an existing student is data corruption, not an enabled
+  default. Subscription creation, re-subscription, semantic preference updates,
+  reminder reconciliation, and subscription summary reads fail without changing
+  the subscription or any reminder plan.
+- Engagement and reminder migrations preserve existing settings, create missing
+  settings with valid defaults, and reject invalid or inconsistent legacy data
+  before mutation so that data integrity is maintained. The operator-facing
+  migration and recovery procedure is owned by the
+  [migrations README](https://github.com/elecdot/competehub/blob/main/apps/api/migrations/README).
 - New settings default to enabled, three days, and the controlled primary core
   types `registration_deadline`, `submission_deadline`, and
   `competition_start`. These values prefill a confirmation and are not consent.
 - Subscription-level settings are copied from the student's confirmed choice
   and may differ from later global defaults.
+- Persisted subscription node types use the controlled order
+  `registration_deadline`, `submission_deadline`, `competition_start`; invalid,
+  duplicate, or unknown values are not accepted.
 - Disabling global reminders cancels pending plans with a global-disabled
-  reason while preserving subscriptions and calendar nodes. Re-enabling
-  reconciles only future eligible plans.
+  reason while preserving subscriptions and calendar nodes. Global
+  `message_enabled` false-to-true restoration remains Issue #40 scope.
 
 ### `reminders`
 
@@ -725,6 +748,18 @@ Rules:
 - `(user_id, competition_id, logical_node_key, time_node_revision)` is unique
   for the P1 ordinary reminder plan. This permits the same logical key in
   another edition without duplicate delivery inside one node revision.
+- #38 controls the cancellation reasons `subscription_cancelled`,
+  `reminder_disabled`, `node_type_removed`, and
+  `subscription_offset_not_future`, plus `global_reminder_disabled`. Cancellation
+  evidence for the first four reasons may be restored only by explicit
+  re-subscription or semantic PATCH, with newly confirmed consent and current
+  eligible future nodes, when the plan is unsent. Sent, failed, elapsed,
+  prior-revision, offline, deletion, lifecycle, supersession, global-setting,
+  and other system-owned evidence is terminal; it and the delivered message are
+  never restored, rewritten, or replayed. Global `message_enabled` false-to-true
+  restoration remains Issue #40 scope.
+- Initial plan creation requires both the subscription's confirmed reminder
+  switch and the current global reminder switch.
 - Worker tasks must be idempotent.
 - Competition cancellation, offline status, or time node deletion should cancel pending reminders.
 - When a changed node receives a new `node_revision`, reconciliation cancels
@@ -734,7 +769,7 @@ Rules:
   so current public content is used without changing due time or plan identity.
 - Sent reminders are immutable and are never rewritten after a schedule change.
 - Trigger instants already in the past are not backfilled as immediate ordinary
-  reminders after subscription, re-enablement, or reconciliation.
+  reminders after subscription or reconciliation.
 
 ### `messages`
 
@@ -1152,16 +1187,10 @@ Search can start with PostgreSQL filters and simple text matching. Add a dedicat
 - Enum changes must include a compatibility note when existing rows may be affected.
 - Data backfills should be idempotent and documented in the migration or task note.
 - Migrations should not depend on Redis.
-- The reproducible chain starts at
-  `apps/api/migrations/versions/c5e0e7e0560d_initial_schema_with_verified_identities.py`;
-  `13eb10903bd7_add_immutable_competition_revisions.py` adds the series,
-  edition, revision, stage, single-instant node, review, and audit relationships.
-  Fresh SQLite and PostgreSQL paths support repeatable upgrade, downgrade, and
-  re-upgrade. The known `61f2c8e4a9bd` predecessor backfills owned mutable
-  competitions, nodes, and tags into immutable revision snapshots while
-  retaining public visibility; unattributed rows block before schema mutation.
-  The recorded legacy `db.create_all()` path preserves unknown business-table
-  shapes and requires a dedicated publication bridge or reset.
+- Migrations must upgrade legacy data safely, validate preconditions, and protect
+  data consistency across supported upgrade and downgrade paths. Exact revision
+  order, commands, backfill procedures, and guarded recovery guidance are owned
+  by the [migrations README](https://github.com/elecdot/competehub/blob/main/apps/api/migrations/README).
 - `seed-e2e --reset` provisions distinct student/editor/reviewer actors plus one
   approved series/edition/revision fixture with an ordered stage and immutable
   `occurs_at` node. It is isolated browser-test data, not a production backfill.

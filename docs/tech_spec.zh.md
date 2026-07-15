@@ -329,10 +329,15 @@ Redis 不用于：
 6. 同届节点事实变化时保留 `logical_node_key`、创建新的不可变 snapshot ID；在提交时由服务端相对基线冻结 `node_revision`。新节点修订取消旧修订的未发送提醒并重建未来计划；未变节点保持修订号并原地刷新 pending plan 的 snapshot FK 和文案，已发送提醒不可变。
 7. 每个批准修订按“订阅者 + 批准修订事件”最多幂等生成一条赛事时间变更汇总消息，仅覆盖发生时刻、所选节点增删或所选节点类型变化。阶段、重点级别、描述、标题等展示修正只刷新当前内容；已过去的普通触发时间不补发伪准时提醒。
 8. 首次订阅请求必须显式携带 `reminder_enabled`；开启时同时携带 `0–30` 的单一提前天数和非空受控节点类型。全局默认只用于前端确认面板预填，后端不得在字段缺失时推断同意。
-9. 关闭单项提醒只取消该订阅的未发送计划，关闭全局提醒取消用户全部未发送计划；两者均保留订阅和日历节点。重新开启时只重建未来有效计划。
+9. 关闭单项提醒只取消该订阅的未发送计划，关闭全局提醒取消用户全部未发送计划；两者均保留订阅和日历节点。仅显式重新订阅或语义 PATCH 可按新的提醒确认恢复受控原因取消的未来有效计划；全局 `message_enabled` 从 `false` 到 `true` 的恢复协调属于 #40。
 10. `reminder_settings` 是全局开关、默认提前天数和默认节点类型的唯一事实来源；`student_profiles` 不重复存储提醒字段。
+    对既有学生缺失该行属于数据完整性错误，不得按开启处理；订阅创建、重新订阅、语义 PATCH、计划协调和订阅摘要均返回既有的 `500 internal_server_error` 形状，并回滚订阅及提醒计划变更。
 11. `reminder_due`、`competition_time_changed`、`competition_cancelled` 和 `competition_offline` 使用“用户 + 领域事件”幂等键创建不可变消息快照。用户主动取消或关闭提醒不创建消息。
 12. 周期清理任务删除创建满 365 天的消息，不区分已读状态；账号删除使用统一账号数据清理流程。提醒的 `sent` 状态与消息的已读状态分别维护。
+13. #38 的 `reminder_settings` 持久化迁移遵循数据模型的完整性约束；迁移顺序、回填、序列同步和受保护降级由 `apps/api/migrations/README` 运行手册负责。服务继续让 `/me/preferences` 组合返回稳定公开形状，不把迁移过程暴露为 API 行为。
+14. 同一学生与赛事届次只保留一个订阅关系。重新订阅要求新的完整提醒确认，复用 cancelled 关系并仅保存最近一次确认；首次创建返回 `201`，重复 active POST 和重新订阅返回 `200`。
+15. 初始计划或用户显式恢复计划要求订阅开关与全局开关同时开启。#38 只允许恢复由 `subscription_cancelled`、`reminder_disabled`、`node_type_removed` 或 `subscription_offset_not_future` 取消、从未发送且按当前不可变 snapshot 重新计算后仍为未来的普通计划；已发送、失败、旧节点修订和系统协调取消的计划不得恢复。全局开关变化后的批量协调属于 #40。
+16. 订阅 POST、PATCH、DELETE 与普通计划协调锁定同一订阅关系，并依靠 `(user_id, competition_id)` 和完整普通计划唯一键处理并发，不创建第二份订阅或重复计划。
 
 ### 8.3 推荐任务
 
@@ -399,7 +404,7 @@ Redis 不用于：
 - `GET /api/v1/competitions`
 - `GET /api/v1/competitions/{id}`
 - `POST /api/v1/competitions/{id}/favorite`
-- `POST /api/v1/competitions/{id}/subscribe`
+- `POST /api/v1/competitions/{id}/subscription`
 - `GET /api/v1/me/calendar`
 - `GET /api/v1/me/messages`
 - `POST /api/v1/me/messages/{id}/read`

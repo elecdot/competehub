@@ -12,9 +12,27 @@ from werkzeug.security import generate_password_hash
 
 from competehub_api import create_app
 from competehub_api.extensions import db
-from competehub_api.models import CompetitionRevision, User
+from competehub_api.models import (
+    Competition,
+    CompetitionRevision,
+    CompetitionTimeNode,
+    Reminder,
+    ReminderSetting,
+    StudentProfile,
+    Subscription,
+    User,
+)
+from competehub_api.models.enums import (
+    CompetitionRevisionStatus,
+    CompetitionStatus,
+    ReminderStatus,
+    SubscriptionStatus,
+    UserRole,
+)
 from competehub_api.services.competition_revisions import review_revision
 from competehub_api.services.errors import ServiceError
+from competehub_api.services.profiles import provision_student_owned_rows
+from competehub_api.timezones import product_datetime_as_utc, stored_datetime_as_utc
 
 MIGRATIONS_DIR = Path(__file__).resolve().parents[1] / "migrations"
 
@@ -55,6 +73,26 @@ def test_populated_predecessor_upgrade_preserves_public_competition(tmp_path) ->
 def test_predecessor_upgrade_preserves_submitter_and_removes_pending_review(tmp_path) -> None:
     app = _migration_app(tmp_path / "predecessor-review.db")
     _assert_predecessor_review_actor_upgrade(app)
+
+
+def test_issue38_empty_engagement_upgrade_backfills_reminder_settings(tmp_path) -> None:
+    app = _migration_app(tmp_path / "issue38-settings.db")
+    _assert_issue38_settings_upgrade_and_round_trip(app)
+
+
+def test_issue38_legacy_engagement_blocks_before_schema_mutation(tmp_path, capsys) -> None:
+    app = _migration_app(tmp_path / "issue38-legacy-engagement.db")
+    _assert_issue38_legacy_engagement_upgrade_is_blocked(app, capsys)
+
+
+def test_issue38_new_engagement_blocks_unsafe_downgrade(tmp_path, capsys) -> None:
+    app = _migration_app(tmp_path / "issue38-unsafe-downgrade.db")
+    _assert_issue38_unsafe_downgrade_is_blocked(app, capsys)
+
+
+def test_subscription_node_types_upgrade_canonicalizes_existing_rows(tmp_path) -> None:
+    app = _migration_app(tmp_path / "subscription-node-types.db")
+    _assert_subscription_node_type_order_upgrade(app)
 
 
 def test_unowned_predecessor_competition_blocks_before_schema_mutation(tmp_path) -> None:
@@ -127,6 +165,36 @@ def test_postgresql_predecessor_upgrade_preserves_submitter_and_removes_pending_
 ) -> None:
     app = _migration_app(database_uri=postgresql_database_uri)
     _assert_predecessor_review_actor_upgrade(app)
+
+
+def test_postgresql_issue38_empty_engagement_upgrade_backfills_reminder_settings(
+    postgresql_database_uri,
+) -> None:
+    app = _migration_app(database_uri=postgresql_database_uri)
+    _assert_issue38_settings_upgrade_and_round_trip(app)
+
+
+def test_postgresql_issue38_legacy_engagement_blocks_before_schema_mutation(
+    postgresql_database_uri,
+    capsys,
+) -> None:
+    app = _migration_app(database_uri=postgresql_database_uri)
+    _assert_issue38_legacy_engagement_upgrade_is_blocked(app, capsys)
+
+
+def test_postgresql_issue38_new_engagement_blocks_unsafe_downgrade(
+    postgresql_database_uri,
+    capsys,
+) -> None:
+    app = _migration_app(database_uri=postgresql_database_uri)
+    _assert_issue38_unsafe_downgrade_is_blocked(app, capsys)
+
+
+def test_postgresql_subscription_node_types_upgrade_canonicalizes_existing_rows(
+    postgresql_database_uri,
+) -> None:
+    app = _migration_app(database_uri=postgresql_database_uri)
+    _assert_subscription_node_type_order_upgrade(app)
 
 
 def test_postgresql_populated_recommendation_rule_predecessor_fails_closed(
@@ -221,6 +289,486 @@ def _assert_populated_recommendation_rule_predecessor_fails_closed(app) -> None:
         )
 
 
+def _assert_issue38_settings_upgrade_and_round_trip(app) -> None:
+    with app.app_context():
+        upgrade(directory=str(MIGRATIONS_DIR), revision="be7dfc45f976")
+        _seed_issue38_student_settings_predecessor()
+
+        upgrade(directory=str(MIGRATIONS_DIR))
+
+        assert {"default_remind_days", "message_enabled"}.isdisjoint(_columns("student_profiles"))
+        assert "time_node_snapshot_id" in _columns("reminders")
+        assert any(
+            foreign_key["constrained_columns"] == ["time_node_snapshot_id"]
+            and foreign_key["referred_table"] == "competition_time_nodes"
+            and foreign_key["referred_columns"] == ["id"]
+            for foreign_key in inspect(db.engine).get_foreign_keys("reminders")
+        )
+        rows = db.session.execute(
+            text(
+                """
+                SELECT user_id, enabled, default_remind_days, node_types
+                FROM reminder_settings ORDER BY user_id
+                """
+            )
+        ).mappings()
+        assert [
+            {
+                **row,
+                "node_types": _decoded_json(row["node_types"]),
+            }
+            for row in rows
+        ] == [
+            {
+                "user_id": 1,
+                "enabled": False,
+                "default_remind_days": 9,
+                "node_types": ["competition_start"],
+            },
+            {
+                "user_id": 2,
+                "enabled": False,
+                "default_remind_days": 7,
+                "node_types": [
+                    "registration_deadline",
+                    "submission_deadline",
+                    "competition_start",
+                ],
+            },
+            {
+                "user_id": 3,
+                "enabled": True,
+                "default_remind_days": 3,
+                "node_types": [
+                    "registration_deadline",
+                    "submission_deadline",
+                    "competition_start",
+                ],
+            },
+        ]
+
+        provisioned_student = User(
+            id=5,
+            email="post-migration-provisioned@example.edu",
+            password_hash=generate_password_hash("test-password"),
+            role="student",
+            status="active",
+        )
+        db.session.add(provisioned_student)
+        db.session.add(
+            StudentProfile(
+                id=3,
+                user=provisioned_student,
+                interest_tags=[],
+                goal_preferences=[],
+                blocked_tags=[],
+            )
+        )
+        db.session.flush()
+
+        provision_student_owned_rows(provisioned_student)
+        db.session.flush()
+        provisioned_settings = db.session.scalar(
+            sa.select(ReminderSetting).where(ReminderSetting.user_id == provisioned_student.id)
+        )
+        assert provisioned_settings is not None
+        assert provisioned_settings.id == 4
+
+        db.session.remove()
+        downgrade(directory=str(MIGRATIONS_DIR), revision="be7dfc45f976")
+
+        assert {"default_remind_days", "message_enabled"} <= _columns("student_profiles")
+        assert "time_node_id" in _columns("reminders")
+        assert "recommendation_rule_sets" in _tables()
+        assert "rule_set_id" in _columns("recommendation_rules")
+        assert any(
+            foreign_key["constrained_columns"] == ["time_node_id"]
+            and foreign_key["referred_table"] == "competition_time_nodes"
+            and foreign_key["referred_columns"] == ["id"]
+            for foreign_key in inspect(db.engine).get_foreign_keys("reminders")
+        )
+        compatibility_rows = db.session.execute(
+            text(
+                """
+                SELECT user_id, default_remind_days, message_enabled
+                FROM student_profiles ORDER BY user_id
+                """
+            )
+        ).mappings()
+        assert list(compatibility_rows) == [
+            {"user_id": 1, "default_remind_days": 9, "message_enabled": False},
+            {"user_id": 2, "default_remind_days": 7, "message_enabled": False},
+        ]
+
+        db.session.remove()
+        upgrade(directory=str(MIGRATIONS_DIR))
+        assert {"default_remind_days", "message_enabled"}.isdisjoint(_columns("student_profiles"))
+        assert db.session.execute(text("SELECT count(*) FROM reminder_settings")).scalar_one() == 3
+
+
+def _assert_subscription_node_type_order_upgrade(app) -> None:
+    with app.app_context():
+        upgrade(directory=str(MIGRATIONS_DIR), revision="7f3c2a91d8e4")
+        now = datetime(2026, 7, 13, 8, 0, tzinfo=UTC)
+        publisher = User(
+            id=90,
+            email="canonicalization-publisher@example.edu",
+            password_hash="migration-test-hash",
+            role=UserRole.ADMIN,
+            status="active",
+        )
+        student = User(
+            id=91,
+            email="canonicalization-student@example.edu",
+            password_hash="migration-test-hash",
+            role=UserRole.STUDENT,
+            status="active",
+        )
+        competition = Competition(
+            id=92,
+            title="Canonicalization migration fixture",
+            source_name="Migration fixture",
+            source_url="https://example.edu/canonicalization",
+            status=CompetitionStatus.PUBLISHED,
+        )
+        revision = CompetitionRevision(
+            id=93,
+            competition=competition,
+            revision_number=1,
+            revision_status=CompetitionRevisionStatus.APPROVED,
+            title=competition.title,
+            source_name=competition.source_name,
+            source_url=competition.source_url,
+            created_by_id=publisher.id,
+        )
+        competition.published_revision = revision
+        node = CompetitionTimeNode(
+            id=94,
+            competition=competition,
+            revision=revision,
+            logical_node_key="registration-deadline",
+            node_revision=1,
+            node_type="registration_deadline",
+            occurs_at=now,
+        )
+        subscription = Subscription(
+            id=95,
+            user_id=student.id,
+            competition_id=competition.id,
+            status=SubscriptionStatus.ACTIVE,
+            reminder_enabled=True,
+            remind_days=3,
+            node_types=["submission_deadline", "registration_deadline"],
+            reminder_confirmed_at=now,
+        )
+        reminder = Reminder(
+            id=96,
+            user_id=student.id,
+            competition_id=competition.id,
+            time_node_snapshot_id=node.id,
+            logical_node_key=node.logical_node_key,
+            time_node_revision=node.node_revision,
+            node_type=node.node_type,
+            due_at=now,
+            title="Existing reminder",
+            status=ReminderStatus.CANCELLED,
+            cancel_reason="subscription_cancelled",
+        )
+        db.session.add_all([publisher, student])
+        db.session.flush()
+        db.session.add_all([competition, revision, node])
+        db.session.flush()
+        db.session.add(subscription)
+        db.session.flush()
+        db.session.add(reminder)
+        db.session.commit()
+
+        upgrade(directory=str(MIGRATIONS_DIR))
+        row = (
+            db.session.execute(
+                text(
+                    """
+                SELECT status, reminder_enabled, remind_days, node_types, reminder_confirmed_at
+                FROM subscriptions WHERE id = 95
+                """
+                )
+            )
+            .mappings()
+            .one()
+        )
+        assert _decoded_json(row["node_types"]) == [
+            "registration_deadline",
+            "submission_deadline",
+        ]
+        assert {
+            "status": row["status"],
+            "reminder_enabled": row["reminder_enabled"],
+            "remind_days": row["remind_days"],
+            "reminder_confirmed_at": _migrated_legacy_instant(row["reminder_confirmed_at"]),
+        } == {
+            "status": "active",
+            "reminder_enabled": True,
+            "remind_days": 3,
+            "reminder_confirmed_at": now,
+        }
+        assert db.session.execute(
+            text("SELECT status, cancel_reason FROM reminders WHERE id = 96")
+        ).mappings().one() == {
+            "status": "cancelled",
+            "cancel_reason": "subscription_cancelled",
+        }
+
+        downgrade(directory=str(MIGRATIONS_DIR), revision="7f3c2a91d8e4")
+        upgrade(directory=str(MIGRATIONS_DIR))
+        assert _decoded_json(
+            db.session.execute(
+                text("SELECT node_types FROM subscriptions WHERE id = 95")
+            ).scalar_one()
+        ) == ["registration_deadline", "submission_deadline"]
+
+
+def _assert_issue38_legacy_engagement_upgrade_is_blocked(app, capsys) -> None:
+    with app.app_context():
+        upgrade(directory=str(MIGRATIONS_DIR), revision="be7dfc45f976")
+        _seed_issue38_legacy_engagement()
+        original_columns = {
+            table_name: _columns(table_name)
+            for table_name in ("favorites", "subscriptions", "reminders", "student_profiles")
+        }
+
+        with pytest.raises(SystemExit) as error:
+            upgrade(directory=str(MIGRATIONS_DIR))
+
+        assert error.value.code == 1
+        output = capsys.readouterr()
+        message = f"{output.out}\n{output.err}"
+        assert "favorites=1" in message
+        assert "subscriptions=1" in message
+        assert "reminders=1" in message
+        assert db.session.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == (
+            "be7dfc45f976"
+        )
+        assert "recommendation_rule_sets" in _tables()
+        assert "rule_set_id" in _columns("recommendation_rules")
+        assert {
+            table_name: _columns(table_name)
+            for table_name in ("favorites", "subscriptions", "reminders", "student_profiles")
+        } == original_columns
+
+
+def _assert_issue38_unsafe_downgrade_is_blocked(app, capsys) -> None:
+    with app.app_context():
+        upgrade(directory=str(MIGRATIONS_DIR))
+        head_revision = db.session.execute(
+            text("SELECT version_num FROM alembic_version")
+        ).scalar_one()
+        assert head_revision != "be7dfc45f976"
+        _seed_issue38_new_favorite()
+        original_columns = _columns("favorites")
+
+        with pytest.raises(SystemExit) as error:
+            downgrade(directory=str(MIGRATIONS_DIR), revision="be7dfc45f976")
+
+        assert error.value.code == 1
+        output = capsys.readouterr()
+        message = f"{output.out}\n{output.err}"
+        assert "favorites=1" in message
+        version_after_failure = db.session.execute(
+            text("SELECT version_num FROM alembic_version")
+        ).scalar_one()
+        if db.engine.dialect.name == "postgresql":
+            assert version_after_failure == head_revision
+        else:
+            assert version_after_failure == "7f3c2a91d8e4"
+        assert _columns("favorites") == original_columns
+        assert "recommendation_rule_sets" in _tables()
+
+
+def _seed_issue38_student_settings_predecessor() -> None:
+    metadata = sa.MetaData()
+    metadata.reflect(
+        bind=db.engine,
+        only=["users", "student_profiles", "reminder_settings"],
+    )
+    users = metadata.tables["users"]
+    profiles = metadata.tables["student_profiles"]
+    settings = metadata.tables["reminder_settings"]
+    now = datetime(2026, 7, 12, 8, 0)
+    db.session.execute(
+        users.insert(),
+        [
+            _issue38_user_row(1, "student-existing-settings@example.edu", "student", now),
+            _issue38_user_row(2, "student-profile-settings@example.edu", "student", now),
+            _issue38_user_row(3, "student-no-profile@example.edu", "student", now),
+            _issue38_user_row(4, "admin-no-settings@example.edu", "admin", now),
+        ],
+    )
+    db.session.execute(
+        profiles.insert(),
+        [
+            {
+                "id": 1,
+                "user_id": 1,
+                "interest_tags": [],
+                "goal_preferences": [],
+                "blocked_tags": [],
+                "default_remind_days": 1,
+                "message_enabled": True,
+                "created_at": now,
+                "updated_at": now,
+            },
+            {
+                "id": 2,
+                "user_id": 2,
+                "interest_tags": [],
+                "goal_preferences": [],
+                "blocked_tags": [],
+                "default_remind_days": 7,
+                "message_enabled": False,
+                "created_at": now,
+                "updated_at": now,
+            },
+        ],
+    )
+    db.session.execute(
+        settings.insert().values(
+            id=1,
+            user_id=1,
+            enabled=False,
+            default_remind_days=9,
+            node_types=["competition_start"],
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    db.session.commit()
+
+
+def _seed_issue38_legacy_engagement() -> None:
+    metadata = sa.MetaData()
+    metadata.reflect(
+        bind=db.engine,
+        only=["users", "competitions", "favorites", "subscriptions", "reminders"],
+    )
+    now = datetime(2026, 7, 12, 8, 0)
+    db.session.execute(
+        metadata.tables["users"]
+        .insert()
+        .values(**_issue38_user_row(1, "legacy-engagement@example.edu", "student", now))
+    )
+    db.session.execute(
+        metadata.tables["competitions"]
+        .insert()
+        .values(
+            id=1,
+            title="Legacy Engagement Competition",
+            source_name="Legacy Source",
+            source_url="https://example.edu/legacy-engagement",
+            participant_forms=[],
+            status="unpublished",
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    db.session.execute(
+        metadata.tables["favorites"]
+        .insert()
+        .values(
+            id=1,
+            user_id=1,
+            competition_id=1,
+            is_active=True,
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    db.session.execute(
+        metadata.tables["subscriptions"]
+        .insert()
+        .values(
+            id=1,
+            user_id=1,
+            competition_id=1,
+            status="active",
+            reminder_enabled=True,
+            remind_days=3,
+            node_types=["registration_deadline"],
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    db.session.execute(
+        metadata.tables["reminders"]
+        .insert()
+        .values(
+            id=1,
+            user_id=1,
+            competition_id=1,
+            time_node_id=None,
+            node_type="registration_deadline",
+            due_at=now,
+            title="Legacy reminder",
+            status="pending",
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    db.session.commit()
+
+
+def _seed_issue38_new_favorite() -> None:
+    metadata = sa.MetaData()
+    metadata.reflect(bind=db.engine, only=["users", "competitions", "favorites"])
+    now = datetime(2026, 7, 12, 8, 0)
+    db.session.execute(
+        metadata.tables["users"]
+        .insert()
+        .values(**_issue38_user_row(1, "new-engagement@example.edu", "student", now))
+    )
+    db.session.execute(
+        metadata.tables["competitions"]
+        .insert()
+        .values(
+            id=1,
+            title="New Engagement Competition",
+            source_name="New Source",
+            source_url="https://example.edu/new-engagement",
+            participant_forms=[],
+            status="unpublished",
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    db.session.execute(
+        metadata.tables["favorites"]
+        .insert()
+        .values(
+            id=1,
+            user_id=1,
+            competition_id=1,
+            is_active=True,
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    db.session.commit()
+
+
+def _issue38_user_row(user_id: int, email: str, role: str, now: datetime) -> dict:
+    return {
+        "id": user_id,
+        "email": email,
+        "password_hash": "migration-test-hash",
+        "display_name": email.split("@", 1)[0],
+        "session_version": 1,
+        "capabilities": [],
+        "role": role,
+        "status": "active",
+        "created_at": now,
+        "updated_at": now,
+    }
+
+
 def _assert_populated_predecessor_upgrade(app) -> None:
     with app.app_context():
         upgrade(directory=str(MIGRATIONS_DIR), revision="61f2c8e4a9bd")
@@ -261,16 +809,16 @@ def _assert_populated_predecessor_upgrade(app) -> None:
         assert {
             **revision,
             "participant_forms": _decoded_json(revision["participant_forms"]),
-            "submitted_at": _decoded_datetime(revision["submitted_at"]),
-            "decided_at": _decoded_datetime(revision["decided_at"]),
+            "submitted_at": _migrated_legacy_instant(revision["submitted_at"]),
+            "decided_at": _migrated_legacy_instant(revision["decided_at"]),
         } == {
             "revision_status": "approved",
             "participant_forms": ["individual"],
             "major_scope": "selected",
             "grade_scope": "selected",
             "submitted_by_id": 2,
-            "submitted_at": datetime(2026, 7, 12, 8, 30),
-            "decided_at": datetime(2026, 7, 12, 9, 0),
+            "submitted_at": _expected_legacy_instant(datetime(2026, 7, 12, 8, 30)),
+            "decided_at": _expected_legacy_instant(datetime(2026, 7, 12, 9, 0)),
         }
 
         migrated_review = (
@@ -288,8 +836,8 @@ def _assert_populated_predecessor_upgrade(app) -> None:
         )
         assert {
             **migrated_review,
-            "submitted_at": _decoded_datetime(migrated_review["submitted_at"]),
-            "decided_at": _decoded_datetime(migrated_review["decided_at"]),
+            "submitted_at": _migrated_legacy_instant(migrated_review["submitted_at"]),
+            "decided_at": _migrated_legacy_instant(migrated_review["decided_at"]),
         } == {
             "target_type": "competition_revision",
             "target_id": edition["published_revision_id"],
@@ -297,8 +845,8 @@ def _assert_populated_predecessor_upgrade(app) -> None:
             "reviewed_by_id": 3,
             "status": "approved",
             "comment": "Legacy approval evidence",
-            "submitted_at": datetime(2026, 7, 12, 8, 30),
-            "decided_at": datetime(2026, 7, 12, 9, 0),
+            "submitted_at": _expected_legacy_instant(datetime(2026, 7, 12, 8, 30)),
+            "decided_at": _expected_legacy_instant(datetime(2026, 7, 12, 9, 0)),
         }
 
         node = (
@@ -377,7 +925,9 @@ def _assert_predecessor_review_actor_upgrade(app) -> None:
         revision = db.session.scalar(sa.select(CompetitionRevision))
         assert revision is not None
         assert revision.submitted_by_id == 2
-        assert _decoded_datetime(revision.submitted_at) == datetime(2026, 7, 12, 9, 0)
+        assert _migrated_legacy_instant(revision.submitted_at) == _expected_legacy_instant(
+            datetime(2026, 7, 12, 9, 0)
+        )
         assert (
             db.session.execute(
                 text("SELECT count(*) FROM review_records WHERE status = 'pending'")
@@ -454,8 +1004,8 @@ def _seed_predecessor_pending_review() -> None:
     users = metadata.tables["users"]
     competitions = metadata.tables["competitions"]
     reviews = metadata.tables["review_records"]
-    created_at = datetime(2026, 7, 12, 8, 0)
-    submitted_at = datetime(2026, 7, 12, 9, 0)
+    created_at = product_datetime_as_utc(datetime(2026, 7, 12, 8, 0))
+    submitted_at = product_datetime_as_utc(datetime(2026, 7, 12, 9, 0))
 
     db.session.execute(
         users.insert(),
@@ -538,7 +1088,7 @@ def _seed_predecessor_publication() -> None:
             "review_records",
         ],
     )
-    now = datetime(2026, 7, 12, 8, 0)
+    now = product_datetime_as_utc(datetime(2026, 7, 12, 8, 0))
     users = metadata.tables["users"]
     competitions = metadata.tables["competitions"]
     time_nodes = metadata.tables["competition_time_nodes"]
@@ -612,7 +1162,7 @@ def _seed_predecessor_publication() -> None:
             id=1,
             competition_id=1,
             node_type="registration_deadline",
-            due_at=datetime(2099, 7, 20, 15, 59),
+            due_at=product_datetime_as_utc(datetime(2099, 7, 20, 15, 59)),
             description="Existing deadline",
             created_at=now,
             updated_at=now,
@@ -646,8 +1196,8 @@ def _seed_predecessor_publication() -> None:
             reviewed_by_id=3,
             status="approved",
             comment="Legacy approval evidence",
-            created_at=datetime(2026, 7, 12, 8, 30),
-            updated_at=datetime(2026, 7, 12, 9, 0),
+            created_at=product_datetime_as_utc(datetime(2026, 7, 12, 8, 30)),
+            updated_at=product_datetime_as_utc(datetime(2026, 7, 12, 9, 0)),
         )
     )
     db.session.commit()
@@ -810,3 +1360,11 @@ def _decoded_datetime(value):
     if decoded.tzinfo is not None:
         return decoded.astimezone(UTC).replace(tzinfo=None)
     return decoded
+
+
+def _migrated_legacy_instant(value):
+    return stored_datetime_as_utc(_decoded_datetime(value))
+
+
+def _expected_legacy_instant(value: datetime) -> datetime:
+    return product_datetime_as_utc(value)

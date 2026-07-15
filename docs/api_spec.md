@@ -304,7 +304,10 @@ Requires authentication.
 Return current student's profile plus its dynamically derived readiness state.
 `profile_status` is `incomplete` or `recommendation_ready`; `missing_fields`
 contains any of `college`, `major`, `grade`, or `interest_tags`. The readiness
-state is not stored independently.
+state is not stored independently. Student profile and global reminder-setting
+rows are provisioned when a student account becomes active or is governed into
+the student role; these read and update routes do not create missing rows
+lazily.
 
 Response data example:
 
@@ -389,8 +392,16 @@ The global reminder values belong to `reminder_settings`, even though this
 combined preference API returns them with recommendation preferences. Defaults
 are enabled, three days, and the listed core node types, but they only prefill a
 subscription confirmation. Disabling `message_enabled` cancels all pending
-plans while preserving subscriptions and calendar nodes; re-enabling reconciles
-future eligible plans only.
+plans while preserving subscriptions and calendar nodes. Re-enabling changes
+only the global setting in #38. Its false-to-true restoration behavior remains
+Issue #40 scope.
+
+`reminder_settings` is authoritative when a row exists; the combined API shape
+remains stable across its storage migration. Persistence invariants are owned by
+the [data model](data_model.md#reminder_settings), transaction and
+reconciliation behavior by the [technical specification](tech_spec.zh.md), and
+operator migration/backfill/downgrade procedures by
+`apps/api/migrations/README`.
 
 ## Competition APIs
 
@@ -568,7 +579,8 @@ Response data extends the list item with detail fields:
     }
   ],
   "is_favorited": false,
-  "is_subscribed": false
+  "is_subscribed": false,
+  "subscription_summary": null
 }
 ```
 
@@ -584,7 +596,11 @@ editing or submitting a non-public candidate does not change the public value.
 
 For anonymous requests, `is_favorited` and `is_subscribed` are `false`. For an
 authenticated student, they reflect that student's persisted edition-bound
-favorite and subscription state.
+favorite and subscription state. Detail responses also include
+`subscription_summary`: `null` when the student has no relation, otherwise the
+same student-facing consent summary returned by subscription POST/PATCH. It
+contains the persisted `reminder_enabled`, `remind_days`, and `node_types` used
+to prefill an explicit later confirmation; it exposes no internal relation ID.
 
 ### `POST /competitions/{id}/outbound_clicks`
 
@@ -656,12 +672,18 @@ Cancel favorite.
 
 Requires `student`.
 
-### `POST /competitions/{id}/subscribe`
+### `POST /competitions/{id}/subscription`
 
 Subscribe to a competition and, only after explicit configuration, create
 eligible pending reminders. The first subscription UI must show a confirmation
 surface. User defaults may prefill it, but the API does not infer consent from
 omitted fields.
+
+`reminder_settings` is required authoritative student-owned data for subscription
+creation, re-subscription, semantic updates, plan reconciliation, and summary
+reads. If it is missing, the request returns `500 internal_server_error` in the
+normal error envelope and rolls back without creating or changing a subscription
+or reminder plan.
 
 Requires `student`.
 
@@ -686,19 +708,73 @@ reminder plans.
 
 The response includes the effective configuration, `scheduled_reminder_count`,
 `next_reminder_at`, and `unscheduled_reason` when no future plan is eligible.
-Trigger times already in the past are not backfilled as immediate due reminders.
+`unscheduled_reason` is `null` when any pending plan is scheduled. Otherwise it
+is exactly `reminder_disabled` when the subscription choice or global reminder
+switch is disabled, or `no_future_eligible_nodes` when reminders are effectively
+enabled but every matching trigger is non-future. Trigger times already in the
+past are not backfilled as immediate due reminders.
+
+Successful POST and PATCH responses use the normal envelope and expose only the
+student-facing subscription summary:
+
+```json
+{
+  "data": {
+    "competition_id": 1,
+    "status": "active",
+    "is_subscribed": true,
+    "reminder_enabled": true,
+    "remind_days": 3,
+    "node_types": ["registration_deadline"],
+    "reminder_confirmed_at": "2026-07-13T00:00:00+00:00",
+    "scheduled_reminder_count": 1,
+    "next_reminder_at": "2026-08-15T16:00:00+00:00",
+    "unscheduled_reason": null
+  },
+  "error": null
+}
+```
+
+The first POST that creates the edition-bound relation returns `201 Created`.
+POST against an active relation returns `200 OK` without replacing its existing
+consent, even when the repeated payload differs. POST against a cancelled
+relation is an explicit re-subscription and also returns `200 OK`: it requires a
+fresh complete payload, reuses the relation, replaces its current configuration
+and `reminder_confirmed_at`, and reconciles plans under the rules below. The
+subscription stores only the latest consent, not immutable consent generations.
+
+With newly confirmed consent and current eligible future nodes, explicit
+re-subscription and a semantic PATCH may restore an unsent cancelled ordinary
+plan only when its reason is `subscription_cancelled`, `reminder_disabled`,
+`node_type_removed`, or `subscription_offset_not_future`. They retain all other
+cancellation evidence. Sent, failed, elapsed, prior-revision, offline, deletion,
+lifecycle, supersession, global-setting, and other system-owned evidence, plus
+delivered messages, are terminal: they are never restored, rewritten, or
+replayed. Global `message_enabled` false-to-true restoration remains Issue #40
+scope.
 
 ### `PATCH /competitions/{id}/subscription`
 
 Update reminder settings for an existing subscription using the same explicit
 fields as subscription creation. Turning reminders off cancels pending plans but
-does not cancel the subscription or remove its calendar nodes. Turning them on
-reconciles only future eligible plans. The edition must still be `published`;
-historical or offline relations can be removed but not reconfigured.
+does not cancel the subscription or remove its calendar nodes. A semantic change
+that turns reminders on, restores a node type, or makes the offset future may
+restore only the controlled eligible plans listed above. New and restored plans
+require both the confirmed subscription switch and the current global reminder
+switch to be enabled. The edition must still be `published`; historical or
+offline relations can be removed but not reconfigured.
 
-### `DELETE /competitions/{id}/subscribe`
+### `DELETE /competitions/{id}/subscription`
 
-Cancel subscription and future pending reminders.
+Cancel subscription and future pending reminders with
+`cancel_reason=subscription_cancelled`. First and repeated DELETE return
+`200 OK` with the final cancelled state and never alter sent evidence.
+Deleting a nonexistent edition returns `404 not_found` with `competition not found`;
+an existing edition without an owned relation remains idempotent.
+
+Its response data is `{ "competition_id": 1, "status": "cancelled",
+"is_subscribed": false }`; cancellation reasons and reminder internals are not
+public response fields.
 
 Requires `student`.
 

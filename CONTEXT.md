@@ -241,6 +241,12 @@ single advance-day offset. Displayed defaults prefill the choice but do not
 replace confirmation.
 _Avoid_: 收藏触发提醒, 静默默认同意
 
+**重新订阅**:
+The explicit transition of one student's cancelled赛事届次 subscription back to
+active after a fresh提醒确认. It reuses the edition-bound relation and reconciles
+eligible unsent plans without replaying sent evidence or carrying state to a new届次.
+_Avoid_: 创建重复订阅, 隐式恢复同意, 重发已发送提醒
+
 **站内消息**:
 A durable, user-visible snapshot created when a reminder or subscribed赛事 event
 is delivered. It has an independent read state and 365-day retention; it is not

@@ -14,12 +14,15 @@ import {
   Tag as ATag,
 } from 'ant-design-vue'
 import { computed, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
 import { fetchCurrentProfile, fetchProfileOptions, updateCurrentProfile } from '@/api/client'
 import { useAuthStore } from '@/stores/auth_store'
 import type { IdentityType, LoginPayload, ProfileOptions, StudentProfile } from '@/types/auth'
 
 const auth = useAuthStore()
+const route = useRoute()
+const router = useRouter()
 const profile = ref<StudentProfile | null>(null)
 const profileOptions = ref<ProfileOptions | null>(null)
 const profileLoading = ref(false)
@@ -27,6 +30,7 @@ const profileSaving = ref(false)
 const profileLoadError = ref('')
 const profileSaveError = ref('')
 const loginError = ref('')
+const defaultReturnPath = '/competitions'
 
 const loginForm = ref<LoginPayload>({
   identity_type: 'email',
@@ -77,9 +81,42 @@ async function submitLogin() {
   try {
     await auth.login(loginForm.value)
     await loadProfile()
+    await router.replace(getSafeReturnPath(route.query.return_to))
   } catch {
     loginError.value = '登录失败'
   }
+}
+
+function getSafeReturnPath(value: unknown) {
+  if (typeof value !== 'string' || !value) return defaultReturnPath
+
+  let decoded: string
+  try {
+    decoded = decodeURIComponent(value)
+  } catch {
+    return defaultReturnPath
+  }
+
+  if (!decoded.startsWith('/') || decoded.startsWith('//') || decoded.includes('\\')) {
+    return defaultReturnPath
+  }
+
+  const origin = 'https://competehub.invalid'
+  let target: URL
+  try {
+    target = new URL(decoded, origin)
+  } catch {
+    return defaultReturnPath
+  }
+  if (
+    target.origin !== origin ||
+    !target.pathname.startsWith('/') ||
+    target.pathname.startsWith('//')
+  ) {
+    return defaultReturnPath
+  }
+
+  return value
 }
 
 async function loadProfile() {

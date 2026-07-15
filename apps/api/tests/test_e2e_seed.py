@@ -7,12 +7,21 @@ from competehub_api.models import (
     Competition,
     CompetitionRevision,
     CompetitionSeries,
+    Favorite,
     RecommendationRuleSet,
+    ReminderSetting,
     StudentProfile,
+    Subscription,
     User,
     UserIdentity,
 )
-from competehub_api.models.enums import CompetitionRevisionStatus
+from competehub_api.models.enums import (
+    CompetitionRevisionStatus,
+    CompetitionStatus,
+    SubscriptionStatus,
+    UserRole,
+)
+from competehub_api.services.profiles import DEFAULT_REMINDER_NODE_TYPES
 
 
 def test_e2e_seed_refuses_a_normal_application(app) -> None:
@@ -56,6 +65,7 @@ def test_e2e_seed_rebuilds_the_expected_actor_set() -> None:
         users = db.session.query(User).order_by(User.id).all()
         identities = db.session.query(UserIdentity).order_by(UserIdentity.user_id).all()
         profiles = db.session.query(StudentProfile).all()
+        reminder_settings = db.session.query(ReminderSetting).all()
 
         expected_actors = sorted(SEEDED_E2E_ACTORS, key=lambda actor: actor.id)
         assert [user.id for user in users] == [actor.id for actor in expected_actors]
@@ -78,7 +88,15 @@ def test_e2e_seed_rebuilds_the_expected_actor_set() -> None:
             actor.verification_status for actor in expected_actors
         ]
         assert sorted(profile.user_id for profile in profiles) == sorted(
-            actor.id for actor in E2E_ACTORS if actor.profile is not None
+            actor.id for actor in SEEDED_E2E_ACTORS if actor.role == UserRole.STUDENT
+        )
+        assert sorted(setting.user_id for setting in reminder_settings) == sorted(
+            actor.id for actor in SEEDED_E2E_ACTORS if actor.role == UserRole.STUDENT
+        )
+        assert all(setting.enabled is True for setting in reminder_settings)
+        assert all(setting.default_remind_days == 3 for setting in reminder_settings)
+        assert all(
+            setting.node_types == DEFAULT_REMINDER_NODE_TYPES for setting in reminder_settings
         )
         series = db.session.get(CompetitionSeries, 2001)
         edition = db.session.get(Competition, 2001)
@@ -94,6 +112,16 @@ def test_e2e_seed_rebuilds_the_expected_actor_set() -> None:
         recommendation_rule_set = db.session.query(RecommendationRuleSet).one()
         assert recommendation_rule_set.version == 1
         assert recommendation_rule_set.status.value == "active"
+        offline = db.session.get(Competition, 2002)
+        unpublished = db.session.get(Competition, 2003)
+        assert offline.status == CompetitionStatus.OFFLINE
+        assert unpublished.status == CompetitionStatus.UNPUBLISHED
+        offline_favorite = db.session.get(Favorite, 2002)
+        unpublished_subscription = db.session.get(Subscription, 2003)
+        assert offline_favorite.user_id == E2E_ACTORS[0].id
+        assert offline_favorite.is_active is True
+        assert unpublished_subscription.user_id == E2E_ACTORS[0].id
+        assert unpublished_subscription.status == SubscriptionStatus.ACTIVE
 
     login_response = app.test_client().post(
         "/api/v1/auth/login",
