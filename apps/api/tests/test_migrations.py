@@ -13,7 +13,6 @@ from werkzeug.security import generate_password_hash
 from competehub_api import create_app
 from competehub_api.extensions import db
 from competehub_api.models import (
-    Competition,
     CompetitionRevision,
     CompetitionTimeNode,
     Reminder,
@@ -23,8 +22,6 @@ from competehub_api.models import (
     User,
 )
 from competehub_api.models.enums import (
-    CompetitionRevisionStatus,
-    CompetitionStatus,
     ReminderStatus,
     SubscriptionStatus,
     UserRole,
@@ -424,28 +421,12 @@ def _assert_subscription_node_type_order_upgrade(app) -> None:
             role=UserRole.STUDENT,
             status="active",
         )
-        competition = Competition(
-            id=92,
-            title="Canonicalization migration fixture",
-            source_name="Migration fixture",
-            source_url="https://example.edu/canonicalization",
-            status=CompetitionStatus.PUBLISHED,
-        )
-        revision = CompetitionRevision(
-            id=93,
-            competition=competition,
-            revision_number=1,
-            revision_status=CompetitionRevisionStatus.APPROVED,
-            title=competition.title,
-            source_name=competition.source_name,
-            source_url=competition.source_url,
-            created_by_id=publisher.id,
-        )
-        competition.published_revision = revision
+        competitions = sa.Table("competitions", sa.MetaData(), autoload_with=db.engine)
+        revisions = sa.Table("competition_revisions", sa.MetaData(), autoload_with=db.engine)
         node = CompetitionTimeNode(
             id=94,
-            competition=competition,
-            revision=revision,
+            competition_id=92,
+            competition_revision_id=93,
             logical_node_key="registration-deadline",
             node_revision=1,
             node_type="registration_deadline",
@@ -454,7 +435,7 @@ def _assert_subscription_node_type_order_upgrade(app) -> None:
         subscription = Subscription(
             id=95,
             user_id=student.id,
-            competition_id=competition.id,
+            competition_id=92,
             status=SubscriptionStatus.ACTIVE,
             reminder_enabled=True,
             remind_days=3,
@@ -464,7 +445,7 @@ def _assert_subscription_node_type_order_upgrade(app) -> None:
         reminder = Reminder(
             id=96,
             user_id=student.id,
-            competition_id=competition.id,
+            competition_id=92,
             time_node_snapshot_id=node.id,
             logical_node_key=node.logical_node_key,
             time_node_revision=node.node_revision,
@@ -476,7 +457,38 @@ def _assert_subscription_node_type_order_upgrade(app) -> None:
         )
         db.session.add_all([publisher, student])
         db.session.flush()
-        db.session.add_all([competition, revision, node])
+        db.session.execute(
+            competitions.insert().values(
+                id=92,
+                title="Canonicalization migration fixture",
+                source_name="Migration fixture",
+                source_url="https://example.edu/canonicalization",
+                participant_forms=[],
+                status="published",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        db.session.execute(
+            revisions.insert().values(
+                id=93,
+                competition_id=92,
+                revision_number=1,
+                revision_status="approved",
+                title="Canonicalization migration fixture",
+                source_name="Migration fixture",
+                source_url="https://example.edu/canonicalization",
+                participant_forms=[],
+                created_by_id=publisher.id,
+                published_at=now,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        db.session.execute(
+            competitions.update().where(competitions.c.id == 92).values(published_revision_id=93)
+        )
+        db.session.add(node)
         db.session.flush()
         db.session.add(subscription)
         db.session.flush()

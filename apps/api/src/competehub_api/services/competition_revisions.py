@@ -5,6 +5,7 @@ from http import HTTPStatus
 from typing import Any
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from competehub_api.extensions import db
 from competehub_api.models import (
@@ -200,6 +201,7 @@ def create_successor_revision(
         **{field: getattr(base, field) for field in REVISION_FIELDS},
     )
     db.session.add(revision)
+    edition_id = edition.id
     for base_stage in base.stages:
         stage = CompetitionStage(
             stage_key=base_stage.stage_key,
@@ -222,20 +224,47 @@ def create_successor_revision(
         revision.stages.append(stage)
     for base_link in base.tag_links:
         revision.tag_links.append(CompetitionTagLink(tag=base_link.tag))
-    db.session.flush()
-    _write_audit(
-        actor,
-        "competition_revision.create_successor",
-        "competition_revision",
-        revision.id,
-        {
-            "competition_id": edition.id,
-            "base_revision_id": base.id,
-            "revision_number": revision.revision_number,
-            "reason": reason,
-        },
-    )
-    db.session.commit()
+    try:
+        db.session.flush()
+        _write_audit(
+            actor,
+            "competition_revision.create_successor",
+            "competition_revision",
+            revision.id,
+            {
+                "competition_id": edition_id,
+                "base_revision_id": base.id,
+                "revision_number": revision.revision_number,
+                "reason": reason,
+            },
+        )
+        db.session.commit()
+    except IntegrityError as error:
+        db.session.rollback()
+        if not any(
+            _is_unique_constraint(error, constraint)
+            for constraint in ("uq_active_competition_revision", "uq_competition_revision")
+        ):
+            raise
+        active = db.session.scalar(
+            select(CompetitionRevision).where(
+                CompetitionRevision.competition_id == edition_id,
+                CompetitionRevision.revision_status.in_(
+                    [
+                        CompetitionRevisionStatus.DRAFT,
+                        CompetitionRevisionStatus.PENDING_REVIEW,
+                    ]
+                ),
+            )
+        )
+        if active is None:
+            raise
+        raise ServiceError(
+            HTTPStatus.CONFLICT,
+            "active_revision_exists",
+            "the edition already has an active revision",
+            {"revision_id": active.id, "revision_status": active.revision_status.value},
+        ) from error
     return revision
 
 
@@ -498,7 +527,7 @@ def revision_impact(revision: CompetitionRevision) -> dict[str, Any]:
                 select(Reminder).where(
                     Reminder.competition_id == revision.competition_id,
                     Reminder.status == ReminderStatus.PENDING,
-                    Reminder.time_node_id.in_(base_node_ids),
+                    Reminder.time_node_snapshot_id.in_(base_node_ids),
                 )
             )
         )
@@ -807,15 +836,17 @@ def _reconcile_subscriber_state(
             select(Reminder).where(
                 Reminder.competition_id == revision.competition_id,
                 Reminder.status == ReminderStatus.PENDING,
-                Reminder.time_node_id.in_(presentation_only_base_ids),
+                Reminder.time_node_snapshot_id.in_(presentation_only_base_ids),
             )
         ):
-            base_node = presentation_only_base_nodes[reminder.time_node_id]
+            base_node = presentation_only_base_nodes[reminder.time_node_snapshot_id]
             new_node = new_nodes_by_key[base_node.logical_node_key]
-            reminder.time_node_id = new_node.id
+            reminder.time_node_snapshot_id = new_node.id
+            reminder.logical_node_key = new_node.logical_node_key
+            reminder.time_node_revision = new_node.node_revision
             reminder.node_type = new_node.node_type
             reminder.title = f"{revision.title}: {new_node.node_type}"
-            reminder.body = f"Current schedule: {new_node.occurs_at.isoformat()}"
+            reminder.body = new_node.description
 
     if not schedule_changes:
         return
@@ -826,7 +857,7 @@ def _reconcile_subscriber_state(
         select(Reminder).where(
             Reminder.competition_id == revision.competition_id,
             Reminder.status == ReminderStatus.PENDING,
-            Reminder.time_node_id.in_(changed_base_nodes),
+            Reminder.time_node_snapshot_id.in_(changed_base_nodes),
         )
     ):
         reminder.status = ReminderStatus.CANCELLED
@@ -856,7 +887,9 @@ def _reconcile_subscriber_state(
                         id=_next_pk(Reminder),
                         user_id=subscription.user_id,
                         competition_id=revision.competition_id,
-                        time_node_id=node.id,
+                        time_node_snapshot_id=node.id,
+                        logical_node_key=node.logical_node_key,
+                        time_node_revision=node.node_revision,
                         node_type=node.node_type,
                         due_at=due_at,
                         title=f"{revision.title}: {node.node_type}",
@@ -896,6 +929,11 @@ def _next_pk(model) -> int | None:
     if db.session.get_bind().dialect.name != "sqlite":
         return None
     return (db.session.scalar(select(func.max(model.id))) or 0) + 1
+
+
+def _is_unique_constraint(error: IntegrityError, name: str) -> bool:
+    constraint_name = getattr(getattr(error.orig, "diag", None), "constraint_name", None)
+    return constraint_name == name or name in str(error.orig)
 
 
 def _replace_tags(revision: CompetitionRevision, payloads: list[dict[str, Any]]) -> None:

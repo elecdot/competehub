@@ -437,7 +437,9 @@ def test_successor_revision_keeps_public_snapshot_until_approval_and_reconciles_
                 id=1,
                 user_id=student_id,
                 competition_id=edition_id,
-                time_node_id=deadline.id,
+                time_node_snapshot_id=deadline.id,
+                logical_node_key=deadline.logical_node_key,
+                time_node_revision=deadline.node_revision,
                 node_type="registration_deadline",
                 due_at=datetime(2026, 8, 12, 16, tzinfo=UTC),
                 title="Old deadline reminder",
@@ -563,7 +565,9 @@ def test_successor_revision_keeps_public_snapshot_until_approval_and_reconciles_
             ReminderStatus.PENDING,
         ]
         assert reminders[0].cancel_reason == "competition_revision_superseded"
-        assert reminders[1].time_node_id == changed_deadline["id"]
+        assert reminders[1].time_node_snapshot_id == changed_deadline["id"]
+        assert reminders[1].logical_node_key == changed_deadline["logical_node_key"]
+        assert reminders[1].time_node_revision == changed_deadline["node_revision"]
         messages = Message.query.filter_by(
             competition_id=edition_id,
             message_type="competition_time_changed",
@@ -617,7 +621,9 @@ def test_presentation_only_revision_moves_pending_reminder_without_schedule_mess
                 id=3,
                 user_id=student_id,
                 competition_id=edition_id,
-                time_node_id=deadline.id,
+                time_node_snapshot_id=deadline.id,
+                logical_node_key=deadline.logical_node_key,
+                time_node_revision=deadline.node_revision,
                 node_type="registration_deadline",
                 due_at=datetime(2026, 8, 12, 16, tzinfo=UTC),
                 title="Original registration reminder",
@@ -688,7 +694,11 @@ def test_presentation_only_revision_moves_pending_reminder_without_schedule_mess
         reminder = db.session.get(Reminder, 3)
         assert reminder is not None
         assert reminder.status == ReminderStatus.PENDING
-        assert reminder.time_node_id == new_deadline.id
+        assert reminder.time_node_snapshot_id == new_deadline.id
+        assert reminder.logical_node_key == new_deadline.logical_node_key
+        assert reminder.time_node_revision == new_deadline.node_revision
+        assert reminder.title == f"{successor_revision.title}: {new_deadline.node_type}"
+        assert reminder.body == new_deadline.description
         assert (
             Message.query.filter_by(
                 competition_id=edition_id,
@@ -741,7 +751,9 @@ def test_historical_lifecycle_detail_keeps_warning_while_offline_returns_404(cli
                 id=2,
                 user_id=student_id,
                 competition_id=edition_id,
-                time_node_id=deadline.id,
+                time_node_snapshot_id=deadline.id,
+                logical_node_key=deadline.logical_node_key,
+                time_node_revision=deadline.node_revision,
                 node_type="registration_deadline",
                 due_at=datetime(2026, 8, 12, 16, tzinfo=UTC),
                 title="Cancellation-sensitive reminder",

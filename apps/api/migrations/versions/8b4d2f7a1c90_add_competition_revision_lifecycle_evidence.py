@@ -1,7 +1,7 @@
 """add competition revision and lifecycle evidence
 
 Revision ID: 8b4d2f7a1c90
-Revises: 13eb10903bd7
+Revises: 4d8b6e1a3f20
 Create Date: 2026-07-12
 """
 
@@ -9,7 +9,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "8b4d2f7a1c90"
-down_revision = "13eb10903bd7"
+down_revision = "4d8b6e1a3f20"
 branch_labels = None
 depends_on = None
 
@@ -25,9 +25,6 @@ def upgrade() -> None:
     if "competition_revisions" in tables:
         with op.batch_alter_table("competition_revisions") as batch_op:
             batch_op.add_column(sa.Column("change_reason", sa.Text(), nullable=True))
-    if "reminders" in tables:
-        with op.batch_alter_table("reminders") as batch_op:
-            batch_op.add_column(sa.Column("cancel_reason", sa.String(length=120), nullable=True))
     if "messages" not in tables:
         return
     message_columns = {
@@ -73,9 +70,6 @@ def downgrade() -> None:
             batch_op.drop_column("idempotency_key")
             batch_op.drop_column("message_type")
             batch_op.drop_column("competition_id")
-    if "reminders" in tables:
-        with op.batch_alter_table("reminders") as batch_op:
-            batch_op.drop_column("cancel_reason")
     if "competition_revisions" in tables:
         with op.batch_alter_table("competition_revisions") as batch_op:
             batch_op.drop_column("change_reason")
