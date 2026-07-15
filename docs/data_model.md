@@ -697,24 +697,19 @@ Rules:
   default. Subscription creation, re-subscription, semantic preference updates,
   reminder reconciliation, and subscription summary reads fail without changing
   the subscription or any reminder plan.
-- Migration `7f3c2a91d8e4`, following `be7dfc45f976`, preserves an existing
-  setting row and creates a missing row for every student from legacy profile
-  values (or enabled/three-day defaults when no profile exists), with controlled
-  default node types. It only upgrades an empty engagement predecessor; retained
-  favorites, subscriptions, or reminders block before schema mutation. Explicit
-  backfill IDs require PostgreSQL sequence synchronization. Its downgrade also
-  requires empty engagement tables, restores profile compatibility values from
-  this table, and refuses when any profile has no setting row.
+- Engagement and reminder migrations preserve existing settings, create missing
+  settings with valid defaults, and reject invalid or inconsistent legacy data
+  before mutation so that data integrity is maintained. The operator-facing
+  migration and recovery procedure is owned by the
+  [migrations README](../apps/api/migrations/README).
 - New settings default to enabled, three days, and the controlled primary core
   types `registration_deadline`, `submission_deadline`, and
   `competition_start`. These values prefill a confirmation and are not consent.
 - Subscription-level settings are copied from the student's confirmed choice
   and may differ from later global defaults.
-- Migration `4d8b6e1a3f20`, following `7f3c2a91d8e4`, normalizes persisted
-  subscription node types to the controlled order
-  `registration_deadline`, `submission_deadline`, `competition_start`. Invalid,
-  duplicate, or unknown persisted values block the upgrade. Its no-op downgrade
-  is lossless because request ordering was never a persisted contract.
+- Persisted subscription node types use the controlled order
+  `registration_deadline`, `submission_deadline`, `competition_start`; invalid,
+  duplicate, or unknown values are not accepted.
 - Disabling global reminders cancels pending plans with a global-disabled
   reason while preserving subscriptions and calendar nodes. Global
   `message_enabled` false-to-true restoration remains Issue #40 scope.
@@ -1192,22 +1187,10 @@ Search can start with PostgreSQL filters and simple text matching. Add a dedicat
 - Enum changes must include a compatibility note when existing rows may be affected.
 - Data backfills should be idempotent and documented in the migration or task note.
 - Migrations should not depend on Redis.
-- The reproducible chain starts at
-  `apps/api/migrations/versions/c5e0e7e0560d_initial_schema_with_verified_identities.py`;
-  `13eb10903bd7_add_immutable_competition_revisions.py` adds the series,
-  edition, revision, stage, single-instant node, review, and audit relationships;
-  `be7dfc45f976_add_recommendation_rule_set_governance.py` adds immutable
-  recommendation rule-set governance;
-  `7f3c2a91d8e4_add_student_following_reminder_integrity.py` and
-  `4d8b6e1a3f20_canonicalize_subscription_node_types.py` complete the current
-  Issue #38 persistence chain. The operator-facing revision order, backfill
-  steps, and guarded downgrade runbook are in `apps/api/migrations/README`.
-  Fresh SQLite and PostgreSQL paths support repeatable upgrade, downgrade, and
-  re-upgrade. The known `61f2c8e4a9bd` predecessor backfills owned mutable
-  competitions, nodes, and tags into immutable revision snapshots while
-  retaining public visibility; unattributed rows block before schema mutation.
-  The recorded legacy `db.create_all()` path preserves unknown business-table
-  shapes and requires a dedicated publication bridge or reset.
+- Migrations must upgrade legacy data safely, validate preconditions, and protect
+  data consistency across supported upgrade and downgrade paths. Exact revision
+  order, commands, backfill procedures, and guarded recovery guidance are owned
+  by the [migrations README](../apps/api/migrations/README).
 - `seed-e2e --reset` provisions distinct student/editor/reviewer actors plus one
   approved series/edition/revision fixture with an ordered stage and immutable
   `occurs_at` node. It is isolated browser-test data, not a production backfill.
