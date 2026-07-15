@@ -60,7 +60,6 @@ class SubscriptionCreateSchema(Schema):
     node_types = fields.List(
         fields.String(validate=validate.OneOf(SUBSCRIPTION_NODE_TYPES)),
         required=True,
-        validate=validate.Length(min=1),
     )
 
     @validates_schema
@@ -152,6 +151,7 @@ class PublicCompetitionDetailSchema(PublicCompetitionSummarySchema):
         lambda competition: _revision_value(competition, "registration_applicability")
     )
     team_size = fields.Function(lambda competition: _revision_value(competition, "team_size"))
+    subscription_summary = fields.Raw(allow_none=True, dump_default=None)
     time_nodes = fields.Method("serialize_time_nodes")
 
     def serialize_time_nodes(self, competition):

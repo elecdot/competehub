@@ -16,10 +16,18 @@ from competehub_api.models import (
     Subscription,
     User,
 )
-from competehub_api.models.enums import CompetitionStatus, ReminderStatus, SubscriptionStatus
+from competehub_api.models.enums import (
+    CompetitionStatus,
+    ReminderStatus,
+    SubscriptionStatus,
+    UserRole,
+)
 from competehub_api.repositories import engagement as repository
 from competehub_api.services.errors import ServiceError
-from competehub_api.subscription_node_types import canonical_subscription_node_types
+from competehub_api.subscription_node_types import (
+    SUBSCRIPTION_NODE_TYPES,
+    canonical_subscription_node_types,
+)
 from competehub_api.timezones import stored_datetime_as_utc
 
 RESTORABLE_CANCEL_REASONS = frozenset(
@@ -97,13 +105,14 @@ def subscribe_to_competition(
     try:
         payload = _canonical_payload(payload)
         subscription = repository.get_subscription_for_update(user.id, competition_id)
-        setting = _required_reminder_setting_for_update(user.id)
         if subscription is not None and subscription.status == SubscriptionStatus.ACTIVE:
+            _required_reminder_setting_for_update(user.id)
             db.session.commit()
             return SubscriptionMutation(subscription=subscription, created=False)
 
         competition = _published_competition(competition_id)
         nodes = _selected_nodes(competition, payload)
+        setting = _required_reminder_setting_for_update(user.id)
         now = datetime.now(UTC)
         created = subscription is None
         if subscription is None:
@@ -216,6 +225,38 @@ def subscription_summary(subscription: Subscription) -> dict:
     }
 
 
+def apply_engagement_state(
+    user: User | None, competitions: list[Competition]
+) -> dict[int, Subscription]:
+    """Attach current-student engagement flags without querying per competition."""
+    if user is None or user.role != UserRole.STUDENT or not competitions:
+        for competition in competitions:
+            competition.is_favorited = False
+            competition.is_subscribed = False
+        return {}
+
+    competition_ids = [competition.id for competition in competitions]
+    favorited_ids = repository.list_active_favorite_competition_ids(user.id, competition_ids)
+    subscriptions = {
+        subscription.competition_id: subscription
+        for subscription in repository.list_subscriptions_for_competitions(user.id, competition_ids)
+    }
+    for competition in competitions:
+        competition.is_favorited = competition.id in favorited_ids
+        subscription = subscriptions.get(competition.id)
+        competition.is_subscribed = (
+            subscription is not None and subscription.status == SubscriptionStatus.ACTIVE
+        )
+    return subscriptions
+
+
+def apply_competition_detail_engagement_state(user: User | None, competition: Competition) -> None:
+    """Attach the persisted relation summary required to prefill a detail form."""
+    subscriptions = apply_engagement_state(user, [competition])
+    subscription = subscriptions.get(competition.id)
+    competition.subscription_summary = subscription_summary(subscription) if subscription else None
+
+
 def _published_competition(competition_id: int) -> Competition:
     competition = repository.get_competition(competition_id)
     if competition is None or competition.published_revision_id is None:
@@ -231,7 +272,25 @@ def _published_competition(competition_id: int) -> Competition:
 
 def _selected_nodes(competition: Competition, payload: dict) -> list[CompetitionTimeNode]:
     current_nodes = repository.list_current_nodes(competition)
-    selected = [node for node in current_nodes if node.node_type in payload["node_types"]]
+    selectable = [
+        node
+        for node in current_nodes
+        if node.node_type in SUBSCRIPTION_NODE_TYPES and node.occurs_at is not None
+    ]
+    if not selectable:
+        raise ServiceError(
+            HTTPStatus.CONFLICT,
+            "engagement_unavailable",
+            "competition has no eligible reminder nodes",
+        )
+    if not payload["node_types"]:
+        raise ServiceError(
+            HTTPStatus.BAD_REQUEST,
+            "validation_error",
+            "subscription fields are invalid",
+            {"field": "node_types"},
+        )
+    selected = [node for node in selectable if node.node_type in payload["node_types"]]
     found_types = {node.node_type for node in selected}
     if not set(payload["node_types"]).issubset(found_types):
         raise ServiceError(
@@ -239,12 +298,6 @@ def _selected_nodes(competition: Competition, payload: dict) -> list[Competition
             "validation_error",
             "subscription fields are invalid",
             {"field": "node_types"},
-        )
-    if not any(node.occurs_at is not None for node in selected):
-        raise ServiceError(
-            HTTPStatus.CONFLICT,
-            "engagement_unavailable",
-            "competition has no eligible reminder nodes",
         )
     return selected
 

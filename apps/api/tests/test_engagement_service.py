@@ -24,6 +24,8 @@ from competehub_api.models.enums import (
 )
 from competehub_api.services.engagement import (
     _reconcile_subscription_reminders,
+    apply_competition_detail_engagement_state,
+    apply_engagement_state,
     cancel_subscription,
     subscribe_to_competition,
     subscription_summary,
@@ -40,6 +42,32 @@ def _payload(**overrides) -> dict:
     }
     payload.update(overrides)
     return payload
+
+
+def test_engagement_read_model_applies_persisted_state_without_writes(
+    app, engagement_fixture
+) -> None:
+    student, competition, subscription, _ = engagement_fixture
+    with app.app_context():
+        before = (
+            db.session.query(Subscription).count(),
+            db.session.query(Reminder).count(),
+            db.session.query(ReminderSetting).count(),
+        )
+
+        apply_engagement_state(student, [competition])
+        apply_competition_detail_engagement_state(student, competition)
+
+        assert competition.is_favorited is False
+        assert competition.is_subscribed is True
+        assert competition.subscription_summary["reminder_enabled"] is True
+        assert competition.subscription_summary["remind_days"] == 3
+        assert competition.subscription_summary["node_types"] == ["registration_deadline"]
+        assert (
+            db.session.query(Subscription).count(),
+            db.session.query(Reminder).count(),
+            db.session.query(ReminderSetting).count(),
+        ) == before
 
 
 @pytest.fixture()

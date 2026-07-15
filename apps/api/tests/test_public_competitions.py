@@ -561,6 +561,70 @@ def test_favorite_read_state_is_personalized_for_list_and_detail(client, app) ->
     assert other_client.get("/api/v1/competitions/101").get_json()["data"]["is_favorited"] is False
 
 
+def test_authenticated_competition_detail_exposes_persisted_subscription_consent_without_mutation(
+    client, app
+) -> None:
+    student_id = sign_in_as(client, app)
+    created = client.post(
+        "/api/v1/competitions/101/subscription",
+        json=subscription_payload(reminder_enabled=False, remind_days=7),
+    )
+    assert created.status_code == 201
+    with app.app_context():
+        before = {
+            "subscription_count": db.session.query(Subscription)
+            .filter_by(user_id=student_id, competition_id=101)
+            .count(),
+            "reminder_count": db.session.query(Reminder)
+            .filter_by(user_id=student_id, competition_id=101)
+            .count(),
+            "setting": (
+                db.session.query(ReminderSetting).filter_by(user_id=student_id).one().enabled,
+                db.session.query(ReminderSetting).filter_by(user_id=student_id).one().default_remind_days,
+            ),
+        }
+
+    detail = client.get("/api/v1/competitions/101")
+
+    assert detail.status_code == 200
+    assert detail.get_json()["data"]["subscription_summary"] == {
+        "competition_id": 101,
+        "status": "active",
+        "is_subscribed": True,
+        "reminder_enabled": False,
+        "remind_days": 7,
+        "node_types": ["registration_deadline", "submission_deadline"],
+        "reminder_confirmed_at": created.get_json()["data"]["reminder_confirmed_at"],
+        "scheduled_reminder_count": 0,
+        "next_reminder_at": None,
+        "unscheduled_reason": "reminder_disabled",
+    }
+    with app.app_context():
+        after = {
+            "subscription_count": db.session.query(Subscription)
+            .filter_by(user_id=student_id, competition_id=101)
+            .count(),
+            "reminder_count": db.session.query(Reminder)
+            .filter_by(user_id=student_id, competition_id=101)
+            .count(),
+            "setting": (
+                db.session.query(ReminderSetting).filter_by(user_id=student_id).one().enabled,
+                db.session.query(ReminderSetting).filter_by(user_id=student_id).one().default_remind_days,
+            ),
+        }
+    assert after == before
+
+
+def test_anonymous_competition_detail_has_no_subscription_summary(client) -> None:
+    response = client.get("/api/v1/competitions/101")
+
+    assert response.status_code == 200
+    data = response.get_json()["data"]
+    assert data["is_favorited"] is False
+    assert data["is_subscribed"] is False
+    assert data["subscription_summary"] is None
+
+
 def test_favorite_mutations_require_an_authenticated_student(client, app) -> None:
     assert client.post("/api/v1/competitions/101/favorite").status_code == 401
     assert client.delete("/api/v1/competitions/101/favorite").status_code == 401
@@ -893,6 +957,34 @@ def test_subscription_rejects_when_no_eligible_nodes_exist(client, app) -> None:
 
     assert response.status_code == 409
     assert response.get_json()["error"]["code"] == "engagement_unavailable"
+
+
+def test_subscription_with_no_selectable_controlled_nodes_returns_conflict_without_writes(
+    client, app
+) -> None:
+    student_id = sign_in_as(client, app)
+    with app.app_context():
+        setting = db.session.query(ReminderSetting).filter_by(user_id=student_id).one()
+        before_setting = (setting.enabled, setting.default_remind_days, setting.node_types)
+
+    response = client.post(
+        "/api/v1/competitions/107/subscription",
+        json=subscription_payload(node_types=[]),
+    )
+
+    assert response.status_code == 409
+    assert response.get_json()["error"]["code"] == "engagement_unavailable"
+    with app.app_context():
+        assert (
+            db.session.query(Subscription).filter_by(user_id=student_id, competition_id=107).count()
+            == 0
+        )
+        assert (
+            db.session.query(Reminder).filter_by(user_id=student_id, competition_id=107).count()
+            == 0
+        )
+        setting = db.session.query(ReminderSetting).filter_by(user_id=student_id).one()
+        assert (setting.enabled, setting.default_remind_days, setting.node_types) == before_setting
 
 
 def test_subscription_no_future_nodes_has_explicit_summary(client, app) -> None:

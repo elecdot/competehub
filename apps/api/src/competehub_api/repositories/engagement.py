@@ -64,6 +64,35 @@ def get_reminder_setting(user_id: int) -> ReminderSetting | None:
     return db.session.scalar(select(ReminderSetting).where(ReminderSetting.user_id == user_id))
 
 
+def list_active_favorite_competition_ids(user_id: int, competition_ids: list[int]) -> set[int]:
+    if not competition_ids:
+        return set()
+    return set(
+        db.session.scalars(
+            select(Favorite.competition_id).where(
+                Favorite.user_id == user_id,
+                Favorite.is_active.is_(True),
+                Favorite.competition_id.in_(competition_ids),
+            )
+        )
+    )
+
+
+def list_subscriptions_for_competitions(
+    user_id: int, competition_ids: list[int]
+) -> list[Subscription]:
+    if not competition_ids:
+        return []
+    return list(
+        db.session.scalars(
+            select(Subscription).where(
+                Subscription.user_id == user_id,
+                Subscription.competition_id.in_(competition_ids),
+            )
+        )
+    )
+
+
 def list_current_nodes(competition: Competition) -> list[CompetitionTimeNode]:
     return list(
         db.session.scalars(

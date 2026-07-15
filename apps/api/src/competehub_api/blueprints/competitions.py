@@ -4,21 +4,11 @@ from http import HTTPStatus
 
 from flask import Blueprint, request, session
 from marshmallow import ValidationError
-from sqlalchemy import select
 
 from competehub_api.blueprints.responses import success_response, validation_error_response
 from competehub_api.errors import error_response
-from competehub_api.extensions import db
-from competehub_api.models import (
-    Competition,
-    Favorite,
-    Subscription,
-    User,
-)
-from competehub_api.models.enums import (
-    SubscriptionStatus,
-    UserRole,
-)
+from competehub_api.models import User
+from competehub_api.models.enums import UserRole
 from competehub_api.repositories.competitions import (
     PublicCompetitionQuery,
     get_public_competition,
@@ -32,6 +22,8 @@ from competehub_api.schemas.competition_public import (
 )
 from competehub_api.services.auth import current_user
 from competehub_api.services.engagement import (
+    apply_competition_detail_engagement_state,
+    apply_engagement_state,
     cancel_subscription,
     subscription_summary,
 )
@@ -60,7 +52,7 @@ def list_competitions():
         return validation_error_response(error, "request query is invalid")
 
     page = search_public_competitions(PublicCompetitionQuery(**query))
-    _apply_engagement_state(page.items)
+    apply_engagement_state(current_user(session), page.items)
     return success_response(public_competition_page_schema.dump(page))
 
 
@@ -74,7 +66,7 @@ def get_competition_detail(competition_id: int):
             "competition not found",
         )
 
-    _apply_engagement_state([competition])
+    apply_competition_detail_engagement_state(current_user(session), competition)
     return success_response(public_competition_detail_schema.dump(competition))
 
 
@@ -182,31 +174,3 @@ def _require_student() -> tuple[User | None, object | None]:
 
 def _service_error_response(error: ServiceError):
     return error_response(error.status_code, error.code, error.message, error.details)
-
-
-def _apply_engagement_state(competitions: list[Competition]) -> None:
-    user = current_user(session)
-    if user is None or user.role != UserRole.STUDENT or not competitions:
-        return
-    competition_ids = [competition.id for competition in competitions]
-    favorited_ids = set(
-        db.session.scalars(
-            select(Favorite.competition_id).where(
-                Favorite.user_id == user.id,
-                Favorite.is_active.is_(True),
-                Favorite.competition_id.in_(competition_ids),
-            )
-        )
-    )
-    subscribed_ids = set(
-        db.session.scalars(
-            select(Subscription.competition_id).where(
-                Subscription.user_id == user.id,
-                Subscription.status == SubscriptionStatus.ACTIVE,
-                Subscription.competition_id.in_(competition_ids),
-            )
-        )
-    )
-    for competition in competitions:
-        competition.is_favorited = competition.id in favorited_ids
-        competition.is_subscribed = competition.id in subscribed_ids

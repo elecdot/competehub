@@ -575,7 +575,8 @@ Response data extends the list item with detail fields:
     }
   ],
   "is_favorited": false,
-  "is_subscribed": false
+  "is_subscribed": false,
+  "subscription_summary": null
 }
 ```
 
@@ -591,7 +592,11 @@ editing or submitting a non-public candidate does not change the public value.
 
 For anonymous requests, `is_favorited` and `is_subscribed` are `false`. For an
 authenticated student, they reflect that student's persisted edition-bound
-favorite and subscription state.
+favorite and subscription state. Detail responses also include
+`subscription_summary`: `null` when the student has no relation, otherwise the
+same student-facing consent summary returned by subscription POST/PATCH. It
+contains the persisted `reminder_enabled`, `remind_days`, and `node_types` used
+to prefill an explicit later confirmation; it exposes no internal relation ID.
 
 ### `POST /competitions/{id}/outbound_clicks`
 
