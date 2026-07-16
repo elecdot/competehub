@@ -447,5 +447,14 @@ def _seed_owned_lifecycle_engagement() -> None:
                 remind_days=3,
                 node_types=["registration_deadline"],
             ),
+            Subscription(
+                id=2004,
+                user_id=student_id,
+                competition_id=2004,
+                status=SubscriptionStatus.ACTIVE,
+                reminder_enabled=False,
+                remind_days=3,
+                node_types=["registration_deadline"],
+            ),
         ]
     )

@@ -495,6 +495,7 @@ Key fields:
   `recommendation`
 - `actor_kind`: `authenticated` or `anonymous`
 - `occurred_at`
+- `aggregated_at`: nullable until this row is included in a durable daily count
 
 Rules:
 
@@ -505,7 +506,12 @@ Rules:
   ephemeral and are not copied into analytics rows.
 - Each accepted activation is a click count, not a unique person or completed
   registration. Best-effort delivery may undercount.
-- Raw events expire after 90 days and are aggregated before deletion.
+- The aggregation transaction selects only rows with `aggregated_at IS NULL`,
+  increments the daily dimensions, and marks those rows before commit.
+- PostgreSQL aggregation workers share a transaction advisory lock so
+  simultaneous jobs cannot count one raw row twice.
+- Raw rows with `occurred_at < now - 90 days` expire after aggregation. The
+  exact cutoff row remains retained.
 
 ### `outbound_click_daily_stats`
 
@@ -522,7 +528,9 @@ Key fields:
 
 Rules:
 
-- The dimension tuple is unique and aggregation is idempotent.
+- The dimension tuple is unique; raw-row markers plus the PostgreSQL worker
+  lock make aggregation durable and idempotent across retries and concurrent
+  jobs.
 - Counts are labeled as recorded outbound clicks, not people or registration
   conversion.
 

@@ -127,10 +127,13 @@ def test_e2e_seed_rebuilds_the_expected_actor_set() -> None:
         assert unpublished.status == CompetitionStatus.UNPUBLISHED
         offline_favorite = db.session.get(Favorite, 2002)
         unpublished_subscription = db.session.get(Subscription, 2003)
+        historical_subscription = db.session.get(Subscription, 2004)
         assert offline_favorite.user_id == E2E_ACTORS[0].id
         assert offline_favorite.is_active is True
         assert unpublished_subscription.user_id == E2E_ACTORS[0].id
         assert unpublished_subscription.status == SubscriptionStatus.ACTIVE
+        assert historical_subscription.user_id == E2E_ACTORS[0].id
+        assert historical_subscription.status == SubscriptionStatus.ACTIVE
 
     login_response = app.test_client().post(
         "/api/v1/auth/login",

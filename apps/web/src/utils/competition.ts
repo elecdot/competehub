@@ -51,6 +51,21 @@ export function formatCompetitionStatus(status: CompetitionLifecycleStatus) {
   return COMPETITION_STATUS_LABELS[status]
 }
 
+export function formatProductDateTime(value?: string | null) {
+  if (!value) {
+    return '时间待确认'
+  }
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return '时间待确认'
+  }
+  return new Intl.DateTimeFormat('zh-CN', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone: PRODUCT_TIME_ZONE,
+  }).format(date)
+}
+
 export function formatNodeDate(node: CompetitionTimeNode, includeTime = false) {
   const timestamps = [node.occurs_at, node.starts_at, node.due_at]
     .filter((value): value is string => Boolean(value))

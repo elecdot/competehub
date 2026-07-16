@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 
 from sqlalchemy import and_, cast, exists, func, or_, select
 from sqlalchemy.dialects.postgresql import JSONB
@@ -18,12 +18,6 @@ from competehub_api.models import (
     CompetitionTimeNode,
 )
 from competehub_api.models.enums import CompetitionRevisionStatus, CompetitionStatus
-from competehub_api.services.competition_discovery import (
-    next_time_node,
-    registration_status,
-    registration_status_sort_rank,
-    registration_status_time,
-)
 from competehub_api.timezones import product_date_start_utc
 
 PUBLIC_COMPETITION_STATUSES = frozenset({CompetitionStatus.PUBLISHED})
@@ -210,28 +204,10 @@ def public_competitions_statement():
     )
 
 
-def search_public_competitions(query: PublicCompetitionQuery) -> PublicCompetitionPage:
+def list_public_competition_candidates(query: PublicCompetitionQuery) -> list[Competition]:
     conditions = _public_competition_conditions(query)
-    now = datetime.now(UTC)
     statement = select(Competition).where(*conditions).options(*_public_relation_options())
-    competitions = list(db.session.scalars(statement).unique())
-    annotated = [
-        (competition, registration_status(competition, now)) for competition in competitions
-    ]
-    if query.registration_status is not None:
-        annotated = [item for item in annotated if item[1].value == query.registration_status]
-    annotated.sort(key=lambda item: _public_competition_order(item[0], item[1], query.sort, now))
-    total = len(annotated)
-    start = (query.page - 1) * query.page_size
-    page_items = [
-        competition for competition, _status in annotated[start : start + query.page_size]
-    ]
-    return PublicCompetitionPage(
-        items=page_items,
-        page=query.page,
-        page_size=query.page_size,
-        total=total,
-    )
+    return list(db.session.scalars(statement).unique())
 
 
 def get_public_competition(competition_id: int) -> Competition | None:
@@ -364,65 +340,6 @@ def _deadline_condition(query: PublicCompetitionQuery):
         exclusive_end = query.deadline_to + timedelta(days=1)
         conditions.append(CompetitionTimeNode.occurs_at < product_date_start_utc(exclusive_end))
     return and_(*conditions)
-
-
-def _public_competition_order(competition, status, sort: str, now: datetime) -> tuple:
-    published_at = (
-        competition.published_revision.published_at if competition.published_revision else None
-    )
-    published_at_key = -_as_utc_timestamp(published_at)
-    if sort == "published_at":
-        return (published_at_key, -(competition.id or 0))
-
-    registration_deadline = _future_registration_deadline(competition, now)
-    if sort == "registration_deadline":
-        return (
-            _missing_time_last(registration_deadline),
-            registration_deadline or datetime.max.replace(tzinfo=UTC),
-            published_at_key,
-            -(competition.id or 0),
-        )
-
-    relevant_time = registration_status_time(status)
-    if status.value not in {"open", "upcoming"}:
-        node = next_time_node(competition, now)
-        relevant_time = node.occurs_at if node is not None else None
-    return (
-        registration_status_sort_rank(status.value),
-        _missing_time_last(relevant_time),
-        relevant_time or datetime.max.replace(tzinfo=UTC),
-        published_at_key,
-        -(competition.id or 0),
-    )
-
-
-def _future_registration_deadline(competition: Competition, now: datetime) -> datetime | None:
-    deadlines = (
-        [
-            node.occurs_at
-            for node in competition.published_revision.time_nodes
-            if node.node_type == "registration_deadline"
-            and node.occurs_at is not None
-            and _as_utc(node.occurs_at) >= now
-        ]
-        if competition.published_revision
-        else []
-    )
-    return min((_as_utc(value) for value in deadlines), default=None)
-
-
-def _missing_time_last(value: datetime | None) -> int:
-    return 1 if value is None else 0
-
-
-def _as_utc_timestamp(value: datetime | None) -> float:
-    if value is None:
-        return float("-inf")
-    return _as_utc(value).timestamp()
-
-
-def _as_utc(value: datetime) -> datetime:
-    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
 def _escape_like(value: str) -> str:

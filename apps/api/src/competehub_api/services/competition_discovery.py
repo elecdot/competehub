@@ -4,6 +4,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from competehub_api.models import Competition, CompetitionTimeNode
+from competehub_api.repositories.competitions import (
+    PublicCompetitionPage,
+    PublicCompetitionQuery,
+    list_public_competition_candidates,
+)
 
 REGISTRATION_NODE_TYPES = frozenset({"registration_start", "registration_deadline"})
 REGISTRATION_STATUS_ORDER = {
@@ -19,6 +24,25 @@ REGISTRATION_STATUS_ORDER = {
 class RegistrationStatus:
     value: str
     basis: CompetitionTimeNode | None = None
+
+
+def search_public_competitions(query: PublicCompetitionQuery) -> PublicCompetitionPage:
+    now = datetime.now(UTC)
+    annotated = [
+        (competition, registration_status(competition, now))
+        for competition in list_public_competition_candidates(query)
+    ]
+    if query.registration_status is not None:
+        annotated = [item for item in annotated if item[1].value == query.registration_status]
+    annotated.sort(key=lambda item: _public_competition_order(item[0], item[1], query.sort, now))
+    total = len(annotated)
+    start = (query.page - 1) * query.page_size
+    return PublicCompetitionPage(
+        items=[competition for competition, _status in annotated[start : start + query.page_size]],
+        page=query.page,
+        page_size=query.page_size,
+        total=total,
+    )
 
 
 def sorted_time_nodes(competition: Competition) -> list[CompetitionTimeNode]:
@@ -72,6 +96,69 @@ def registration_status_sort_rank(value: str) -> int:
 
 def registration_status_time(status: RegistrationStatus) -> datetime | None:
     return _first_node_time(status.basis) if status.basis is not None else None
+
+
+def _public_competition_order(
+    competition: Competition,
+    status: RegistrationStatus,
+    sort: str,
+    now: datetime,
+) -> tuple:
+    published_at = (
+        competition.published_revision.published_at if competition.published_revision else None
+    )
+    published_at_key = -_as_utc_timestamp(published_at)
+    if sort == "published_at":
+        return (published_at_key, -(competition.id or 0))
+
+    registration_deadline = _future_registration_deadline(competition, now)
+    if sort == "registration_deadline":
+        return (
+            _missing_time_last(registration_deadline),
+            registration_deadline or datetime.max.replace(tzinfo=UTC),
+            published_at_key,
+            -(competition.id or 0),
+        )
+
+    relevant_time = registration_status_time(status)
+    if status.value not in {"open", "upcoming"}:
+        node = next_time_node(competition, now)
+        relevant_time = node.occurs_at if node is not None else None
+    return (
+        registration_status_sort_rank(status.value),
+        _missing_time_last(relevant_time),
+        relevant_time or datetime.max.replace(tzinfo=UTC),
+        published_at_key,
+        -(competition.id or 0),
+    )
+
+
+def _future_registration_deadline(
+    competition: Competition,
+    now: datetime,
+) -> datetime | None:
+    deadlines = (
+        [
+            node.occurs_at
+            for node in competition.published_revision.time_nodes
+            if node.node_type == "registration_deadline"
+            and node.occurs_at is not None
+            and _as_utc(node.occurs_at) >= now
+        ]
+        if competition.published_revision
+        else []
+    )
+    return min((_as_utc(value) for value in deadlines), default=None)
+
+
+def _missing_time_last(value: datetime | None) -> int:
+    return 1 if value is None else 0
+
+
+def _as_utc_timestamp(value: datetime | None) -> float:
+    if value is None:
+        return float("-inf")
+    return _as_utc(value).timestamp()
 
 
 def _published_time_nodes(competition: Competition) -> list[CompetitionTimeNode]:

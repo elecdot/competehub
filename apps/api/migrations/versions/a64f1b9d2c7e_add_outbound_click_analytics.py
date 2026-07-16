@@ -32,6 +32,7 @@ def upgrade() -> None:
         sa.Column("source_surface", sa.String(length=32), nullable=False),
         sa.Column("actor_kind", sa.String(length=32), nullable=False),
         sa.Column("occurred_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("aggregated_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=False),
         sa.ForeignKeyConstraint(["competition_id"], ["competitions.id"]),
@@ -47,6 +48,9 @@ def upgrade() -> None:
     )
     op.create_index(
         "ix_outbound_click_events_occurred_at", "outbound_click_events", ["occurred_at"]
+    )
+    op.create_index(
+        "ix_outbound_click_events_aggregated_at", "outbound_click_events", ["aggregated_at"]
     )
     op.create_table(
         "outbound_click_daily_stats",
@@ -92,6 +96,7 @@ def downgrade() -> None:
         table_name="outbound_click_daily_stats",
     )
     op.drop_table("outbound_click_daily_stats")
+    op.drop_index("ix_outbound_click_events_aggregated_at", table_name="outbound_click_events")
     op.drop_index("ix_outbound_click_events_occurred_at", table_name="outbound_click_events")
     op.drop_index(
         "ix_outbound_click_events_competition_revision_id",

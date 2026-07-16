@@ -12,7 +12,6 @@ from competehub_api.models.enums import UserRole
 from competehub_api.repositories.competitions import (
     PublicCompetitionQuery,
     get_public_competition,
-    search_public_competitions,
 )
 from competehub_api.schemas.common import load_payload
 from competehub_api.schemas.competition_public import (
@@ -23,6 +22,7 @@ from competehub_api.schemas.competition_public import (
     subscription_create_schema,
 )
 from competehub_api.services.auth import current_user
+from competehub_api.services.competition_discovery import search_public_competitions
 from competehub_api.services.engagement import (
     apply_competition_detail_engagement_state,
     apply_engagement_state,

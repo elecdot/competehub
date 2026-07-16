@@ -94,9 +94,12 @@ lifecycle or schedule-change message evidence before a shared-database
 rollback.
 
 `a64f1b9d2c7e` follows `8b4d2f7a1c90`. It adds raw outbound activation
-events tied to the selected published revision, plus durable daily aggregate
-dimensions keyed by competition, target type, source surface, and
-anonymous/authenticated actor kind.
+events tied to the selected published revision, including a nullable
+`aggregated_at` marker, plus durable daily aggregate dimensions keyed by
+competition, target type, source surface, and anonymous/authenticated actor
+kind. The periodic service serializes PostgreSQL workers with a transaction
+advisory lock, marks newly counted rows in the same transaction, and deletes
+only rows older than the exact `now - 90 days` event-time boundary.
 Neither table stores a user, session, or device identifier. The recorded
 `legacy_create_all` path remains unchanged. Downgrading drops both analytics
 tables and their retained counts, so export any required metrics before a

@@ -27,6 +27,9 @@ class OutboundClickEvent(db.Model, TimestampMixin):
     occurred_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, index=True
     )
+    aggregated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
 
 
 class OutboundClickDailyStat(db.Model, TimestampMixin):

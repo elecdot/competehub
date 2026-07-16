@@ -30,6 +30,9 @@ class BaseConfig:
     AUTH_RATE_LIMIT_ENABLED = True
     AUTH_RATE_LIMIT_MAX_ATTEMPTS = 10
     AUTH_RATE_LIMIT_WINDOW_SECONDS = 60
+    OUTBOUND_RATE_LIMIT_ENABLED = True
+    OUTBOUND_RATE_LIMIT_MAX_ATTEMPTS = 60
+    OUTBOUND_RATE_LIMIT_WINDOW_SECONDS = 60
     VERIFICATION_DELIVERY_BATCH_SIZE = 100
     PROFILE_ALLOWED_GRADES = ("大一", "大二", "大三", "大四", "研一", "研二", "研三")
     PROFILE_ALLOWED_MAJORS_BY_COLLEGE = {
@@ -53,6 +56,7 @@ class DevelopmentConfig(BaseConfig):
 class TestingConfig(BaseConfig):
     TESTING = True
     SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
+    OUTBOUND_RATE_LIMIT_ENABLED = False
 
 
 class ProductionConfig(BaseConfig):

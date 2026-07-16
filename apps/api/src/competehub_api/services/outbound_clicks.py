@@ -4,15 +4,18 @@ from collections import Counter
 from datetime import UTC, date, datetime, timedelta
 from http import HTTPStatus
 
-from sqlalchemy import select
+from flask import current_app
+from sqlalchemy import delete, func, select
 
 from competehub_api.extensions import db
 from competehub_api.models import Competition, OutboundClickDailyStat, OutboundClickEvent
 from competehub_api.services.errors import ServiceError
+from competehub_api.services.rate_limits import increment_rate_limit, request_source
 from competehub_api.timezones import PRODUCT_TIMEZONE, stored_datetime_as_utc
 
 OUTBOUND_TARGET_FIELDS = frozenset({"source_url", "official_url", "attachment_url"})
 OUTBOUND_SOURCE_SURFACES = frozenset({"competition_list", "competition_detail", "recommendation"})
+OUTBOUND_AGGREGATION_LOCK_ID = 3_900_039
 
 
 def record_outbound_click(
@@ -22,6 +25,7 @@ def record_outbound_click(
     source_surface: str,
     actor_kind: str,
 ) -> None:
+    _check_rate_limit()
     if target_type not in OUTBOUND_TARGET_FIELDS or source_surface not in OUTBOUND_SOURCE_SURFACES:
         raise ServiceError(
             HTTPStatus.BAD_REQUEST,
@@ -52,7 +56,15 @@ def record_outbound_click(
 
 def aggregate_outbound_clicks(*, now: datetime | None = None) -> None:
     now = stored_datetime_as_utc(now or datetime.now(UTC))
-    events = list(db.session.scalars(select(OutboundClickEvent)))
+    _acquire_aggregation_lock()
+    events = list(
+        db.session.scalars(
+            select(OutboundClickEvent)
+            .where(OutboundClickEvent.aggregated_at.is_(None))
+            .order_by(OutboundClickEvent.id)
+            .with_for_update()
+        )
+    )
     grouped = Counter(_stat_dimensions(event) for event in events)
     existing_stats = {
         _daily_stat_dimensions(stat): stat
@@ -71,13 +83,45 @@ def aggregate_outbound_clicks(*, now: datetime | None = None) -> None:
             )
             db.session.add(stat)
         else:
-            stat.click_count = click_count
+            stat.click_count += click_count
 
-    retention_date = now.astimezone(PRODUCT_TIMEZONE).date() - timedelta(days=90)
     for event in events:
-        if _product_date(event.occurred_at) < retention_date:
-            db.session.delete(event)
+        event.aggregated_at = now
+    db.session.flush()
+    db.session.execute(
+        delete(OutboundClickEvent)
+        .where(OutboundClickEvent.occurred_at < now - timedelta(days=90))
+        .execution_options(synchronize_session=False)
+    )
     db.session.commit()
+
+
+def _acquire_aggregation_lock() -> None:
+    if db.session.get_bind().dialect.name == "postgresql":
+        db.session.execute(select(func.pg_advisory_xact_lock(OUTBOUND_AGGREGATION_LOCK_ID)))
+
+
+def _check_rate_limit() -> None:
+    if not current_app.config.get("OUTBOUND_RATE_LIMIT_ENABLED", True):
+        return
+    max_attempts = current_app.config.get("OUTBOUND_RATE_LIMIT_MAX_ATTEMPTS", 60)
+    window_seconds = current_app.config.get("OUTBOUND_RATE_LIMIT_WINDOW_SECONDS", 60)
+    source = request_source(
+        trust_proxy_headers=current_app.config.get("AUTH_TRUST_PROXY_HEADERS", False)
+    )
+    count = increment_rate_limit(
+        f"outbound-rate:source:{source}",
+        window_seconds,
+        store_config_key="OUTBOUND_RATE_LIMIT_STORE",
+        extension_key="outbound_rate_limit_redis",
+    )
+    if count > max_attempts:
+        raise ServiceError(
+            HTTPStatus.TOO_MANY_REQUESTS,
+            "rate_limited",
+            "too many outbound click attempts",
+            {"retry_after_seconds": window_seconds},
+        )
 
 
 def _stat_dimensions(event: OutboundClickEvent) -> tuple:

@@ -45,6 +45,7 @@ import {
   formatNodeDate,
   formatNodeLabel,
   formatParticipantForm,
+  formatProductDateTime,
   formatRegistrationStatus,
 } from '@/utils/competition'
 
@@ -63,7 +64,7 @@ const historicalWarningDescription = computed(() => {
   if (!warning) {
     return '该赛事已不在默认发现列表中，请以官方或学校通知为准。'
   }
-  return `维护原因：${warning.reason}；该赛事已不在默认发现列表中，请以官方或学校通知为准。`
+  return `维护原因：${warning.reason}；维护时间：${formatProductDateTime(warning.changed_at)}；该赛事已不在默认发现列表中，请以官方或学校通知为准。`
 })
 const groupedTimeNodes = computed(() => groupTimeNodes(competition.value?.time_nodes ?? []))
 const favoritePending = ref(false)
@@ -191,7 +192,7 @@ async function toggleFavorite() {
 }
 
 async function openSubscriptionConsent() {
-  if (!competition.value || subscriptionPending.value) return
+  if (!competition.value || historical.value || subscriptionPending.value) return
   if (!auth.currentUser) {
     loginForEngagement()
     return
@@ -370,7 +371,9 @@ function nodeTime(node: CompetitionTimeNode) {
             当前公开修订 r{{ competition.current_revision.revision_number }}
           </span>
           <span v-if="competition.edition_label">届次 {{ competition.edition_label }}</span>
-          <span v-if="competition.content_updated_at">内容更新于 {{ competition.content_updated_at }}</span>
+          <span v-if="competition.content_updated_at">
+            内容更新于 {{ formatProductDateTime(competition.content_updated_at) }}
+          </span>
         </p>
         <p v-if="competition.registration_status_basis" class="registration-basis">
           报名状态依据：{{ formatNodeLabel(competition.registration_status_basis.node_type) }} ·
@@ -535,6 +538,7 @@ function nodeTime(node: CompetitionTimeNode) {
             {{ competition.is_favorited ? '取消收藏' : '收藏' }}
           </AButton>
           <AButton
+            v-if="!historical"
             data-testid="subscription-action"
             type="primary"
             :loading="subscriptionPending"
@@ -570,7 +574,7 @@ function nodeTime(node: CompetitionTimeNode) {
         </p>
 
         <AForm
-          v-if="showSubscriptionConsent"
+          v-if="showSubscriptionConsent && !historical"
           data-testid="subscription-consent"
           class="profile-form"
           layout="vertical"

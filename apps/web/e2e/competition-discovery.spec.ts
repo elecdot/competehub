@@ -2,6 +2,14 @@ import { expect, test } from './fixtures/actors'
 
 test.use({ actorName: 'student', allowOutboundTrackingConsoleError: true })
 
+function deferred() {
+  let release!: () => void
+  const promise = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  return { promise, release }
+}
+
 test('shows actionable discovery, staged detail, historical context, and direct official links', async ({
   actorPage,
 }) => {
@@ -47,4 +55,53 @@ test('shows actionable discovery, staged detail, historical context, and direct 
     }),
   ).toBeVisible()
   await expect(actorPage.getByText('该赛事已不在默认发现列表中')).toBeVisible()
+  await expect(actorPage.getByText(/维护时间：.*2026.*7.*10.*16:00/)).toBeVisible()
+  await expect(actorPage.getByTestId('subscription-action')).toHaveCount(0)
+  await expect(actorPage.getByTestId('subscription-cancel')).toBeVisible()
+})
+
+test.describe('discovery state evidence', () => {
+  test.use({ allowDiscoveryRequestErrors: true })
+
+  test('shows list loading and empty states', async ({ actorPage }) => {
+    const pending = deferred()
+    await actorPage.route('**/api/v1/competitions?*', async (route) => {
+      await pending.promise
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: { items: [], pagination: { page: 1, page_size: 20, total: 0 } },
+          error: null,
+        }),
+      })
+    })
+
+    await actorPage.goto('/competitions')
+    await expect(actorPage.getByRole('status')).toContainText('正在加载赛事')
+    pending.release()
+    await expect(actorPage.getByText('没有匹配的已发布赛事')).toBeVisible()
+  })
+
+  test('shows list error state', async ({ actorPage }) => {
+    await actorPage.route('**/api/v1/competitions?*', async (route) => {
+      await route.fulfill({ status: 503, contentType: 'application/json', body: '{}' })
+    })
+
+    await actorPage.goto('/competitions')
+    await expect(actorPage.getByRole('alert')).toContainText('赛事列表加载失败')
+  })
+
+  test('shows detail loading and error states', async ({ actorPage }) => {
+    const pending = deferred()
+    await actorPage.route('**/api/v1/competitions/2001', async (route) => {
+      await pending.promise
+      await route.fulfill({ status: 503, contentType: 'application/json', body: '{}' })
+    })
+
+    await actorPage.goto('/competitions/2001')
+    await expect(actorPage.getByRole('status')).toContainText('正在加载赛事详情')
+    pending.release()
+    await expect(actorPage.getByRole('alert')).toContainText('赛事详情加载失败')
+  })
 })

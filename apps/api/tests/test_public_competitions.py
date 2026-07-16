@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy import select
 
+from competehub_api import create_app
 from competehub_api.extensions import db
 from competehub_api.models import (
     Competition,
@@ -32,6 +33,16 @@ from competehub_api.services.auth import start_session
 from competehub_api.services.outbound_clicks import aggregate_outbound_clicks
 from competehub_api.services.profiles import provision_student_owned_rows
 from competehub_api.timezones import stored_datetime_as_utc
+
+
+class FakeRedisRateLimitStore:
+    def __init__(self) -> None:
+        self.values: dict[str, int] = {}
+
+    def eval(self, _script: str, num_keys: int, key: str, _window_seconds: int) -> int:
+        assert num_keys == 1
+        self.values[key] = self.values.get(key, 0) + 1
+        return self.values[key]
 
 
 @pytest.fixture(autouse=True)
@@ -675,9 +686,45 @@ def test_outbound_click_records_authenticated_kind_without_personal_identity(cli
     assert not hasattr(event, "user_id")
 
 
-def test_outbound_click_aggregation_is_idempotent_and_expires_raw_events() -> None:
-    now = datetime.now(UTC)
-    expired_at = now - timedelta(days=91)
+def test_outbound_click_rate_limit_returns_429_without_recording_an_extra_event() -> None:
+    rate_limited_app = create_app(
+        {
+            "TESTING": True,
+            "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:",
+            "OUTBOUND_RATE_LIMIT_ENABLED": True,
+            "OUTBOUND_RATE_LIMIT_MAX_ATTEMPTS": 1,
+            "OUTBOUND_RATE_LIMIT_STORE": FakeRedisRateLimitStore(),
+        }
+    )
+    with rate_limited_app.app_context():
+        db.create_all()
+        seed_day1_competitions()
+        rate_limited_client = rate_limited_app.test_client()
+        payload = {"target_type": "official_url", "source_surface": "competition_detail"}
+
+        accepted = rate_limited_client.post(
+            "/api/v1/competitions/101/outbound_clicks",
+            json=payload,
+            environ_base={"REMOTE_ADDR": "198.51.100.10"},
+        )
+        limited = rate_limited_client.post(
+            "/api/v1/competitions/101/outbound_clicks",
+            json=payload,
+            environ_base={"REMOTE_ADDR": "198.51.100.10"},
+        )
+
+        assert accepted.status_code == 202
+        assert limited.status_code == 429
+        assert limited.get_json()["error"]["code"] == "rate_limited"
+        assert db.session.query(OutboundClickEvent).count() == 1
+        db.session.remove()
+        db.drop_all()
+
+
+def test_outbound_click_aggregation_is_idempotent_at_exact_retention_boundary() -> None:
+    now = datetime(2026, 7, 16, 12, 0, tzinfo=UTC)
+    retention_cutoff = now - timedelta(days=90)
+    expired_at = retention_cutoff - timedelta(microseconds=1)
     db.session.add_all(
         [
             OutboundClickEvent(
@@ -694,7 +741,15 @@ def test_outbound_click_aggregation_is_idempotent_and_expires_raw_events() -> No
                 target_type="official_url",
                 source_surface="competition_detail",
                 actor_kind="anonymous",
-                occurred_at=expired_at,
+                occurred_at=retention_cutoff,
+            ),
+            OutboundClickEvent(
+                competition_id=101,
+                competition_revision_id=1,
+                target_type="official_url",
+                source_surface="competition_detail",
+                actor_kind="anonymous",
+                occurred_at=retention_cutoff + timedelta(hours=1),
             ),
         ]
     )
@@ -709,8 +764,15 @@ def test_outbound_click_aggregation_is_idempotent_and_expires_raw_events() -> No
     assert stat.target_type == "official_url"
     assert stat.source_surface == "competition_detail"
     assert stat.actor_kind == "anonymous"
-    assert stat.click_count == 2
-    assert db.session.scalar(select(OutboundClickEvent)) is None
+    assert stat.click_count == 3
+    retained_events = list(
+        db.session.scalars(select(OutboundClickEvent).order_by(OutboundClickEvent.occurred_at))
+    )
+    assert [stored_datetime_as_utc(event.occurred_at) for event in retained_events] == [
+        retention_cutoff,
+        retention_cutoff + timedelta(hours=1),
+    ]
+    assert all(event.aggregated_at is not None for event in retained_events)
 
 
 def _add_public_edition(

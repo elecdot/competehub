@@ -59,6 +59,7 @@ interface ActorFixtures {
   actorPage: Page
   allowLoginUnauthorizedConsoleError: boolean
   allowOutboundTrackingConsoleError: boolean
+  allowDiscoveryRequestErrors: boolean
   allowProfileValidationConsoleError: boolean
 }
 
@@ -66,6 +67,7 @@ export const test = base.extend<ActorFixtures>({
   actorName: ['student', { option: true }],
   allowLoginUnauthorizedConsoleError: [false, { option: true }],
   allowOutboundTrackingConsoleError: [false, { option: true }],
+  allowDiscoveryRequestErrors: [false, { option: true }],
   allowProfileValidationConsoleError: [false, { option: true }],
   actor: async ({ actorName }, use) => {
     await use(actors[actorName])
@@ -75,6 +77,7 @@ export const test = base.extend<ActorFixtures>({
       page,
       allowLoginUnauthorizedConsoleError,
       allowOutboundTrackingConsoleError,
+      allowDiscoveryRequestErrors,
       allowProfileValidationConsoleError,
     },
     use,
@@ -84,6 +87,7 @@ export const test = base.extend<ActorFixtures>({
       use,
       allowLoginUnauthorizedConsoleError,
       allowOutboundTrackingConsoleError,
+      allowDiscoveryRequestErrors,
       allowProfileValidationConsoleError,
     )
   },
@@ -120,6 +124,7 @@ async function usePageWithErrorGuard(
   use: (page: Page) => Promise<void>,
   allowLoginUnauthorizedConsoleError: boolean,
   allowOutboundTrackingConsoleError: boolean,
+  allowDiscoveryRequestErrors: boolean,
   allowProfileValidationConsoleError: boolean,
 ) {
   const errors: string[] = []
@@ -146,10 +151,16 @@ async function usePageWithErrorGuard(
       response.status() === 500 &&
       request.method() === 'POST' &&
       /^\/api\/v1\/competitions\/\d+\/outbound_clicks$/.test(pathname)
+    const isExpectedDiscoveryFailure =
+      allowDiscoveryRequestErrors &&
+      response.status() >= 500 &&
+      request.method() === 'GET' &&
+      (pathname === '/api/v1/competitions' || /^\/api\/v1\/competitions\/\d+$/.test(pathname))
     if (
       isCurrentUserProbe ||
       isExpectedLoginFailure ||
       isExpectedOutboundTrackingFailure ||
+      isExpectedDiscoveryFailure ||
       isExpectedProfileValidation
     ) {
       expectedHttpErrorResponses += 1
@@ -164,7 +175,8 @@ async function usePageWithErrorGuard(
     if (
       message.text().includes('status of 401') ||
       message.text().includes('status of 400') ||
-      (allowOutboundTrackingConsoleError && message.text().includes('status of 500'))
+      (allowOutboundTrackingConsoleError && message.text().includes('status of 500')) ||
+      (allowDiscoveryRequestErrors && /status of 5\d\d/.test(message.text()))
     ) {
       httpConsoleErrors += 1
     } else {

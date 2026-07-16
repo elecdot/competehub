@@ -57,6 +57,13 @@ concurrency suite. The latter is not interchangeable with SQLite: run
 `apps/api/tests/test_issue38_postgresql_concurrency.py` against a real
 PostgreSQL environment before claiming the slice or issue complete.
 
+Issue #39 adds API evidence for the outbound `429 rate_limited` contract and
+the exact 90-day event-time cutoff, plus a PostgreSQL-only simultaneous worker
+test in `apps/api/tests/test_issue39_postgresql_concurrency.py`. Its Playwright
+suite covers loading, empty, list error, and detail error states in both desktop
+and mobile projects, in addition to historical-action and direct-link behavior.
+Run the PostgreSQL test and `just web-e2e` before claiming the slice complete.
+
 ## TDD Usage
 
 Use TDD when the change affects observable behavior and a reasonable automated
@@ -111,9 +118,10 @@ browser job fails.
 
 Public discovery scenarios cover actionable registration filtering and sorting,
 the current public revision's staged milestone display, historical-detail
-warnings, and direct official-link navigation when the best-effort tracking
-request fails. They run against the deterministic E2E seed rather than a
-frontend-only mock.
+warnings and owned cancellation, direct official-link navigation when the
+best-effort tracking request fails, and list/detail loading, empty, and error
+states. They run in desktop and mobile projects against the deterministic E2E
+seed except for controlled state-response interception.
 
 The recommendation-governance acceptance path logs in through real Cookie
 sessions as the seeded editor, clones active v1, edits and previews against a
