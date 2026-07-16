@@ -709,14 +709,14 @@ a:focus-visible {
   margin-inline-end: 0;
 }
 
-.profile-form {
+.account-page .profile-form {
   display: grid;
   gap: 0 16px;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   margin-top: 20px;
 }
 
-.profile-form .span-three,
+.account-page .profile-form .span-three,
 .profile-actions {
   grid-column: 1 / -1;
 }
@@ -1256,7 +1256,7 @@ a:focus-visible {
   .competition-card,
   .detail-grid,
   .personal-hero,
-  .profile-form,
+  .account-page .profile-form,
   .status-layout,
   .time-node-list li {
     grid-template-columns: 1fr;
