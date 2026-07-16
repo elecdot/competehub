@@ -69,6 +69,17 @@ export const useAuthStore = defineStore('auth', () => {
     if (!initialized.value) await loadCurrentUser()
   }
 
+  async function revalidateCurrentUser() {
+    const requestWasInFlight = currentUserRequest !== null
+    await loadCurrentUser()
+    if (requestWasInFlight) {
+      // The shared request may have started before another tab replaced the
+      // browser session. A security boundary needs one probe started after
+      // revalidation began, even when ordinary callers can share requests.
+      await loadCurrentUser()
+    }
+  }
+
   async function login(payload: LoginPayload) {
     sessionGeneration.value += 1
     currentUserRequest = null
@@ -105,6 +116,7 @@ export const useAuthStore = defineStore('auth', () => {
     sessionGeneration: readonly(sessionGeneration),
     loadCurrentUser,
     ensureCurrentUser,
+    revalidateCurrentUser,
     login,
     clearCurrentUser,
   }
