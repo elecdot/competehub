@@ -216,10 +216,13 @@ Response:
 }
 ```
 
-The successful response is `202 Accepted`, is intentionally the same whether a
-new delivery was queued or the typed identity already existed, and does not
-create a session. SMTP delivery is asynchronous through a transactional outbox;
-the HTTP request never contacts SMTP, and acceptance does not claim delivery.
+The successful response is `202 Accepted` and does not create a session. If the
+typed email identity is already pending activation, the response remains
+generic and no additional account is created. If the normalized email identity
+is already verified on an `active` account, return `409 identity_already_registered`
+so the frontend can show an actionable registered-email message. SMTP delivery
+is asynchronous through a transactional outbox; the HTTP request never contacts
+SMTP, and acceptance does not claim delivery.
 When public registration is disabled, the endpoint returns
 `registration_unavailable`; the frontend must not show the registration entry.
 

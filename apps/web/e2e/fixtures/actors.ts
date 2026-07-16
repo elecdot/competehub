@@ -61,6 +61,7 @@ interface ActorFixtures {
   allowOutboundTrackingConsoleError: boolean
   allowDiscoveryRequestErrors: boolean
   allowProfileValidationConsoleError: boolean
+  allowRegistrationConflictConsoleError: boolean
 }
 
 export const test = base.extend<ActorFixtures>({
@@ -69,6 +70,7 @@ export const test = base.extend<ActorFixtures>({
   allowOutboundTrackingConsoleError: [false, { option: true }],
   allowDiscoveryRequestErrors: [false, { option: true }],
   allowProfileValidationConsoleError: [false, { option: true }],
+  allowRegistrationConflictConsoleError: [false, { option: true }],
   actor: async ({ actorName }, use) => {
     await use(actors[actorName])
   },
@@ -79,6 +81,7 @@ export const test = base.extend<ActorFixtures>({
       allowOutboundTrackingConsoleError,
       allowDiscoveryRequestErrors,
       allowProfileValidationConsoleError,
+      allowRegistrationConflictConsoleError,
     },
     use,
   ) => {
@@ -89,6 +92,7 @@ export const test = base.extend<ActorFixtures>({
       allowOutboundTrackingConsoleError,
       allowDiscoveryRequestErrors,
       allowProfileValidationConsoleError,
+      allowRegistrationConflictConsoleError,
     )
   },
   actorPage: async ({ page, actor, actorName }, use) => {
@@ -126,6 +130,7 @@ async function usePageWithErrorGuard(
   allowOutboundTrackingConsoleError: boolean,
   allowDiscoveryRequestErrors: boolean,
   allowProfileValidationConsoleError: boolean,
+  allowRegistrationConflictConsoleError: boolean,
 ) {
   const errors: string[] = []
   let expectedHttpErrorResponses = 0
@@ -156,15 +161,21 @@ async function usePageWithErrorGuard(
       response.status() >= 500 &&
       request.method() === 'GET' &&
       (pathname === '/api/v1/competitions' || /^\/api\/v1\/competitions\/\d+$/.test(pathname))
+    const isExpectedRegistrationConflict =
+      allowRegistrationConflictConsoleError &&
+      response.status() === 409 &&
+      request.method() === 'POST' &&
+      pathname === '/api/v1/auth/register'
     if (
       isCurrentUserProbe ||
       isExpectedLoginFailure ||
       isExpectedOutboundTrackingFailure ||
       isExpectedDiscoveryFailure ||
-      isExpectedProfileValidation
+      isExpectedProfileValidation ||
+      isExpectedRegistrationConflict
     ) {
       expectedHttpErrorResponses += 1
-    } else if (response.status() === 400 || response.status() === 401) {
+    } else if (response.status() === 400 || response.status() === 401 || response.status() === 409) {
       errors.push(`response: unexpected ${response.status()} from ${request.method()} ${pathname}`)
     }
   })
@@ -176,7 +187,8 @@ async function usePageWithErrorGuard(
       message.text().includes('status of 401') ||
       message.text().includes('status of 400') ||
       (allowOutboundTrackingConsoleError && message.text().includes('status of 500')) ||
-      (allowDiscoveryRequestErrors && /status of 5\d\d/.test(message.text()))
+      (allowDiscoveryRequestErrors && /status of 5\d\d/.test(message.text())) ||
+      message.text().includes('status of 409')
     ) {
       httpConsoleErrors += 1
     } else {

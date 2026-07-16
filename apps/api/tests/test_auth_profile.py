@@ -240,6 +240,53 @@ def test_register_email_queues_pending_identity_and_worker_sends_hashed_code_onl
         assert delivery.delivered_at is not None
 
 
+def test_register_existing_pending_email_keeps_generic_accepted_response(client, app) -> None:
+    identity = "pending-duplicate@example.edu"
+    register_email(client, identity=identity)
+
+    response = register_email(client, identity=identity)
+
+    assert response.status_code == 202
+    assert response.get_json()["data"] == {"accepted": True}
+    with app.app_context():
+        stored_identity = (
+            db.session.query(UserIdentity)
+            .filter_by(identity_type="email", normalized_value=identity)
+            .one()
+        )
+        assert stored_identity.user.status == UserStatus.PENDING_ACTIVATION
+        assert len(stored_identity.challenges) == 1
+        assert (
+            db.session.query(VerificationDeliveryOutbox)
+            .filter_by(challenge_id=stored_identity.challenges[0].id)
+            .count()
+            == 1
+        )
+
+
+def test_register_existing_active_email_returns_registered_conflict(client, app, sender) -> None:
+    register_email(client, identity="Active-Duplicate@Example.edu")
+    dispatch_verification_email(app)
+    assert verify_email(client, sender, identity="active-duplicate@example.edu").status_code == 200
+
+    response = register_email(client, identity="active-duplicate@example.edu")
+
+    assert response.status_code == 409
+    assert response.get_json()["error"] == {
+        "code": "identity_already_registered",
+        "message": "identity is already registered",
+        "details": {"field": "identity"},
+    }
+    with app.app_context():
+        stored_identity = (
+            db.session.query(UserIdentity)
+            .filter_by(identity_type="email", normalized_value="active-duplicate@example.edu")
+            .one()
+        )
+        assert stored_identity.user.status == UserStatus.ACTIVE
+        assert len(stored_identity.challenges) == 1
+
+
 def test_auth_payloads_accept_documented_identifier_alias(client, app, sender) -> None:
     register_response = client.post(
         "/api/v1/auth/register",

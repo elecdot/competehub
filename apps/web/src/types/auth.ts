@@ -48,6 +48,8 @@ export interface StudentProfileUpdate {
   major?: string | null
   grade?: string | null
   interest_tags?: string[]
+  competition_experience?: string | null
+  goal_preferences?: string[]
 }
 
 export interface ProfileOptions {
@@ -55,4 +57,22 @@ export interface ProfileOptions {
   majors_by_college: Record<string, string[]>
   grades: string[]
   interest_tags: string[]
+}
+
+export interface RegisterPayload {
+  identity_type: 'email'
+  identifier: string
+  password: string
+  display_name?: string | null
+}
+
+export interface VerifyPayload {
+  identity_type: 'email'
+  identifier: string
+  code: string
+}
+
+export interface ResendVerificationPayload {
+  identity_type: 'email'
+  identifier: string
 }

@@ -23,8 +23,11 @@ import type {
   CurrentUserResponse,
   LoginPayload,
   ProfileOptions,
+  RegisterPayload,
+  ResendVerificationPayload,
   StudentProfile,
   StudentProfileUpdate,
+  VerifyPayload,
 } from '@/types/auth'
 
 export const apiClient = axios.create({
@@ -237,6 +240,32 @@ export async function fetchProfileOptions() {
 
 export async function loginCurrentUser(payload: LoginPayload) {
   const response = await apiClient.post<ApiEnvelope<CurrentUserResponse>>('/auth/login', payload)
+  return response.data.data
+}
+
+export async function logoutCurrentUser() {
+  const response = await apiClient.post<ApiEnvelope<{ success: boolean }>>('/auth/logout')
+  return response.data.data
+}
+
+export async function registerCurrentUser(payload: RegisterPayload) {
+  const response = await apiClient.post<ApiEnvelope<{ accepted: boolean }>>(
+    '/auth/register',
+    payload,
+  )
+  return response.data.data
+}
+
+export async function verifyCurrentUser(payload: VerifyPayload) {
+  const response = await apiClient.post<ApiEnvelope<{ verified: boolean }>>('/auth/verify', payload)
+  return response.data.data
+}
+
+export async function resendCurrentUserVerification(payload: ResendVerificationPayload) {
+  const response = await apiClient.post<ApiEnvelope<{ accepted: boolean }>>(
+    '/auth/verification/resend',
+    payload,
+  )
   return response.data.data
 }
 

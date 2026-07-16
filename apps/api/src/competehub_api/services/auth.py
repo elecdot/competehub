@@ -76,6 +76,16 @@ def register_student(payload: dict) -> None:
 
     existing = find_identity(identity_type, normalized_value)
     if existing is not None:
+        if (
+            existing.verification_status == IdentityVerificationStatus.VERIFIED
+            and existing.user.status == UserStatus.ACTIVE
+        ):
+            raise ServiceError(
+                HTTPStatus.CONFLICT,
+                "identity_already_registered",
+                "identity is already registered",
+                {"field": "identity"},
+            )
         return
 
     user = User(
