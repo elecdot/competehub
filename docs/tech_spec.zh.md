@@ -91,7 +91,10 @@ scripts/agent-env.sh
 - State：Pinia
 - HTTP Client：Axios，通过 `src/api/` 中的共享 client 和领域 API wrapper 统一 base URL、超时、凭据和错误处理。
 - UI：Ant Design Vue，见 `docs/adr/0008-ant-design-vue-ui-library.md`；使用规范写入 `apps/web/README.md`，不得混用第二套通用 UI 组件库。
-- Calendar：个人赛事日历使用 FullCalendar 的 Vue 3 开源标准能力实现月、周和列表视图；按锁定版本采用对应的标准 view 模块，不引入 premium resource/scheduler 功能，也不手写日期网格算法。
+- Calendar：个人赛事日历锁定 FullCalendar Vue 3 `6.1.21`，使用
+  `daygrid`、`timegrid`、`list` 开源标准模块实现月、周和列表视图。
+  `luxon3` `6.1.21` 与 Luxon `3.7.2` 提供 `Asia/Shanghai` 命名时区实现；
+  日历页使用路由懒加载，不引入 premium resource/scheduler，也不手写日期网格算法。
 
 ### 4.2 Backend
 
