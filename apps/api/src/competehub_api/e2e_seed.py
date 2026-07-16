@@ -78,6 +78,14 @@ E2E_ACTORS = (
         },
     ),
     E2EActor(
+        id=1007,
+        email="calendar.student-day1@example.edu",
+        password="indigo calendar milestone orbit 73",
+        display_name="Calendar Acceptance Student",
+        role=UserRole.STUDENT,
+        profile={},
+    ),
+    E2EActor(
         id=1002,
         email="admin.day1@example.edu",
         password="copper meadow signal river 82",
@@ -198,6 +206,7 @@ def register_e2e_commands(app: Flask) -> None:
         _seed_publication_fixture(seeded_at)
         _seed_owned_lifecycle_engagement()
         _seed_message_fixture(seeded_at)
+        _seed_personal_calendar_fixture()
         db.session.commit()
         seed_initial_recommendation_rule_set()
 
@@ -569,6 +578,252 @@ def _seed_message_fixture(base_time: datetime) -> None:
                 created_at=created_at[3003],
                 updated_at=created_at[3003],
                 is_read=False,
+            ),
+        ]
+    )
+
+
+def _seed_personal_calendar_fixture() -> None:
+    offline = db.session.get(Competition, 2002)
+    offline_revision = db.session.get(CompetitionRevision, 2002)
+    if offline is None or offline_revision is None:
+        raise RuntimeError("The lifecycle fixture must exist before the calendar fixture")
+
+    decided_at = datetime(2026, 7, 10, 8, 0, tzinfo=UTC)
+    series = CompetitionSeries(
+        id=2005,
+        canonical_name="Seeded Responsive Calendar Challenge",
+        created_by_id=1002,
+    )
+    edition = Competition(
+        id=2005,
+        series=series,
+        edition_label="2026",
+        title="Seeded Calendar Challenge With A Long Responsive Title 2026",
+        category="innovation",
+        organizer="Example University",
+        source_name="Example University Calendar Notice",
+        source_url="https://example.edu/notices/seeded-calendar-2026",
+        official_url="https://example.org/seeded-calendar-2026",
+        summary="A deterministic subscribed edition used by calendar acceptance.",
+        eligibility="Enrolled students.",
+        registration_applicability="applicable",
+        participant_form="individual",
+        participant_forms=["individual"],
+        major_scope="all",
+        grade_scope="all",
+        suitable_majors=[],
+        suitable_grades=[],
+        status=CompetitionStatus.PUBLISHED,
+        created_by_id=1002,
+    )
+    revision = CompetitionRevision(
+        id=2005,
+        competition=edition,
+        revision_number=2,
+        revision_status=CompetitionRevisionStatus.APPROVED,
+        title=edition.title,
+        category=edition.category,
+        organizer=edition.organizer,
+        source_name=edition.source_name,
+        source_url=edition.source_url,
+        official_url=edition.official_url,
+        summary=edition.summary,
+        eligibility=edition.eligibility,
+        registration_applicability=edition.registration_applicability,
+        participant_forms=edition.participant_forms,
+        major_scope=edition.major_scope,
+        grade_scope=edition.grade_scope,
+        suitable_majors=edition.suitable_majors,
+        suitable_grades=edition.suitable_grades,
+        created_by_id=1002,
+        submitted_by_id=1002,
+        submitted_at=decided_at,
+        decided_at=decided_at,
+        published_at=decided_at,
+    )
+    legacy_revision = CompetitionRevision(
+        id=2105,
+        competition=edition,
+        revision_number=1,
+        revision_status=CompetitionRevisionStatus.APPROVED,
+        title="Legacy Calendar Challenge Revision 2026",
+        category=edition.category,
+        organizer=edition.organizer,
+        source_name=edition.source_name,
+        source_url=edition.source_url,
+        official_url=edition.official_url,
+        summary="An immutable historical revision excluded from the calendar projection.",
+        eligibility=edition.eligibility,
+        registration_applicability=edition.registration_applicability,
+        participant_forms=edition.participant_forms,
+        major_scope=edition.major_scope,
+        grade_scope=edition.grade_scope,
+        suitable_majors=edition.suitable_majors,
+        suitable_grades=edition.suitable_grades,
+        created_by_id=1002,
+        submitted_by_id=1002,
+        submitted_at=decided_at,
+        decided_at=decided_at,
+        published_at=decided_at,
+    )
+    legacy_stage = CompetitionStage(
+        id=2511,
+        revision=legacy_revision,
+        stage_key="legacy-registration",
+        stage_type="registration",
+        label="Legacy registration stage",
+        stage_order=1,
+    )
+    legacy_stage.time_nodes.append(
+        CompetitionTimeNode(
+            id=2511,
+            competition=edition,
+            revision=legacy_revision,
+            logical_node_key="legacy-registration-deadline",
+            node_revision=1,
+            node_type="registration_deadline",
+            occurs_at=datetime(2026, 7, 16, 0, 30, tzinfo=UTC),
+            description="Legacy revision deadline that must not render",
+            prominence="secondary",
+        )
+    )
+    legacy_revision.stages.append(legacy_stage)
+    node_facts = (
+        (
+            2501,
+            "registration",
+            "registration",
+            "报名阶段",
+            "registration-main-deadline",
+            2,
+            "registration_deadline",
+            datetime(2026, 7, 16, 1, 0, tzinfo=UTC),
+            "Registration closes after a deliberately long responsive description",
+            "primary",
+        ),
+        (
+            2502,
+            "submission-one",
+            "submission",
+            "初赛提交",
+            "submission-one-deadline",
+            1,
+            "submission_deadline",
+            datetime(2026, 7, 16, 2, 0, tzinfo=UTC),
+            "First submission closes",
+            "secondary",
+        ),
+        (
+            2503,
+            "submission-two",
+            "submission",
+            "复赛提交",
+            "submission-two-deadline",
+            1,
+            "submission_deadline",
+            datetime(2026, 7, 16, 3, 0, tzinfo=UTC),
+            "Second submission closes",
+            "secondary",
+        ),
+        (
+            2504,
+            "final",
+            "competition",
+            "决赛阶段",
+            "final-competition-start",
+            1,
+            "competition_start",
+            datetime(2026, 7, 16, 4, 0, tzinfo=UTC),
+            "Final competition starts",
+            "primary",
+        ),
+    )
+    for stage_order, fact in enumerate(node_facts, start=1):
+        (
+            snapshot_id,
+            stage_key,
+            stage_type,
+            stage_label,
+            logical_node_key,
+            node_revision,
+            node_type,
+            occurs_at,
+            description,
+            prominence,
+        ) = fact
+        stage = CompetitionStage(
+            id=snapshot_id,
+            revision=revision,
+            stage_key=stage_key,
+            stage_type=stage_type,
+            label=stage_label,
+            stage_order=stage_order,
+        )
+        stage.time_nodes.append(
+            CompetitionTimeNode(
+                id=snapshot_id,
+                competition=edition,
+                revision=revision,
+                logical_node_key=logical_node_key,
+                node_revision=node_revision,
+                node_type=node_type,
+                occurs_at=occurs_at,
+                description=description,
+                prominence=prominence,
+            )
+        )
+        revision.stages.append(stage)
+    edition.published_revision = revision
+
+    offline_stage = CompetitionStage(
+        id=2601,
+        revision=offline_revision,
+        stage_key="offline-history",
+        stage_type="registration",
+        label="Historical registration",
+        stage_order=1,
+    )
+    offline_stage.time_nodes.append(
+        CompetitionTimeNode(
+            id=2601,
+            competition=offline,
+            revision=offline_revision,
+            logical_node_key="offline-registration-deadline",
+            node_revision=1,
+            node_type="registration_deadline",
+            occurs_at=datetime(2026, 7, 10, 1, 0, tzinfo=UTC),
+            description="Historical offline registration deadline",
+            prominence="secondary",
+        )
+    )
+    db.session.add_all(
+        [
+            series,
+            edition,
+            legacy_revision,
+            offline_stage,
+            Subscription(
+                id=2005,
+                user_id=1007,
+                competition_id=edition.id,
+                status=SubscriptionStatus.ACTIVE,
+                reminder_enabled=False,
+                remind_days=3,
+                node_types=[
+                    "registration_deadline",
+                    "submission_deadline",
+                    "competition_start",
+                ],
+            ),
+            Subscription(
+                id=2006,
+                user_id=1007,
+                competition_id=offline.id,
+                status=SubscriptionStatus.ACTIVE,
+                reminder_enabled=False,
+                remind_days=3,
+                node_types=["registration_deadline"],
             ),
         ]
     )

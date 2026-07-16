@@ -11,6 +11,7 @@ from competehub_api.models import User
 from competehub_api.models.enums import UserRole
 from competehub_api.repositories.engagement import MessageQuery
 from competehub_api.schemas.auth import user_schema
+from competehub_api.schemas.calendar import calendar_payload_schema, calendar_query_schema
 from competehub_api.schemas.common import load_payload
 from competehub_api.schemas.messages import (
     message_center_query_schema,
@@ -23,6 +24,7 @@ from competehub_api.schemas.profile import (
     profile_update_schema,
 )
 from competehub_api.services.auth import current_user
+from competehub_api.services.calendar import student_calendar
 from competehub_api.services.messages import (
     list_student_messages,
     mark_all_messages_read,
@@ -71,6 +73,29 @@ def update_profile():
 @me_bp.patch("/me/preferences")
 def update_preferences():
     return _update_profile(preference_update_schema, update_student_preferences)
+
+
+@me_bp.get("/me/calendar")
+def get_calendar():
+    user, response = _require_student()
+    if response is not None:
+        return response
+
+    try:
+        query = calendar_query_schema.load(request.args.to_dict(flat=True))
+    except ValidationError as error:
+        return validation_error_response(error, "calendar query is invalid")
+
+    return success_response(
+        calendar_payload_schema.dump(
+            student_calendar(
+                user.id,
+                query["date_from"],
+                query["date_to"],
+                query["view"],
+            )
+        )
+    )
 
 
 @me_bp.get("/me/messages")

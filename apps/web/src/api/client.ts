@@ -26,6 +26,7 @@ import type {
   StudentProfile,
   StudentProfileUpdate,
 } from '@/types/auth'
+import type { CalendarPayload, CalendarQuery } from '@/types/calendar'
 
 export const apiClient = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL ?? '/api/v1',
@@ -119,6 +120,11 @@ export async function cancelCompetitionSubscription(id: number) {
   const response = await apiClient.delete<ApiEnvelope<SubscriptionCancellation>>(
     `/competitions/${id}/subscription`,
   )
+  return response.data.data
+}
+
+export async function fetchCalendar(params: CalendarQuery) {
+  const response = await apiClient.get<ApiEnvelope<CalendarPayload>>('/me/calendar', { params })
   return response.data.data
 }
 
