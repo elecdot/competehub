@@ -76,6 +76,10 @@ api-db-upgrade:
 seed-recommendation-rules:
     ./scripts/agent-env.sh uv run --project apps/api flask --app competehub_api.app:create_app seed-recommendation-rules
 
+# Provision or verify the non-destructive development-only Day 1 demo dataset.
+bootstrap-development-demo *args:
+    ./scripts/agent-env.sh uv run --project apps/api flask --app competehub_api.app:create_app bootstrap-development-demo {{args}}
+
 # Run backend tests.
 api-test:
     ./scripts/agent-env.sh uv run --project apps/api pytest

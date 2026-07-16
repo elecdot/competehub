@@ -71,7 +71,7 @@ class InitialRecommendationRuleSetConflict(RuntimeError):
     """The persisted v1 snapshot differs from the reproducible seed contract."""
 
 
-def seed_initial_recommendation_rule_set() -> RecommendationRuleSet:
+def seed_initial_recommendation_rule_set(*, commit: bool = True) -> RecommendationRuleSet:
     existing = RecommendationRuleSet.query.filter_by(version=1).one_or_none()
     if existing is not None:
         _assert_matches_initial_seed(existing)
@@ -94,6 +94,9 @@ def seed_initial_recommendation_rule_set() -> RecommendationRuleSet:
         ],
     )
     db.session.add(rule_set)
+    if not commit:
+        db.session.flush()
+        return rule_set
     try:
         db.session.commit()
     except IntegrityError:

@@ -123,6 +123,14 @@ failure. Reports and test results stay under
 `.cache/playwright`, are ignored by Git, and are uploaded by CI only when the
 browser job fails.
 
+The development-demo bootstrap is a separate validation path. After applying
+migrations to a normal development database, `just bootstrap-development-demo`
+provisions or verifies the documented Day 1 actors and representative P1/P2
+facts without resetting unrelated data. Its explicit `--reset-demo` mode can
+replace only registry-owned records and fails on external references.
+`seed-e2e --reset` remains the destructive isolated browser-harness seed and
+must not be used as a development bootstrap.
+
 Public discovery scenarios cover actionable registration filtering and sorting,
 the current public revision's staged milestone display, historical-detail
 warnings and owned cancellation, direct official-link navigation when the
