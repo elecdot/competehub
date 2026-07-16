@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from pathlib import Path
 
 import pytest
+from flask_migrate import upgrade
 
 from competehub_api import create_app
 from competehub_api.extensions import db
@@ -39,6 +41,8 @@ from competehub_api.seeds.development_demo import (
     DEVELOPMENT_DEMO_ACTORS,
     DEVELOPMENT_DEMO_REGISTRY_KEY,
 )
+
+MIGRATIONS_DIR = Path(__file__).resolve().parents[1] / "migrations"
 
 
 @pytest.fixture()
@@ -118,6 +122,12 @@ def test_development_demo_bootstrap_creates_registry_in_development_app(
         registry = SystemConfig.query.filter_by(key=DEVELOPMENT_DEMO_REGISTRY_KEY).one()
         assert registry.value["schema_version"] == 1
         assert registry.value["dataset_version"] == 1
+        assert all(
+            isinstance(entry.get("ownership_fingerprint"), str)
+            and len(entry["ownership_fingerprint"]) == 64
+            for entries in registry.value["records"].values()
+            for entry in entries.values()
+        )
 
 
 def test_development_demo_bootstrap_provisions_expected_actors_idempotently(
@@ -237,6 +247,8 @@ def test_development_demo_bootstrap_provisions_competition_and_governance_facts(
             pending_revision.submitted_by_id
             == User.query.filter_by(email="admin.day1@example.edu").one().id
         )
+        assert pending_revision.submitted_at is not None
+        assert pending_revision.decided_at is None
         assert editions["2027-pending"].published_revision_id is None
 
         draft_revision = CompetitionRevision.query.filter_by(
@@ -449,6 +461,39 @@ def test_reset_ignores_unrelated_polymorphic_targets_with_matching_ids(
         assert AuditLog.query.filter_by(id=9002).count() == 1
 
 
+def test_reset_rejects_registry_owned_audit_id_reuse(development_app) -> None:
+    runner = development_app.test_cli_runner()
+    assert runner.invoke(args=["bootstrap-development-demo"]).exit_code == 0
+    with development_app.app_context():
+        registry = SystemConfig.query.filter_by(key=DEVELOPMENT_DEMO_REGISTRY_KEY).one()
+        audit_id = registry.value["records"]["audit_logs"]["published"]["id"]
+        owned_audit = db.session.get(AuditLog, audit_id)
+        assert owned_audit is not None
+        db.session.delete(owned_audit)
+        db.session.flush()
+        db.session.add(
+            AuditLog(
+                id=audit_id,
+                action="member.unrelated_action",
+                target_type="recommendation_rule_set",
+                target_id=9002,
+                result="success",
+                detail={"source": "member-created"},
+            )
+        )
+        db.session.commit()
+
+    result = runner.invoke(args=["bootstrap-development-demo", "--reset-demo"])
+
+    assert result.exit_code != 0
+    assert "ownership fingerprint" in result.output
+    with development_app.app_context():
+        reused = db.session.get(AuditLog, audit_id)
+        assert reused is not None
+        assert reused.action == "member.unrelated_action"
+        assert SystemConfig.query.filter_by(key=DEVELOPMENT_DEMO_REGISTRY_KEY).count() == 1
+
+
 def test_safe_reset_recreates_demo_graph_and_preserves_non_demo_data(
     development_app,
 ) -> None:
@@ -530,3 +575,71 @@ def test_conflicting_recommendation_v1_rolls_back_the_complete_bootstrap(
         assert User.query.count() == 0
         assert Competition.query.count() == 0
         assert SystemConfig.query.filter_by(key=DEVELOPMENT_DEMO_REGISTRY_KEY).count() == 0
+
+
+def test_postgresql_bootstrap_and_reset_preserve_normal_generated_ids(
+    postgresql_database_uri,
+) -> None:
+    app = create_app(
+        {
+            "TESTING": False,
+            "E2E_TESTING": False,
+            "COMPETEHUB_ENV": "development",
+            "SQLALCHEMY_DATABASE_URI": postgresql_database_uri,
+            "AUTH_RATE_LIMIT_ENABLED": False,
+        }
+    )
+    with app.app_context():
+        upgrade(directory=str(MIGRATIONS_DIR))
+
+    runner = app.test_cli_runner()
+    assert runner.invoke(args=["bootstrap-development-demo"]).exit_code == 0
+
+    first_ids = _insert_normal_postgresql_rows(app, "before-reset")
+
+    reset = runner.invoke(args=["bootstrap-development-demo", "--reset-demo"])
+
+    assert reset.exit_code == 0
+    with app.app_context():
+        assert db.session.get(User, first_ids["user"]) is not None
+        assert db.session.get(CompetitionSeries, first_ids["series"]) is not None
+        assert db.session.get(AuditLog, first_ids["audit"]) is not None
+        assert db.session.get(SystemConfig, first_ids["config"]) is not None
+
+    second_ids = _insert_normal_postgresql_rows(app, "after-reset")
+    assert all(second_ids[key] > first_ids[key] for key in first_ids)
+
+
+def _insert_normal_postgresql_rows(app, suffix: str) -> dict[str, int]:
+    with app.app_context():
+        user = User(
+            email=f"member-{suffix}@example.edu",
+            password_hash="member-owned-hash",
+            display_name=f"Member {suffix}",
+            role=UserRole.STUDENT,
+            status=UserStatus.ACTIVE,
+            capabilities=[],
+        )
+        series = CompetitionSeries(canonical_name=f"Member series {suffix}")
+        audit = AuditLog(
+            action="member.normal_write",
+            target_type="member_fixture",
+            result="success",
+            detail={"suffix": suffix},
+        )
+        config = SystemConfig(
+            key=f"member.normal.{suffix}",
+            value={"suffix": suffix},
+            description="Member-owned normal write.",
+        )
+        db.session.add_all([user, series, audit, config])
+        db.session.flush()
+        ids = {
+            "user": user.id,
+            "series": series.id,
+            "audit": audit.id,
+            "config": config.id,
+        }
+        assert all(isinstance(value, int) for value in ids.values())
+        db.session.commit()
+        return ids

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from enum import Enum
 
 from flask import current_app
 from sqlalchemy import and_, func, inspect, or_, select
@@ -146,7 +149,7 @@ def bootstrap_development_demo(*, reset_demo: bool = False) -> DemoBootstrapResu
             registry_existed = False
         if registry is None:
             registry = SystemConfig(
-                id=_next_id(SystemConfig),
+                id=_seed_id(SystemConfig),
                 key=DEVELOPMENT_DEMO_REGISTRY_KEY,
                 value={
                     "schema_version": 1,
@@ -165,6 +168,7 @@ def bootstrap_development_demo(*, reset_demo: bool = False) -> DemoBootstrapResu
             seed_initial_recommendation_rule_set(commit=False)
         except InitialRecommendationRuleSetConflict as exc:
             raise DevelopmentDemoConflict(str(exc)) from exc
+        _record_ownership_fingerprints(records)
         registry.value = {
             **registry.value,
             "schema_version": 1,
@@ -214,6 +218,12 @@ def _next_id(model) -> int:
     return (value or 0) + 1
 
 
+def _seed_id(model) -> int | None:
+    if db.session.get_bind().dialect.name == "sqlite":
+        return _next_id(model)
+    return None
+
+
 def _registry_records(registry: SystemConfig) -> dict:
     value = registry.value
     if not isinstance(value, dict):
@@ -249,7 +259,7 @@ def _ensure_actor(actor: DemoActor, records: dict) -> User:
                 f"reserved demo account is not registry-owned: {actor.email}"
             )
         user = User(
-            id=_next_id(User),
+            id=_seed_id(User),
             email=actor.email,
             password_hash=hash_password(actor.password, identity=actor.email),
             display_name=actor.display_name,
@@ -269,7 +279,7 @@ def _ensure_actor(actor: DemoActor, records: dict) -> User:
                 f"registered demo account id is missing but email is occupied: {actor.email}"
             )
         user = User(
-            id=_next_id(User),
+            id=_seed_id(User),
             email=actor.email,
             password_hash=hash_password(actor.password, identity=actor.email),
             display_name=actor.display_name,
@@ -316,7 +326,7 @@ def _ensure_identity(actor: DemoActor, user: User, records: dict) -> None:
                 f"reserved demo identity is not registry-owned: {actor.email}"
             )
         identity = UserIdentity(
-            id=_next_id(UserIdentity),
+            id=_seed_id(UserIdentity),
             user_id=user.id,
             identity_type="email",
             normalized_value=normalized,
@@ -340,7 +350,7 @@ def _ensure_identity(actor: DemoActor, user: User, records: dict) -> None:
                 f"registered demo identity is missing but value is occupied: {actor.email}"
             )
         identity = UserIdentity(
-            id=_next_id(UserIdentity),
+            id=_seed_id(UserIdentity),
             user_id=user.id,
             identity_type="email",
             normalized_value=normalized,
@@ -381,7 +391,7 @@ def _ensure_profile(actor: DemoActor, user: User, records: dict) -> None:
         if profile is not None:
             raise DevelopmentDemoConflict(f"student profile is not registry-owned: {actor.email}")
         profile = StudentProfile(
-            id=_next_id(StudentProfile),
+            id=_seed_id(StudentProfile),
             user_id=user.id,
             **actor.profile,
         )
@@ -392,7 +402,7 @@ def _ensure_profile(actor: DemoActor, user: User, records: dict) -> None:
 
     if profile is None:
         profile = StudentProfile(
-            id=_next_id(StudentProfile),
+            id=_seed_id(StudentProfile),
             user_id=user.id,
             **actor.profile,
         )
@@ -425,7 +435,7 @@ def _ensure_reminder_settings(actor: DemoActor, user: User, records: dict) -> No
                 f"reminder settings are not registry-owned: {actor.email}"
             )
         setting = ReminderSetting(
-            id=_next_id(ReminderSetting),
+            id=_seed_id(ReminderSetting),
             user_id=user.id,
             enabled=True,
             default_remind_days=3,
@@ -438,7 +448,7 @@ def _ensure_reminder_settings(actor: DemoActor, user: User, records: dict) -> No
 
     if setting is None:
         setting = ReminderSetting(
-            id=_next_id(ReminderSetting),
+            id=_seed_id(ReminderSetting),
             user_id=user.id,
             enabled=True,
             default_remind_days=3,
@@ -474,6 +484,7 @@ def _registered_id(record: dict, label: str) -> int:
 def _ensure_competition_graph(records: dict) -> None:
     editor = User.query.filter_by(email="admin.day1@example.edu").one()
     reviewer = User.query.filter_by(email="reviewer.day1@example.edu").one()
+    submitted_at = datetime(2026, 7, 16, 0, 30, tzinfo=UTC)
     decided_at = datetime(2026, 7, 16, 1, 0, tzinfo=UTC)
 
     series = _ensure_model(
@@ -563,6 +574,7 @@ def _ensure_competition_graph(records: dict) -> None:
             True,
             editor.id,
             editor.id,
+            submitted_at,
             decided_at,
         ),
         "pending": (
@@ -571,6 +583,7 @@ def _ensure_competition_graph(records: dict) -> None:
             True,
             editor.id,
             editor.id,
+            submitted_at,
             None,
         ),
         "incomplete": (
@@ -580,6 +593,7 @@ def _ensure_competition_graph(records: dict) -> None:
             editor.id,
             None,
             None,
+            None,
         ),
         "cancelled": (
             editions["cancelled"],
@@ -587,6 +601,7 @@ def _ensure_competition_graph(records: dict) -> None:
             True,
             editor.id,
             editor.id,
+            submitted_at,
             decided_at,
         ),
         "offline": (
@@ -595,6 +610,7 @@ def _ensure_competition_graph(records: dict) -> None:
             True,
             editor.id,
             editor.id,
+            submitted_at,
             decided_at,
         ),
     }
@@ -604,6 +620,7 @@ def _ensure_competition_graph(records: dict) -> None:
         complete,
         creator_id,
         submitter_id,
+        submitted,
         decided,
     ) in revision_specs.items():
         fields = _revision_fields(
@@ -612,6 +629,7 @@ def _ensure_competition_graph(records: dict) -> None:
             complete=complete,
             creator_id=creator_id,
             submitter_id=submitter_id,
+            submitted_at=submitted,
             decided_at=decided,
         )
         revisions[key] = _ensure_model(
@@ -1200,6 +1218,7 @@ def _revision_fields(
     complete: bool,
     creator_id: int,
     submitter_id: int | None,
+    submitted_at: datetime | None,
     decided_at: datetime | None,
 ) -> dict:
     source = _competition_fields(edition.title, edition.status, complete)
@@ -1226,7 +1245,7 @@ def _revision_fields(
         "value_notes": source["value_notes"],
         "created_by_id": creator_id,
         "submitted_by_id": submitter_id,
-        "submitted_at": decided_at if submitter_id is not None else None,
+        "submitted_at": submitted_at,
         "decided_at": decided_at,
         "published_at": decided_at if status == CompetitionRevisionStatus.APPROVED else None,
     }
@@ -1250,7 +1269,7 @@ def _ensure_model(
             raise DevelopmentDemoConflict(
                 f"reserved demo record is not registry-owned: {group}.{key}"
             )
-        instance = build(_next_id(model))
+        instance = build(_seed_id(model))
         db.session.add(instance)
         db.session.flush()
         group_records[key] = {"id": instance.id, **stable_identity}
@@ -1262,7 +1281,7 @@ def _ensure_model(
             raise DevelopmentDemoConflict(
                 f"registered demo record is missing but identity is occupied: {group}.{key}"
             )
-        instance = build(_next_id(model))
+        instance = build(_seed_id(model))
         db.session.add(instance)
         db.session.flush()
         group_records[key] = {"id": instance.id, **stable_identity}
@@ -1315,6 +1334,143 @@ OWNED_GROUP_MODELS = {
 
 DELETE_GROUP_ORDER = tuple(OWNED_GROUP_MODELS)
 
+OWNERSHIP_FINGERPRINT_FIELDS = {
+    "messages": (
+        "user_id",
+        "idempotency_key",
+        "reminder_id",
+        "competition_id",
+        "message_type",
+        "event_occurred_at",
+        "title_snapshot",
+        "body_snapshot",
+        "target_snapshot",
+        "retained_until",
+        "created_at",
+    ),
+    "reminders": (
+        "user_id",
+        "competition_id",
+        "logical_node_key",
+        "time_node_revision",
+        "created_at",
+    ),
+    "favorites": ("user_id", "competition_id", "created_at"),
+    "subscriptions": ("user_id", "competition_id", "created_at"),
+    "reminder_settings": ("user_id", "created_at"),
+    "profiles": ("user_id", "created_at"),
+    "identities": (
+        "user_id",
+        "identity_type",
+        "normalized_value",
+        "created_at",
+    ),
+    "review_records": (
+        "target_type",
+        "target_id",
+        "target_revision",
+        "submitted_by_id",
+        "submitted_at",
+        "reviewed_by_id",
+        "status",
+        "comment",
+        "differences",
+        "impact",
+        "difference_snapshot",
+        "impact_summary",
+        "decided_at",
+        "created_at",
+    ),
+    "audit_logs": (
+        "actor_id",
+        "action",
+        "target_type",
+        "target_id",
+        "result",
+        "detail",
+        "created_at",
+    ),
+    "tag_links": (
+        "competition_revision_id",
+        "tag_id",
+        "created_at",
+    ),
+    "time_nodes": (
+        "competition_revision_id",
+        "logical_node_key",
+        "created_at",
+    ),
+    "stages": (
+        "competition_revision_id",
+        "stage_key",
+        "created_at",
+    ),
+    "revisions": (
+        "competition_id",
+        "revision_number",
+        "created_at",
+    ),
+    "competitions": (
+        "series_id",
+        "edition_label",
+        "created_at",
+    ),
+    "tags": ("code", "created_at"),
+    "series": ("canonical_name", "created_at"),
+    "users": ("email", "created_at"),
+}
+
+
+def _record_ownership_fingerprints(records: dict) -> None:
+    for group, model in OWNED_GROUP_MODELS.items():
+        entries = records.get(group, {})
+        if not isinstance(entries, dict):
+            raise DevelopmentDemoConflict(f"development demo registry group is invalid: {group}")
+        for key, entry in entries.items():
+            record_id = _registered_id(entry, f"{group}.{key}")
+            instance = db.session.get(model, record_id)
+            if instance is None:
+                raise DevelopmentDemoConflict(
+                    f"development demo owned record is missing: {group}.{key}"
+                )
+            entry["ownership_fingerprint"] = _ownership_fingerprint(group, instance)
+
+
+def _ownership_fingerprint(group: str, instance) -> str:
+    fields = OWNERSHIP_FINGERPRINT_FIELDS.get(group)
+    if fields is None:
+        raise DevelopmentDemoConflict(
+            f"development demo ownership fingerprint fields are missing: {group}"
+        )
+    payload = {
+        "group": group,
+        "fields": {field: _fingerprint_value(getattr(instance, field)) for field in fields},
+    }
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _fingerprint_value(value):
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+        return value.astimezone(UTC).isoformat()
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, dict):
+        return {
+            str(key): _fingerprint_value(item)
+            for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+        }
+    if isinstance(value, (list, tuple)):
+        return [_fingerprint_value(item) for item in value]
+    return value
+
 
 def _validate_reset_ownership(records: dict) -> None:
     for group, model in OWNED_GROUP_MODELS.items():
@@ -1326,6 +1482,15 @@ def _validate_reset_ownership(records: dict) -> None:
             instance = db.session.get(model, record_id)
             if instance is None:
                 continue
+            expected_fingerprint = entry.get("ownership_fingerprint")
+            if not isinstance(expected_fingerprint, str):
+                raise DevelopmentDemoConflict(
+                    f"development demo ownership fingerprint is missing: {group}.{key}"
+                )
+            if _ownership_fingerprint(group, instance) != expected_fingerprint:
+                raise DevelopmentDemoConflict(
+                    f"development demo ownership fingerprint drifted: {group}.{key}"
+                )
             _validate_stable_identity(group, key, entry, instance, records)
 
 

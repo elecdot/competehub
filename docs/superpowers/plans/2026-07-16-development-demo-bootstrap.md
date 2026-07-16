@@ -14,7 +14,11 @@
 - Never call `db.create_all()`, `db.drop_all()`, or Alembic from the bootstrap.
 - Keep one invocation atomic; any conflict or external reference rolls back all writes.
 - Default execution creates missing owned facts, accepts exact facts, and fails on drift.
-- `--reset-demo` deletes only records proven by registry ownership and fails on external references.
+- `--reset-demo` deletes only records proven by registry IDs and ownership
+  fingerprints, and fails on identity reuse or external references.
+- Use database-generated IDs on PostgreSQL so normal `BIGSERIAL` sequences
+  remain valid; keep explicit ID allocation only as the SQLite compatibility
+  fallback.
 - Never delete, overwrite, or reactivate recommendation rule-set v1.
 - Preserve `seed-e2e --reset` behavior and isolation.
 - Do not add migrations, production business fields, APIs, product roles, or dependencies.
@@ -137,9 +141,10 @@ Expected: registry exists but no users are provisioned.
 
 Use stable business identity by email, database-assigned IDs, public fixed
 passwords, verified `UserIdentity` rows, and exact field comparison. Store the
-created IDs and stable email values in the registry. On repeated invocation,
-accept exact facts, recreate an owned missing dependent row, and raise
-`DevelopmentDemoConflict` when a reserved account or registered record drifts.
+created IDs, stable email values, and immutable ownership fingerprints in the
+registry. On repeated invocation, accept exact facts, recreate an owned missing
+dependent row, and raise `DevelopmentDemoConflict` when a reserved account or
+registered record drifts.
 
 - [ ] **Step 4: Run tests and verify GREEN**
 
@@ -162,7 +167,8 @@ Assert one reserved series contains published, pending-review, incomplete draft,
 cancelled, and offline editions. Verify the published revision has three future
 primary nodes, tags, an approval record, and an audit event. Verify the pending
 revision belongs to the editor and has no public pointer. Verify exact
-recommendation v1 exists.
+recommendation v1 exists. Assert that the pending revision has a submission
+timestamp but no decision timestamp.
 
 - [ ] **Step 2: Run tests and verify RED**
 
@@ -229,6 +235,7 @@ Cover:
 def test_bootstrap_preserves_non_demo_data(development_app): ...
 def test_default_bootstrap_rejects_registered_record_drift_and_rolls_back(...): ...
 def test_reset_rejects_external_reference_and_rolls_back(...): ...
+def test_reset_rejects_registry_owned_audit_id_reuse(...): ...
 def test_safe_reset_recreates_demo_graph_and_preserves_non_demo_data(...): ...
 ```
 
@@ -242,11 +249,13 @@ Expected: reset is not implemented and drift is not rejected completely.
 
 - [ ] **Step 3: Implement registry validation and reset**
 
-Resolve rows from registry IDs and stable identities. Compare deterministic
-fields and relationships. Before reset, query for references from unregistered
-records to registered users, competitions, revisions, nodes, and tags. Delete
-only registered rows in dependency order, flush between cyclic public-pointer
-boundaries, recreate the graph, and commit once.
+Resolve rows from registry IDs and stable identities. Compare every row's
+stored SHA-256 ownership fingerprint before deletion so reused IDs fail closed,
+then compare deterministic fields and relationships. Before reset, query for
+references from unregistered records to registered users, competitions,
+revisions, nodes, and tags. Delete only registered rows in dependency order,
+flush between cyclic public-pointer boundaries, recreate the graph, and commit
+once.
 
 - [ ] **Step 4: Run tests and verify GREEN**
 
@@ -307,7 +316,14 @@ Expected: all pass.
 uv run --project apps/api pytest apps/api/tests/test_development_demo_seed.py apps/api/tests/test_e2e_seed.py -q
 ```
 
-- [ ] **Step 2: Run backend gates**
+- [ ] **Step 2: Run the real PostgreSQL generated-ID regression**
+
+Against the disposable migrated PostgreSQL fixture, bootstrap the demo, perform
+normal database-generated writes, reset the demo, verify the member rows
+survive, and perform another set of normal writes whose IDs advance beyond the
+first set.
+
+- [ ] **Step 3: Run backend gates**
 
 ```powershell
 uv run --project apps/api pytest
@@ -315,7 +331,7 @@ uv run --project apps/api ruff check .
 uv run --project apps/api ruff format --check .
 ```
 
-- [ ] **Step 3: Run browser and docs gates**
+- [ ] **Step 4: Run browser and docs gates**
 
 ```powershell
 npm --prefix apps/web run test:e2e

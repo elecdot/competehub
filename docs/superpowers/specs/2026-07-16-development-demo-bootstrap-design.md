@@ -58,6 +58,11 @@ rebuild behavior. The development command reuses deterministic value
 definitions or focused builders only where that does not weaken the two
 commands' different safety semantics.
 
+PostgreSQL bootstrap rows use database-generated primary keys so every
+`BIGSERIAL` sequence advances through normal inserts. SQLite keeps an explicit
+`max(id) + 1` fallback because its `BIGINT` primary keys do not provide the
+same automatic rowid behavior.
+
 ## Ownership Registry
 
 The bootstrap uses the existing `system_configs` table as an ownership
@@ -80,10 +85,17 @@ Its JSON value stores:
   reminder settings, series, editions, revisions, stages, nodes, tags, links,
   favorites, subscriptions, reminders, messages, review records, and audit
   records.
+- A SHA-256 ownership fingerprint for every entry, derived from its immutable
+  natural or relational identity and creation instant.
 
 The registry is the only deletion authority. Matching an email address, title,
 source URL, or other reserved value is not enough to authorize deletion when
-the record is not listed in the registry.
+the record is not listed in the registry. Before reset, the command compares
+every registered row with its stored ownership fingerprint. A missing
+fingerprint or a mismatch, including a deleted row whose ID was reused by an
+unrelated record, fails closed before any deletion. A normal default run may
+enrich an otherwise valid legacy registry entry with its fingerprint after the
+deterministic record checks succeed.
 
 ## Default Bootstrap Semantics
 
@@ -111,7 +123,8 @@ appropriate.
 `--reset-demo` performs these steps in the same transaction:
 
 1. Load and validate the registry.
-2. Resolve every registered record and verify its stable identity.
+2. Resolve every registered record and verify its ownership fingerprint and
+   stable identity.
 3. Detect references from records outside the registered ownership graph.
 4. Fail and roll back when an external reference exists, reporting its type.
 5. Delete registered records in dependency-safe order.
@@ -158,7 +171,7 @@ One reserved Day 1 competition series contains:
   revision, an immutable approval record, audit evidence, ordered stages, and
   three future primary time nodes.
 - A pending-review edition submitted by the editor for independent reviewer
-  demonstration.
+  demonstration, with a real submission timestamp and no decision timestamp.
 - An incomplete draft edition for validation and recovery demonstration.
 - A cancelled historical edition that is hidden from default discovery but
   remains detail-readable with its lifecycle warning.
@@ -239,6 +252,9 @@ TDD proceeds one behavior at a time:
    expected role/capability boundaries.
 9. Existing `seed-e2e --reset` tests continue to prove isolated destructive
    behavior.
+10. A real migrated PostgreSQL database accepts normal database-generated
+    writes before and after bootstrap reset, with member-owned rows preserved
+    and generated IDs continuing beyond prior values.
 
 Development uses focused CLI tests first. Handoff validation includes API
 tests, API lint/format, browser E2E, documentation strict build, and the broad
