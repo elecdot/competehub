@@ -81,7 +81,7 @@ def test_e2e_seed_rebuilds_the_expected_actor_set() -> None:
     result = runner.invoke(args=["seed-e2e", "--reset"])
 
     assert result.exit_code == 0
-    assert "Provisioned 7 deterministic E2E actors." in result.output
+    assert "Provisioned 8 deterministic E2E actors." in result.output
 
     with app.app_context():
         db.session.add(
@@ -104,6 +104,10 @@ def test_e2e_seed_rebuilds_the_expected_actor_set() -> None:
         reminder_settings = db.session.query(ReminderSetting).all()
 
         expected_actors = sorted(SEEDED_E2E_ACTORS, key=lambda actor: actor.id)
+        calendar_actor = next(
+            actor for actor in E2E_ACTORS if actor.email == "calendar.student-day1@example.edu"
+        )
+        assert calendar_actor.id == 1007
         assert [user.id for user in users] == [actor.id for actor in expected_actors]
         assert [user.email for user in users] == [actor.email for actor in expected_actors]
         assert [user.display_name for user in users] == [
@@ -137,6 +141,7 @@ def test_e2e_seed_rebuilds_the_expected_actor_set() -> None:
         recommendation_incomplete_actor = next(
             actor for actor in E2E_ACTORS if actor.email == "recommendation.incomplete@example.edu"
         )
+        assert recommendation_incomplete_actor.id == 1008
         recommendation_incomplete_profile = (
             db.session.query(StudentProfile)
             .filter_by(user_id=recommendation_incomplete_actor.id)
@@ -185,13 +190,89 @@ def test_e2e_seed_rebuilds_the_expected_actor_set() -> None:
         unpublished_subscription = db.session.get(Subscription, 2003)
         historical_subscription = db.session.get(Subscription, 2004)
         message_subscription = db.session.get(Subscription, 2001)
+        calendar_edition = db.session.get(Competition, 2005)
+        calendar_revision = db.session.get(CompetitionRevision, 2005)
+        legacy_calendar_revision = db.session.get(CompetitionRevision, 2105)
+        calendar_subscription = db.session.get(Subscription, 2005)
+        offline_calendar_subscription = db.session.get(Subscription, 2006)
         sent_reminder = db.session.get(Reminder, 3001)
+        assert [
+            subscription.id for subscription in Subscription.query.order_by(Subscription.id)
+        ] == [
+            2001,
+            2003,
+            2004,
+            2005,
+            2006,
+        ]
         assert offline_favorite.user_id == E2E_ACTORS[0].id
         assert offline_favorite.is_active is True
         assert unpublished_subscription.user_id == E2E_ACTORS[0].id
         assert unpublished_subscription.status == SubscriptionStatus.ACTIVE
         assert historical_subscription.user_id == E2E_ACTORS[0].id
         assert historical_subscription.status == SubscriptionStatus.ACTIVE
+        favorite_only_subscription = (
+            db.session.query(Subscription)
+            .filter_by(user_id=1001, competition_id=2002)
+            .one_or_none()
+        )
+        assert favorite_only_subscription is None
+        assert calendar_edition.published_revision_id == calendar_revision.id
+        assert calendar_revision.revision_number == 2
+        assert calendar_revision.revision_status == CompetitionRevisionStatus.APPROVED
+        assert legacy_calendar_revision.revision_number == 1
+        assert legacy_calendar_revision.revision_status == CompetitionRevisionStatus.APPROVED
+        assert legacy_calendar_revision.title == "Legacy Calendar Challenge Revision 2026"
+        assert [stage.id for stage in legacy_calendar_revision.stages] == [2511]
+        assert [
+            node.id for stage in legacy_calendar_revision.stages for node in stage.time_nodes
+        ] == [2511]
+        assert legacy_calendar_revision.stages[0].time_nodes[0].description == (
+            "Legacy revision deadline that must not render"
+        )
+        assert [stage.id for stage in calendar_revision.stages] == [2501, 2502, 2503, 2504]
+        assert [node.id for stage in calendar_revision.stages for node in stage.time_nodes] == [
+            2501,
+            2502,
+            2503,
+            2504,
+        ]
+        assert all(
+            node.revision is calendar_revision
+            for stage in calendar_revision.stages
+            for node in stage.time_nodes
+        )
+        assert all(
+            node.revision is legacy_calendar_revision
+            for stage in legacy_calendar_revision.stages
+            for node in stage.time_nodes
+        )
+        assert all(stage.id == stage.time_nodes[0].id for stage in calendar_revision.stages)
+        assert all(
+            stored_datetime_as_utc(node.occurs_at).date().isoformat() == "2026-07-16"
+            for stage in calendar_revision.stages
+            for node in stage.time_nodes
+        )
+        assert calendar_subscription.user_id == 1007
+        assert calendar_subscription.status == SubscriptionStatus.ACTIVE
+        assert calendar_subscription.reminder_enabled is False
+        assert calendar_subscription.node_types == [
+            "registration_deadline",
+            "submission_deadline",
+            "competition_start",
+        ]
+        assert offline_calendar_subscription.user_id == 1007
+        assert offline_calendar_subscription.competition_id == offline.id
+        assert offline_calendar_subscription.status == SubscriptionStatus.ACTIVE
+        assert offline_calendar_subscription.reminder_enabled is False
+        offline_revision = db.session.get(CompetitionRevision, 2002)
+        assert offline_revision is not None
+        assert [stage.id for stage in offline_revision.stages] == [2601]
+        assert offline_revision.stages[0].time_nodes[0].id == 2601
+        offline_node_occurs_at = stored_datetime_as_utc(
+            offline_revision.stages[0].time_nodes[0].occurs_at
+        )
+        assert offline_node_occurs_at == datetime(2026, 7, 10, 1, 0, tzinfo=UTC)
         assert message_subscription.user_id == E2E_ACTORS[0].id
         assert message_subscription.competition_id == 2001
         assert message_subscription.status == SubscriptionStatus.CANCELLED

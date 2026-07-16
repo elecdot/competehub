@@ -7,6 +7,7 @@ import {
 export const actorNames = [
   'student',
   'profileReady',
+  'calendarStudent',
   'recommendationIncomplete',
   'editor',
   'reviewer',
@@ -30,6 +31,11 @@ const actors: Record<ActorName, ActorDefinition> = {
   profileReady: {
     email: 'profile.student-day1@example.edu',
     password: 'green campus theorem delta 64',
+    role: 'student',
+  },
+  calendarStudent: {
+    email: 'calendar.student-day1@example.edu',
+    password: 'indigo calendar milestone orbit 73',
     role: 'student',
   },
   recommendationIncomplete: {

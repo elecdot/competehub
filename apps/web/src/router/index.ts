@@ -1,7 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 import AdminHomePage from '@/pages/AdminHomePage.vue'
-import CalendarPage from '@/pages/CalendarPage.vue'
 import HomePage from '@/pages/HomePage.vue'
 import RecommendationPage from '@/pages/RecommendationPage.vue'
 import AccountStatusPage from '@/pages/AccountStatusPage.vue'
@@ -34,7 +33,7 @@ export const router = createRouter({
     {
       path: '/me/calendar',
       name: 'calendar',
-      component: CalendarPage,
+      component: () => import('@/pages/CalendarPage.vue'),
     },
     {
       path: '/me/messages',

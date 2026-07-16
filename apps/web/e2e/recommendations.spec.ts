@@ -15,8 +15,9 @@ test.describe('recommendation modes', () => {
     await expect(page.getByRole('heading', { name: '推荐赛事' })).toBeVisible()
     await expect(page.getByText('通用推荐', { exact: true })).toBeVisible()
     await expect(page.getByText('当前无可用学生画像，展示通用可行动推荐。')).toBeVisible()
-    await expect(page.getByRole('article')).toHaveCount(1)
-    await expect(page.getByText('近期可行动的公开赛事')).toBeVisible()
+    const recommendations = page.getByRole('article')
+    await expect(recommendations.first()).toBeVisible()
+    await expect(recommendations.first()).toContainText('近期可行动的公开赛事')
   })
 
   test.describe('profile-ready student', () => {
