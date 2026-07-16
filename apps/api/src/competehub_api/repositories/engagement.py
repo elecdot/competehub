@@ -48,11 +48,44 @@ def get_competition(competition_id: int) -> Competition | None:
     return db.session.get(Competition, competition_id)
 
 
+def get_competition_for_update(competition_id: int) -> Competition | None:
+    return db.session.scalar(
+        select(Competition)
+        .where(Competition.id == competition_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+
+def list_user_reminder_competitions_for_update(user_id: int) -> list[Competition]:
+    """Lock reminder parent competitions before the user's mutable reminder rows."""
+    competition_ids = (
+        select(Subscription.competition_id.label("competition_id"))
+        .where(Subscription.user_id == user_id)
+        .union(
+            select(Reminder.competition_id.label("competition_id")).where(
+                Reminder.user_id == user_id
+            )
+        )
+        .subquery()
+    )
+    return list(
+        db.session.scalars(
+            select(Competition)
+            .join(competition_ids, competition_ids.c.competition_id == Competition.id)
+            .order_by(Competition.id)
+            .with_for_update(of=Competition)
+            .execution_options(populate_existing=True)
+        )
+    )
+
+
 def get_favorite_for_update(user_id: int, competition_id: int) -> Favorite | None:
     return db.session.scalar(
         select(Favorite)
         .where(Favorite.user_id == user_id, Favorite.competition_id == competition_id)
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
 
 
@@ -61,12 +94,28 @@ def get_subscription_for_update(user_id: int, competition_id: int) -> Subscripti
         select(Subscription)
         .where(Subscription.user_id == user_id, Subscription.competition_id == competition_id)
         .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+
+def list_subscriptions_for_user_for_update(user_id: int) -> list[Subscription]:
+    return list(
+        db.session.scalars(
+            select(Subscription)
+            .where(Subscription.user_id == user_id)
+            .order_by(Subscription.competition_id, Subscription.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
     )
 
 
 def get_reminder_setting_for_update(user_id: int) -> ReminderSetting | None:
     return db.session.scalar(
-        select(ReminderSetting).where(ReminderSetting.user_id == user_id).with_for_update()
+        select(ReminderSetting)
+        .where(ReminderSetting.user_id == user_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
 
 
@@ -77,6 +126,19 @@ def list_reminders_for_update(user_id: int, competition_id: int) -> list[Reminde
             .where(Reminder.user_id == user_id, Reminder.competition_id == competition_id)
             .order_by(Reminder.id)
             .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    )
+
+
+def list_user_reminders_for_update(user_id: int) -> list[Reminder]:
+    return list(
+        db.session.scalars(
+            select(Reminder)
+            .where(Reminder.user_id == user_id)
+            .order_by(Reminder.competition_id, Reminder.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
     )
 
@@ -116,9 +178,58 @@ def list_pending_reminders_for_competition(
     )
     if snapshot_ids is not None:
         statement = statement.where(Reminder.time_node_snapshot_id.in_(snapshot_ids))
-    if for_update:
-        statement = statement.with_for_update()
+    statement = statement.order_by(Reminder.id)
     return list(db.session.scalars(statement))
+
+
+def list_reconcilable_reminders_for_competition_for_update(
+    competition_id: int,
+    *,
+    cancelled_reasons: set[str] | None = None,
+) -> list[Reminder]:
+    """Lock every reminder a competition transition may mutate in one stable order."""
+    mutable_states = [
+        Reminder.status == ReminderStatus.PENDING,
+        and_(
+            Reminder.status == ReminderStatus.FAILED,
+            Reminder.next_attempt_at.is_not(None),
+        ),
+    ]
+    if cancelled_reasons:
+        mutable_states.append(
+            and_(
+                Reminder.status == ReminderStatus.CANCELLED,
+                Reminder.cancel_reason.in_(cancelled_reasons),
+                Reminder.attempt_count == 0,
+                Reminder.next_attempt_at.is_(None),
+                Reminder.sent_at.is_(None),
+                Reminder.failed_at.is_(None),
+                Reminder.last_error_code.is_(None),
+                ~exists(select(Message.id).where(Message.reminder_id == Reminder.id)),
+            )
+        )
+    return list(
+        db.session.scalars(
+            select(Reminder)
+            .where(
+                Reminder.competition_id == competition_id,
+                or_(*mutable_states),
+            )
+            .order_by(Reminder.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    )
+
+
+def list_message_backed_reminder_ids(reminder_ids: set[int]) -> set[int]:
+    if not reminder_ids:
+        return set()
+    return set(
+        db.session.scalars(
+            select(Message.reminder_id).where(Message.reminder_id.in_(reminder_ids)).distinct()
+        )
+    )
 
 
 def get_message_by_idempotency(user_id: int, idempotency_key: str) -> Message | None:

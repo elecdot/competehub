@@ -24,6 +24,8 @@ from competehub_api.models.enums import (
 )
 from competehub_api.repositories import engagement as repository
 from competehub_api.services.errors import ServiceError
+from competehub_api.services.notifications import bounded_title
+from competehub_api.services.reminder_state import revoke_pending_reminder
 from competehub_api.subscription_node_types import (
     SUBSCRIPTION_NODE_TYPES,
     canonical_subscription_node_types,
@@ -38,6 +40,7 @@ RESTORABLE_CANCEL_REASONS = frozenset(
         "subscription_offset_not_future",
     }
 )
+RECLASSIFIABLE_CANCEL_REASONS = repository.RECLASSIFIABLE_CANCEL_REASONS
 
 
 @dataclass(frozen=True)
@@ -49,6 +52,14 @@ class FavoriteMutation:
 class SubscriptionMutation:
     subscription: Subscription
     created: bool
+
+
+@dataclass(frozen=True)
+class ReminderPlanState:
+    current: bool
+    blocker: str | None
+    node: CompetitionTimeNode | None
+    due_at: datetime | None
 
 
 def favorite_competition(user: User, competition_id: int) -> FavoriteMutation:
@@ -108,15 +119,15 @@ def subscribe_to_competition(
 ) -> SubscriptionMutation:
     try:
         payload = _canonical_payload(payload)
+        competition = _required_competition_for_update(competition_id)
+        setting = _required_reminder_setting_for_update(user.id)
         subscription = repository.get_subscription_for_update(user.id, competition_id)
         if subscription is not None and subscription.status == SubscriptionStatus.ACTIVE:
-            _required_reminder_setting_for_update(user.id)
             db.session.commit()
             return SubscriptionMutation(subscription=subscription, created=False)
 
-        competition = _published_competition(competition_id)
+        _require_published_competition(competition)
         nodes = _selected_nodes(competition, payload)
-        setting = _required_reminder_setting_for_update(user.id)
         now = datetime.now(UTC)
         created = subscription is None
         if subscription is None:
@@ -154,6 +165,8 @@ def subscribe_to_competition(
 def update_subscription(user: User, competition_id: int, payload: dict) -> Subscription:
     try:
         payload = _canonical_payload(payload)
+        competition = _required_competition_for_update(competition_id)
+        setting = _required_reminder_setting_for_update(user.id)
         subscription = repository.get_subscription_for_update(user.id, competition_id)
         if subscription is None:
             raise ServiceError(HTTPStatus.NOT_FOUND, "not_found", "subscription not found")
@@ -161,8 +174,7 @@ def update_subscription(user: User, competition_id: int, payload: dict) -> Subsc
             raise ServiceError(
                 HTTPStatus.CONFLICT, "engagement_unavailable", "subscription is cancelled"
             )
-        setting = _required_reminder_setting_for_update(user.id)
-        competition = _published_competition(competition_id)
+        _require_published_competition(competition)
         nodes = _selected_nodes(competition, payload)
         stored_node_types = canonical_subscription_node_types(subscription.node_types or [])
         if subscription.node_types != stored_node_types:
@@ -182,15 +194,32 @@ def update_subscription(user: User, competition_id: int, payload: dict) -> Subsc
 
 
 def cancel_subscription(user: User, competition_id: int) -> None:
-    if repository.get_competition(competition_id) is None:
-        raise ServiceError(HTTPStatus.NOT_FOUND, "not_found", "competition not found")
+    competition = _required_competition_for_update(competition_id)
+    setting = repository.get_reminder_setting_for_update(user.id)
     subscription = repository.get_subscription_for_update(user.id, competition_id)
     if subscription is not None and subscription.status == SubscriptionStatus.ACTIVE:
         subscription.status = SubscriptionStatus.CANCELLED
-        for reminder in repository.list_reminders_for_update(user.id, competition_id):
+        now = datetime.now(UTC)
+        current_nodes = _current_nodes_by_key(competition)
+        reminders = repository.list_reminders_for_update(user.id, competition_id)
+        message_backed_ids = repository.list_message_backed_reminder_ids(
+            {reminder.id for reminder in reminders}
+        )
+        for reminder in reminders:
             if reminder.status == ReminderStatus.PENDING:
-                reminder.status = ReminderStatus.CANCELLED
-                reminder.cancel_reason = "subscription_cancelled"
+                revoke_pending_reminder(reminder, "subscription_cancelled")
+            elif reminder.status == ReminderStatus.FAILED and reminder.next_attempt_at is not None:
+                _suppress_failed_retry(reminder, "subscription_cancelled")
+            elif _is_reclassifiable_cancelled(reminder, message_backed_ids):
+                state = _reminder_plan_state(
+                    reminder,
+                    subscription,
+                    current_nodes,
+                    now,
+                    global_enabled=setting.enabled if setting is not None else False,
+                )
+                if state.current:
+                    reminder.cancel_reason = "subscription_cancelled"
     db.session.commit()
 
 
@@ -263,6 +292,11 @@ def apply_competition_detail_engagement_state(user: User | None, competition: Co
 
 def _published_competition(competition_id: int) -> Competition:
     competition = _required_competition(competition_id)
+    _require_published_competition(competition)
+    return competition
+
+
+def _require_published_competition(competition: Competition) -> None:
     if (
         competition.published_revision_id is None
         or competition.status != CompetitionStatus.PUBLISHED
@@ -272,11 +306,17 @@ def _published_competition(competition_id: int) -> Competition:
             "engagement_unavailable",
             "competition is unavailable for subscription",
         )
-    return competition
 
 
 def _required_competition(competition_id: int) -> Competition:
     competition = repository.get_competition(competition_id)
+    if competition is None:
+        raise ServiceError(HTTPStatus.NOT_FOUND, "not_found", "competition not found")
+    return competition
+
+
+def _required_competition_for_update(competition_id: int) -> Competition:
+    competition = repository.get_competition_for_update(competition_id)
     if competition is None:
         raise ServiceError(HTTPStatus.NOT_FOUND, "not_found", "competition not found")
     return competition
@@ -368,22 +408,10 @@ def _reconcile_subscription_reminders(
     reminders = repository.list_reminders_for_update(
         subscription.user_id, subscription.competition_id
     )
-    if not subscription.reminder_enabled or not setting.enabled:
-        for reminder in reminders:
-            if reminder.status == ReminderStatus.PENDING:
-                reminder.status = ReminderStatus.CANCELLED
-                reminder.cancel_reason = (
-                    "reminder_disabled"
-                    if not subscription.reminder_enabled
-                    else "global_reminder_disabled"
-                )
-        return
-
-    selected_types = set(subscription.node_types or [])
-    current_keys = {
-        (node.logical_node_key or f"snapshot-{node.id}", node.node_revision)
-        for node in repository.list_current_nodes(competition)
-    }
+    message_backed_ids = repository.list_message_backed_reminder_ids(
+        {reminder.id for reminder in reminders}
+    )
+    current_nodes = _current_nodes_by_key(competition)
     desired = {}
     for node in nodes:
         if node.occurs_at is None:
@@ -395,17 +423,30 @@ def _reconcile_subscription_reminders(
         )
 
     for reminder in reminders:
-        if reminder.status != ReminderStatus.PENDING:
+        state = _reminder_plan_state(
+            reminder,
+            subscription,
+            current_nodes,
+            now,
+            global_enabled=setting.enabled,
+        )
+        if reminder.status == ReminderStatus.PENDING:
+            if state.blocker is None:
+                continue
+            revoke_pending_reminder(reminder, state.blocker)
+        elif reminder.status == ReminderStatus.FAILED:
+            if reminder.next_attempt_at is None or state.blocker is None:
+                continue
+            _suppress_failed_retry(reminder, state.blocker)
+        elif _is_reclassifiable_cancelled(reminder, message_backed_ids):
+            if not state.current or state.blocker not in RECLASSIFIABLE_CANCEL_REASONS:
+                continue
+            reminder.cancel_reason = state.blocker
+        else:
             continue
-        key = (reminder.logical_node_key, reminder.time_node_revision)
-        if key not in current_keys:
-            continue
-        if reminder.node_type not in selected_types:
-            reminder.status = ReminderStatus.CANCELLED
-            reminder.cancel_reason = "node_type_removed"
-        elif key not in desired or desired[key][1] <= now:
-            reminder.status = ReminderStatus.CANCELLED
-            reminder.cancel_reason = "subscription_offset_not_future"
+
+    if not subscription.reminder_enabled or not setting.enabled:
+        return
 
     by_key = {
         (reminder.logical_node_key, reminder.time_node_revision): reminder for reminder in reminders
@@ -419,12 +460,151 @@ def _reconcile_subscription_reminders(
         elif reminder.status == ReminderStatus.PENDING:
             _refresh_reminder(reminder, competition, node, due_at)
         elif (
-            reminder.status == ReminderStatus.CANCELLED
+            _is_reclassifiable_cancelled(reminder, message_backed_ids)
             and reminder.cancel_reason in RESTORABLE_CANCEL_REASONS
         ):
             reminder.status = ReminderStatus.PENDING
             reminder.cancel_reason = None
             _refresh_reminder(reminder, competition, node, due_at)
+
+
+def reconcile_global_reminders(
+    setting: ReminderSetting,
+    subscriptions: list[Subscription],
+    reminders: list[Reminder],
+    now: datetime,
+) -> None:
+    """Restore/create only current unattempted plans during global false -> true."""
+    if not setting.enabled:
+        return
+    message_backed_ids = repository.list_message_backed_reminder_ids(
+        {reminder.id for reminder in reminders}
+    )
+    reminders_by_competition: dict[int, list[Reminder]] = {}
+    for reminder in reminders:
+        reminders_by_competition.setdefault(reminder.competition_id, []).append(reminder)
+
+    for subscription in subscriptions:
+        competition = repository.get_competition(subscription.competition_id)
+        if (
+            competition is None
+            or competition.status != CompetitionStatus.PUBLISHED
+            or competition.published_revision_id is None
+        ):
+            continue
+        current_reminders = reminders_by_competition.get(subscription.competition_id, [])
+        current_nodes = _current_nodes_by_key(competition)
+        by_key = {
+            (reminder.logical_node_key, reminder.time_node_revision): reminder
+            for reminder in current_reminders
+        }
+
+        for reminder in current_reminders:
+            if (
+                not _is_reclassifiable_cancelled(reminder, message_backed_ids)
+                or reminder.cancel_reason != "global_reminder_disabled"
+            ):
+                continue
+            state = _reminder_plan_state(
+                reminder,
+                subscription,
+                current_nodes,
+                now,
+                global_enabled=True,
+            )
+            if not state.current:
+                continue
+            if state.blocker is not None:
+                reminder.cancel_reason = state.blocker
+                continue
+            assert state.node is not None and state.due_at is not None
+            reminder.status = ReminderStatus.PENDING
+            reminder.cancel_reason = None
+            _refresh_reminder(reminder, competition, state.node, state.due_at)
+
+        if (
+            subscription.status != SubscriptionStatus.ACTIVE
+            or not subscription.reminder_enabled
+            or subscription.reminder_confirmed_at is None
+        ):
+            continue
+        selected_types = set(subscription.node_types or [])
+        for node in current_nodes.values():
+            if node.node_type not in selected_types or node.occurs_at is None:
+                continue
+            due_at = stored_datetime_as_utc(node.occurs_at) - timedelta(
+                days=subscription.remind_days
+            )
+            if due_at <= now:
+                continue
+            key = (node.logical_node_key or f"snapshot-{node.id}", node.node_revision)
+            reminder = by_key.get(key)
+            if reminder is None:
+                created = _new_reminder(subscription, competition, node, due_at)
+                db.session.add(created)
+                by_key[key] = created
+                continue
+            # Existing global rows were restored or reclassified in the state-table pass.
+
+
+def _current_nodes_by_key(
+    competition: Competition,
+) -> dict[tuple[str, int], CompetitionTimeNode]:
+    return {
+        (node.logical_node_key or f"snapshot-{node.id}", node.node_revision): node
+        for node in repository.list_current_nodes(competition)
+    }
+
+
+def _reminder_plan_state(
+    reminder: Reminder,
+    subscription: Subscription,
+    current_nodes: dict[tuple[str, int], CompetitionTimeNode],
+    now: datetime,
+    *,
+    global_enabled: bool,
+) -> ReminderPlanState:
+    key = (reminder.logical_node_key, reminder.time_node_revision)
+    node = current_nodes.get(key)
+    if node is None:
+        return ReminderPlanState(False, "competition_revision_superseded", None, None)
+    if subscription.status != SubscriptionStatus.ACTIVE:
+        return ReminderPlanState(True, "subscription_cancelled", node, None)
+    if not subscription.reminder_enabled or subscription.reminder_confirmed_at is None:
+        return ReminderPlanState(True, "reminder_disabled", node, None)
+    if node.node_type not in set(subscription.node_types or []):
+        return ReminderPlanState(True, "node_type_removed", node, None)
+    if node.occurs_at is None:
+        return ReminderPlanState(True, "subscription_offset_not_future", node, None)
+    due_at = stored_datetime_as_utc(node.occurs_at) - timedelta(days=subscription.remind_days)
+    if due_at <= now or (
+        reminder.attempt_count > 0 and stored_datetime_as_utc(reminder.due_at) != due_at
+    ):
+        return ReminderPlanState(
+            True,
+            "subscription_offset_not_future",
+            node,
+            due_at,
+        )
+    if not global_enabled:
+        return ReminderPlanState(True, "global_reminder_disabled", node, due_at)
+    return ReminderPlanState(True, None, node, due_at)
+
+
+def _is_reclassifiable_cancelled(
+    reminder: Reminder,
+    message_backed_ids: set[int],
+) -> bool:
+    return (
+        reminder.status == ReminderStatus.CANCELLED
+        and reminder.id not in message_backed_ids
+        and reminder.cancel_reason in RECLASSIFIABLE_CANCEL_REASONS
+        and reminder.attempt_count == 0
+        and reminder.next_attempt_at is None
+        and reminder.sent_at is None
+        and reminder.failed_at is None
+        and reminder.last_error_code is None
+    )
 
 
 def _new_reminder(
@@ -442,7 +622,10 @@ def _new_reminder(
         time_node_revision=node.node_revision,
         node_type=node.node_type,
         due_at=due_at,
-        title=f"{competition.published_revision.title}: {node.node_type}",
+        title=bounded_title(
+            competition.published_revision.title,
+            f": {node.node_type}",
+        ),
         body=node.description,
         status=ReminderStatus.PENDING,
     )
@@ -454,8 +637,16 @@ def _refresh_reminder(
     reminder.time_node_snapshot_id = node.id
     reminder.node_type = node.node_type
     reminder.due_at = due_at
-    reminder.title = f"{competition.published_revision.title}: {node.node_type}"
+    reminder.title = bounded_title(
+        competition.published_revision.title,
+        f": {node.node_type}",
+    )
     reminder.body = node.description
+
+
+def _suppress_failed_retry(reminder: Reminder, reason: str) -> None:
+    reminder.next_attempt_at = None
+    reminder.cancel_reason = reason
 
 
 def _is_unique_constraint(error: IntegrityError, name: str) -> bool:
