@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 from competehub_api import create_app
 from competehub_api.e2e_seed import E2E_ACTORS, SEEDED_E2E_ACTORS
 from competehub_api.extensions import db
@@ -8,7 +10,9 @@ from competehub_api.models import (
     CompetitionRevision,
     CompetitionSeries,
     Favorite,
+    Message,
     RecommendationRuleSet,
+    Reminder,
     ReminderSetting,
     StudentProfile,
     Subscription,
@@ -18,10 +22,12 @@ from competehub_api.models import (
 from competehub_api.models.enums import (
     CompetitionRevisionStatus,
     CompetitionStatus,
+    ReminderStatus,
     SubscriptionStatus,
     UserRole,
 )
 from competehub_api.services.profiles import DEFAULT_REMINDER_NODE_TYPES
+from competehub_api.timezones import stored_datetime_as_utc
 
 
 def test_e2e_seed_refuses_a_normal_application(app) -> None:
@@ -108,6 +114,13 @@ def test_e2e_seed_rebuilds_the_expected_actor_set() -> None:
         assert revision.revision_status == CompetitionRevisionStatus.APPROVED
         assert revision.stages[0].stage_order == 1
         assert revision.stages[0].time_nodes[0].occurs_at is not None
+        deadline = next(
+            node
+            for node in revision.stages[0].time_nodes
+            if node.logical_node_key == "registration-deadline"
+        )
+        assert deadline.occurs_at is not None
+        assert stored_datetime_as_utc(deadline.occurs_at) > datetime.now(UTC)
         assert revision.stages[0].time_nodes[0].starts_at is None
         assert revision.stages[0].time_nodes[0].due_at is None
         assert revision.official_url == "https://example.org/seeded-innovation-2025"
@@ -128,12 +141,53 @@ def test_e2e_seed_rebuilds_the_expected_actor_set() -> None:
         offline_favorite = db.session.get(Favorite, 2002)
         unpublished_subscription = db.session.get(Subscription, 2003)
         historical_subscription = db.session.get(Subscription, 2004)
+        message_subscription = db.session.get(Subscription, 2001)
+        sent_reminder = db.session.get(Reminder, 3001)
         assert offline_favorite.user_id == E2E_ACTORS[0].id
         assert offline_favorite.is_active is True
         assert unpublished_subscription.user_id == E2E_ACTORS[0].id
         assert unpublished_subscription.status == SubscriptionStatus.ACTIVE
         assert historical_subscription.user_id == E2E_ACTORS[0].id
         assert historical_subscription.status == SubscriptionStatus.ACTIVE
+        assert message_subscription.user_id == E2E_ACTORS[0].id
+        assert message_subscription.competition_id == 2001
+        assert message_subscription.status == SubscriptionStatus.CANCELLED
+        assert sent_reminder.user_id == E2E_ACTORS[0].id
+        assert sent_reminder.competition_id == 2001
+        assert sent_reminder.status == ReminderStatus.SENT
+        assert sent_reminder.attempt_count == 1
+        assert sent_reminder.time_node_snapshot_id == 2001
+        assert sent_reminder.logical_node_key == "registration-deadline"
+        assert sent_reminder.time_node_revision == 1
+        assert sent_reminder.node_type == "registration_deadline"
+        assert stored_datetime_as_utc(sent_reminder.due_at) == (
+            stored_datetime_as_utc(deadline.occurs_at)
+            - timedelta(days=message_subscription.remind_days)
+        )
+        messages = Message.query.filter_by(user_id=1001).order_by(Message.created_at.desc()).all()
+        assert [message.id for message in messages] == [3003, 3002, 3001]
+        assert [message.is_read for message in messages] == [False, True, False]
+        assert [message.message_type for message in messages] == [
+            "competition_offline",
+            "competition_time_changed",
+            "reminder_due",
+        ]
+        assert messages[0].competition_id == 2002
+        assert messages[1].competition_id == 2001
+        assert messages[2].competition_id == 2001
+        assert messages[2].reminder_id == sent_reminder.id
+        assert stored_datetime_as_utc(messages[2].event_occurred_at) == (
+            stored_datetime_as_utc(sent_reminder.due_at)
+        )
+        assert stored_datetime_as_utc(messages[2].created_at) == (
+            stored_datetime_as_utc(sent_reminder.sent_at)
+        )
+        assert stored_datetime_as_utc(messages[2].created_at) > (
+            stored_datetime_as_utc(sent_reminder.due_at)
+        )
+        assert all(
+            (message.retained_until - message.created_at).days == 365 for message in messages
+        )
 
     login_response = app.test_client().post(
         "/api/v1/auth/login",

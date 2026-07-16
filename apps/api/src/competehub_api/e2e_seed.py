@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import click
 from flask import Flask, current_app
@@ -16,6 +16,8 @@ from competehub_api.models import (
     CompetitionTagLink,
     CompetitionTimeNode,
     Favorite,
+    Message,
+    Reminder,
     ReminderSetting,
     ReviewRecord,
     StudentProfile,
@@ -27,6 +29,7 @@ from competehub_api.models.enums import (
     CompetitionRevisionStatus,
     CompetitionStatus,
     IdentityVerificationStatus,
+    ReminderStatus,
     ReviewStatus,
     SubscriptionStatus,
     UserRole,
@@ -191,15 +194,17 @@ def register_e2e_commands(app: Flask) -> None:
                         node_types=list(DEFAULT_REMINDER_NODE_TYPES),
                     )
                 )
-        _seed_publication_fixture()
+        seeded_at = datetime.now(UTC).replace(microsecond=0)
+        _seed_publication_fixture(seeded_at)
         _seed_owned_lifecycle_engagement()
+        _seed_message_fixture(seeded_at)
         db.session.commit()
         seed_initial_recommendation_rule_set()
 
         click.echo(f"Provisioned {len(SEEDED_E2E_ACTORS)} deterministic E2E actors.")
 
 
-def _seed_publication_fixture() -> None:
+def _seed_publication_fixture(seeded_at: datetime) -> None:
     decided_at = datetime(2026, 7, 10, 8, 0, tzinfo=UTC)
     series = CompetitionSeries(
         id=2001,
@@ -282,7 +287,7 @@ def _seed_publication_fixture() -> None:
             logical_node_key="registration-deadline",
             node_revision=1,
             node_type="registration_deadline",
-            occurs_at=datetime(2099, 8, 15, 16, 0, tzinfo=UTC),
+            occurs_at=seeded_at + timedelta(days=27),
             description="Registration closes",
             prominence="primary",
         )
@@ -455,6 +460,115 @@ def _seed_owned_lifecycle_engagement() -> None:
                 reminder_enabled=False,
                 remind_days=3,
                 node_types=["registration_deadline"],
+            ),
+        ]
+    )
+
+
+def _seed_message_fixture(base_time: datetime) -> None:
+    node = db.session.get(CompetitionTimeNode, 2001)
+    if node is None or node.occurs_at is None:
+        raise RuntimeError("The E2E message fixture requires the published time node")
+    remind_days = 30
+    reminder_due_at = node.occurs_at - timedelta(days=remind_days)
+    created_at = {
+        3001: reminder_due_at + timedelta(minutes=1),
+        3002: base_time - timedelta(days=2),
+        3003: base_time - timedelta(days=1),
+    }
+    db.session.add_all(
+        [
+            Subscription(
+                id=2001,
+                user_id=1001,
+                competition_id=2001,
+                status=SubscriptionStatus.CANCELLED,
+                reminder_enabled=True,
+                remind_days=remind_days,
+                node_types=["registration_deadline"],
+                reminder_confirmed_at=reminder_due_at - timedelta(days=1),
+            ),
+            Reminder(
+                id=3001,
+                user_id=1001,
+                competition_id=2001,
+                time_node_snapshot_id=node.id,
+                logical_node_key=node.logical_node_key,
+                time_node_revision=node.node_revision,
+                node_type=node.node_type,
+                due_at=reminder_due_at,
+                title="Seeded registration deadline reminder",
+                body="Registration closes in thirty days.",
+                status=ReminderStatus.SENT,
+                attempt_count=1,
+                sent_at=created_at[3001],
+                created_at=reminder_due_at - timedelta(days=1),
+                updated_at=created_at[3001],
+            ),
+            Message(
+                id=3001,
+                user_id=1001,
+                reminder_id=3001,
+                competition_id=2001,
+                message_type="reminder_due",
+                idempotency_key="reminder_due:3001",
+                event_occurred_at=reminder_due_at,
+                title_snapshot="Seeded registration deadline reminder",
+                body_snapshot="Registration closes in thirty days.",
+                target_snapshot={
+                    "competition_id": 2001,
+                    "competition_title": "Seeded University Innovation Challenge 2025",
+                    "node_type": "registration_deadline",
+                    "node_occurs_at": node.occurs_at.isoformat(),
+                    "reason_summary": None,
+                },
+                retained_until=created_at[3001] + timedelta(days=365),
+                created_at=created_at[3001],
+                updated_at=created_at[3001],
+                is_read=False,
+            ),
+            Message(
+                id=3002,
+                user_id=1001,
+                competition_id=2001,
+                message_type="competition_time_changed",
+                idempotency_key="e2e:competition_time_changed:3002",
+                event_occurred_at=created_at[3002],
+                title_snapshot="Seeded competition schedule changed",
+                body_snapshot="Review the updated competition timeline.",
+                target_snapshot={
+                    "competition_id": 2001,
+                    "competition_title": "Seeded University Innovation Challenge 2025",
+                    "node_type": None,
+                    "node_occurs_at": None,
+                    "reason_summary": "Competition timeline changed.",
+                },
+                retained_until=created_at[3002] + timedelta(days=365),
+                created_at=created_at[3002],
+                updated_at=created_at[3002],
+                is_read=True,
+                read_at=created_at[3002] + timedelta(hours=1),
+            ),
+            Message(
+                id=3003,
+                user_id=1001,
+                competition_id=2002,
+                message_type="competition_offline",
+                idempotency_key="e2e:competition_offline:3003",
+                event_occurred_at=created_at[3003],
+                title_snapshot="Seeded competition is offline",
+                body_snapshot="This edition is no longer publicly available.",
+                target_snapshot={
+                    "competition_id": 2002,
+                    "competition_title": "Seeded Offline Engagement Edition",
+                    "node_type": None,
+                    "node_occurs_at": None,
+                    "reason_summary": "The edition was withdrawn from public detail.",
+                },
+                retained_until=created_at[3003] + timedelta(days=365),
+                created_at=created_at[3003],
+                updated_at=created_at[3003],
+                is_read=False,
             ),
         ]
     )
