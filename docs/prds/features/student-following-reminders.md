@@ -124,7 +124,9 @@ deferred.
   reminder must not create duplicate messages.
 - FR-012: Frontend surfaces show personal action states on list/detail, a
   calendar or list page for subscribed nodes, and a dedicated compact message
-  center reached from a global unread badge.
+  center reached from a global unread badge. P1 refreshes that count on student
+  session initialization, message-center entry, route change, window focus, and
+  read mutations; it does not add polling, WebSocket, or server push.
 - FR-013: 收藏, 订阅, reminders, and calendar nodes belong to one赛事届次. A new届次
   in the same赛事系列 does not inherit engagement state. A future关注赛事系列 action
   is separate and cannot create a届次订阅 automatically.
@@ -171,15 +173,25 @@ deferred.
   plans but retain the confirmed node selection for follow lists and calendars.
 - FR-021: Disabling global reminders cancels all pending plans without deleting
   subscriptions or calendar nodes. Global `message_enabled` false-to-true
-  restoration is Issue #40 scope and is not expanded by P1. P1 creates one
-  ordinary reminder per selected node and never backfills a trigger that already
-  passed as an immediate due reminder.
+  restoration is implemented by Issue #40 within P1 and remains bounded by this
+  coordinator. It is the only path that may return an exact, unattempted
+  `global_reminder_disabled` plan to `pending`, and only while its active
+  subscription, current published node revision, confirmed node selection, and
+  recalculated trigger remain eligible and future. It creates a current-revision
+  plan when no ordinary plan exists, but never restores an attempted, sent,
+  failed, elapsed, prior-revision, lifecycle-cancelled, or otherwise terminal
+  plan. P1 creates one ordinary reminder per selected node and never backfills a
+  trigger that already passed as an immediate due reminder.
 - FR-022: Delivered messages are immutable 365-day snapshots with independent
   unread/read state. P1 types are `reminder_due`,
   `competition_time_changed`, `competition_cancelled`, and
   `competition_offline`. Domain-event idempotency prevents duplicates; user
   cancellation creates no message, while competition-side cancellation or
-  emergency offline creates one message per active subscriber and event.
+  emergency offline creates one message per active subscriber and event. A due
+  message snapshots its reminder `due_at` as `event_occurred_at` and keeps the
+  competition node occurrence separate; competition-side messages use the
+  domain-event time. Current target availability and its nullable URL are
+  derived without rewriting the historical target snapshot.
 - FR-023: The personal calendar provides month, week, and list views over one
   subscribed-node source of truth. Desktop defaults to month and mobile to list,
   with the last device choice retained. Favorites never enter the calendar;
@@ -189,7 +201,13 @@ deferred.
 - FR-024: Every actual reminder delivery attempt increments an attempt count.
   Transient failures record a controlled error and next-attempt time, then move
   through `failed -> pending` before retry; permanent or exhausted failures
-  remain `failed` and are not selected by ordinary pending dispatch.
+  remain `failed` and are not selected by ordinary pending dispatch. If current
+  delivery eligibility is revoked while a retry is scheduled, the row remains
+  `failed`: its attempt/error evidence is preserved, `next_attempt_at` is
+  cleared, and `cancel_reason` records the controlled reason that stopped the
+  retry. Requeue checks current eligibility before `failed -> pending`, dispatch
+  checks it again before message creation, and later preference enablement or
+  re-subscription never restores that attempted row.
 - FR-025: Archival or expiry is accepted only after all edition nodes have
   elapsed. Existing subscriptions remain historical follow relations and past
   selected nodes remain queryable in calendar ranges; stale pending reminders
@@ -223,6 +241,12 @@ deferred.
 - Retention: Read and unread messages remain available for 365 days. P1 does not
   support per-message deletion, and target unavailability does not erase the
   historical snapshot.
+- Data migration: The Issue #40 message-schema upgrade preserves existing
+  message identity, ownership, reminder links, read state, and timestamps. It
+  deterministically backfills derivable snapshot, event, retention, type,
+  competition, and idempotency facts; it neither purges expired rows nor invents
+  missing required domain facts. An unresolvable row blocks the upgrade before
+  destructive schema mutation.
 
 ## Out Of Scope
 
@@ -308,19 +332,30 @@ deferred.
       restores only eligible unsent future plans cancelled for controlled
       subscription-level reasons, never terminal evidence or delivered messages.
 - [ ] Given global reminders are disabled and later re-enabled, then
-      subscriptions and calendar nodes remain, old pending plans stay cancelled,
-      and #38 does not recreate an existing-subscription plan; false-to-true
-      restoration remains Issue #40 scope.
+      subscriptions and calendar nodes remain, ineligible or historical plans
+      stay cancelled, and #38 does not recreate an existing-subscription plan;
+      the #40 false-to-true coordinator may restore only the exact unattempted
+      `global_reminder_disabled` row whose current trigger is still future, or
+      create a missing plan for a newly eligible current node revision.
 - [ ] Given due reminders exist, when reminder dispatch runs more than once,
       then the student receives no duplicate message for the same reminder.
 - [ ] Given reminder delivery fails transiently, when its retry time arrives,
       then the retry scheduler moves it from failed to pending before another
       idempotent dispatch; permanent or exhausted failures remain inspectable
       without being selected again.
+- [ ] Given a retryable failed reminder loses current delivery eligibility,
+      when preference, subscription, lifecycle, revision, or retry coordination
+      runs, then it stays failed with its attempt/error evidence intact, its
+      next-attempt time is cleared with a controlled stop reason, and neither
+      requeue nor later preference enablement or re-subscription revives it.
 - [ ] Given retained read and unread messages exist, when the student opens the
       global unread badge and message center, then all/unread and controlled-type
       filters, stable pagination, one-message read, and read-all update the
       unread count without changing message snapshots.
+- [ ] Given the authenticated student app initializes, changes route, enters the
+      message center, or regains window focus, then the unread badge refreshes;
+      read mutations apply the API-returned count, while an otherwise idle open
+      page performs no polling or real-time subscription.
 - [ ] Given a subscribed competition is cancelled or emergency-offlined, when
       the domain event is handled repeatedly, then one durable event message per
       student and event remains readable even if its target is unavailable, and
@@ -328,6 +363,11 @@ deferred.
 - [ ] Given a message reaches 365 days old, when retention cleanup runs, then it
       is removed regardless of read state; no per-message delete API or UI is
       available before expiry.
+- [ ] Given legacy message rows exist before the Issue #40 schema upgrade, when
+      migration runs, then derivable rows retain identity, ownership, read state,
+      and timestamps with deterministic snapshot/idempotency backfill; an
+      unresolvable required fact aborts before schema mutation, and expiry cleanup
+      is not mixed into the upgrade.
 - [ ] Given a student opens their calendar date range, when subscriptions exist,
       then month, week, and list views render the same subscribed nodes in
       `Asia/Shanghai`, with primary/current/next prominence, paired labels,

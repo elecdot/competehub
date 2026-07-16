@@ -127,7 +127,10 @@ Pinia stores:
 - `profile_store`: student profile and preferences.
 - `competition_filter_store`: list query state.
 - `dictionary_store`: categories, tags, majors, grades.
-- `notification_store`: messages and unread state.
+- `notification_store`: messages and unread state. It initializes the badge for
+  an authenticated student, refreshes on message-center entry, route change,
+  and window focus, and consumes read-mutation counts without background polling
+  or a real-time transport.
 
 Frontend permission checks are only for user experience. Backend APIs must enforce authorization.
 

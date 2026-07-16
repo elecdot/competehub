@@ -64,6 +64,13 @@ suite covers loading, empty, list error, and detail error states in both desktop
 and mobile projects, in addition to historical-action and direct-link behavior.
 Run the PostgreSQL test and `just web-e2e` before claiming the slice complete.
 
+Issue #40 likewise requires real PostgreSQL evidence for reminder dispatch,
+global/subscription/lifecycle/revision lock ordering, idempotent message writes,
+and linearizable unread counts. Run `just api-migration-test-postgres` plus
+`apps/api/tests/test_issue40_postgresql_concurrency.py` with
+`POSTGRES_TEST_ADMIN_URL` configured. A SQLite pass or PostgreSQL skip is not
+Issue #40 concurrency evidence.
+
 ## TDD Usage
 
 Use TDD when the change affects observable behavior and a reasonable automated

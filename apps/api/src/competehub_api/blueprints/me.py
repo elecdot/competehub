@@ -9,9 +9,15 @@ from competehub_api.blueprints.responses import success_response, validation_err
 from competehub_api.errors import error_response
 from competehub_api.models import User
 from competehub_api.models.enums import UserRole
+from competehub_api.repositories.engagement import MessageQuery
 from competehub_api.schemas.auth import user_schema
 from competehub_api.schemas.calendar import calendar_payload_schema, calendar_query_schema
 from competehub_api.schemas.common import load_payload
+from competehub_api.schemas.messages import (
+    message_center_query_schema,
+    message_item_schema,
+    message_page_schema,
+)
 from competehub_api.schemas.profile import (
     preference_update_schema,
     profile_schema,
@@ -19,6 +25,12 @@ from competehub_api.schemas.profile import (
 )
 from competehub_api.services.auth import current_user
 from competehub_api.services.calendar import student_calendar
+from competehub_api.services.messages import (
+    list_student_messages,
+    mark_all_messages_read,
+    mark_message_read,
+    unread_message_count,
+)
 from competehub_api.services.profiles import (
     allowed_profile_options,
     student_profile_view,
@@ -84,6 +96,51 @@ def get_calendar():
             )
         )
     )
+
+
+@me_bp.get("/me/messages")
+def list_messages():
+    user, response = _require_student()
+    if response is not None:
+        return response
+
+    try:
+        query = message_center_query_schema.load(request.args.to_dict(flat=True))
+    except ValidationError as error:
+        return validation_error_response(error, "message query is invalid")
+
+    page = list_student_messages(user.id, MessageQuery(**query))
+    return success_response(message_page_schema.dump(page))
+
+
+@me_bp.get("/me/messages/unread_count")
+def get_unread_message_count():
+    user, response = _require_student()
+    if response is not None:
+        return response
+    return success_response({"unread_count": unread_message_count(user.id)})
+
+
+@me_bp.post("/me/messages/<int:message_id>/read")
+def read_message(message_id: int):
+    user, response = _require_student()
+    if response is not None:
+        return response
+    result = mark_message_read(user.id, message_id)
+    return success_response(
+        {
+            "message": message_item_schema.dump(result.message),
+            "unread_count": result.unread_count,
+        }
+    )
+
+
+@me_bp.post("/me/messages/read_all")
+def read_all_messages():
+    user, response = _require_student()
+    if response is not None:
+        return response
+    return success_response(mark_all_messages_read(user.id))
 
 
 def _update_profile(schema, update):

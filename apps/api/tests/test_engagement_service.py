@@ -12,6 +12,7 @@ from competehub_api.models import (
     Message,
     Reminder,
     ReminderSetting,
+    StudentProfile,
     Subscription,
     User,
 )
@@ -32,6 +33,8 @@ from competehub_api.services.engagement import (
     update_subscription,
 )
 from competehub_api.services.errors import ServiceError
+from competehub_api.services.profiles import update_student_preferences
+from competehub_api.timezones import stored_datetime_as_utc
 
 
 def _payload(**overrides) -> dict:
@@ -117,9 +120,264 @@ def engagement_fixture(app):
             reminder_confirmed_at=now,
         )
         setting = ReminderSetting(id=50, user_id=student.id, enabled=True, default_remind_days=3)
-        db.session.add_all([publisher, student, competition, revision, node, subscription, setting])
+        profile = StudentProfile(
+            id=50,
+            user_id=student.id,
+            interest_tags=[],
+            goal_preferences=[],
+            blocked_tags=[],
+        )
+        db.session.add_all(
+            [publisher, student, competition, revision, node, subscription, setting, profile]
+        )
         db.session.commit()
         yield student, competition, subscription, node
+
+
+@pytest.mark.parametrize("enable_before_resubscribe", [True, False])
+def test_global_and_subscription_transitions_handoff_cancel_reason_without_losing_plan(
+    app, engagement_fixture, enable_before_resubscribe
+) -> None:
+    student, competition, _, node = engagement_fixture
+    with app.app_context():
+        reminder = _current_pending_reminder(student, competition, node)
+        db.session.add(reminder)
+        db.session.commit()
+
+        update_student_preferences(student, {"message_enabled": False})
+        cancel_subscription(student, competition.id)
+        cancelled = db.session.get(Reminder, reminder.id)
+        assert cancelled.status == ReminderStatus.CANCELLED
+        assert cancelled.cancel_reason == "subscription_cancelled"
+
+        if enable_before_resubscribe:
+            update_student_preferences(student, {"message_enabled": True})
+        subscribe_to_competition(student, competition.id, _payload())
+        if not enable_before_resubscribe:
+            blocked = db.session.get(Reminder, reminder.id)
+            assert blocked.status == ReminderStatus.CANCELLED
+            assert blocked.cancel_reason == "global_reminder_disabled"
+            update_student_preferences(student, {"message_enabled": True})
+
+        restored = db.session.get(Reminder, reminder.id)
+        assert restored.status == ReminderStatus.PENDING
+        assert restored.cancel_reason is None
+        assert (
+            Reminder.query.filter_by(
+                user_id=student.id,
+                competition_id=competition.id,
+                logical_node_key=node.logical_node_key,
+                time_node_revision=node.node_revision,
+            ).count()
+            == 1
+        )
+
+
+@pytest.mark.parametrize("enable_before_consent_restore", [True, False])
+def test_global_and_reminder_consent_transitions_handoff_cancel_reason_without_losing_plan(
+    app, engagement_fixture, enable_before_consent_restore
+) -> None:
+    student, competition, _, node = engagement_fixture
+    with app.app_context():
+        reminder = _current_pending_reminder(student, competition, node)
+        db.session.add(reminder)
+        db.session.commit()
+
+        update_student_preferences(student, {"message_enabled": False})
+        update_subscription(student, competition.id, _payload(reminder_enabled=False))
+        disabled = db.session.get(Reminder, reminder.id)
+        assert disabled.status == ReminderStatus.CANCELLED
+        assert disabled.cancel_reason == "reminder_disabled"
+
+        if enable_before_consent_restore:
+            update_student_preferences(student, {"message_enabled": True})
+        update_subscription(student, competition.id, _payload(reminder_enabled=True))
+        if not enable_before_consent_restore:
+            blocked = db.session.get(Reminder, reminder.id)
+            assert blocked.status == ReminderStatus.CANCELLED
+            assert blocked.cancel_reason == "global_reminder_disabled"
+            update_student_preferences(student, {"message_enabled": True})
+
+        restored = db.session.get(Reminder, reminder.id)
+        assert restored.status == ReminderStatus.PENDING
+        assert restored.cancel_reason is None
+        assert (
+            Reminder.query.filter_by(
+                user_id=student.id,
+                competition_id=competition.id,
+                logical_node_key=node.logical_node_key,
+                time_node_revision=node.node_revision,
+            ).count()
+            == 1
+        )
+
+
+@pytest.mark.parametrize(
+    ("blocker", "expected_reason"),
+    [
+        ("node_type", "node_type_removed"),
+        ("offset", "subscription_offset_not_future"),
+    ],
+)
+@pytest.mark.parametrize("enable_before_semantic_restore", [True, False])
+def test_global_and_semantic_subscription_blockers_handoff_without_losing_plan(
+    app,
+    engagement_fixture,
+    blocker,
+    expected_reason,
+    enable_before_semantic_restore,
+) -> None:
+    student, competition, _, node = engagement_fixture
+    with app.app_context():
+        reminder = _current_pending_reminder(student, competition, node)
+        db.session.add(reminder)
+        if blocker == "node_type":
+            db.session.add(
+                CompetitionTimeNode(
+                    id=31,
+                    competition_id=competition.id,
+                    competition_revision_id=competition.published_revision_id,
+                    logical_node_key="submission-deadline",
+                    node_revision=1,
+                    node_type="submission_deadline",
+                    occurs_at=datetime.now(UTC) + timedelta(days=25),
+                )
+            )
+        db.session.commit()
+
+        update_student_preferences(student, {"message_enabled": False})
+        blocked_payload = (
+            _payload(node_types=["submission_deadline"])
+            if blocker == "node_type"
+            else _payload(remind_days=30)
+        )
+        update_subscription(student, competition.id, blocked_payload)
+        blocked = db.session.get(Reminder, reminder.id)
+        assert blocked.status == ReminderStatus.CANCELLED
+        assert blocked.cancel_reason == expected_reason
+
+        if enable_before_semantic_restore:
+            update_student_preferences(student, {"message_enabled": True})
+        update_subscription(student, competition.id, _payload())
+        if not enable_before_semantic_restore:
+            globally_blocked = db.session.get(Reminder, reminder.id)
+            assert globally_blocked.status == ReminderStatus.CANCELLED
+            assert globally_blocked.cancel_reason == "global_reminder_disabled"
+            update_student_preferences(student, {"message_enabled": True})
+
+        restored = db.session.get(Reminder, reminder.id)
+        assert restored.status == ReminderStatus.PENDING
+        assert restored.cancel_reason is None
+        assert (
+            Reminder.query.filter_by(
+                user_id=student.id,
+                competition_id=competition.id,
+                logical_node_key=node.logical_node_key,
+                time_node_revision=node.node_revision,
+            ).count()
+            == 1
+        )
+
+
+@pytest.mark.parametrize("path", ["global_enable", "cancel_resubscribe"])
+def test_linked_delivery_evidence_prevents_global_restore_and_reason_handoff(
+    app, engagement_fixture, path
+) -> None:
+    student, competition, _, node = engagement_fixture
+    with app.app_context():
+        reminder = _current_pending_reminder(student, competition, node)
+        db.session.add(reminder)
+        db.session.commit()
+
+        update_student_preferences(student, {"message_enabled": False})
+        db.session.add(
+            Message(
+                id=70,
+                user_id=student.id,
+                reminder_id=reminder.id,
+                competition_id=competition.id,
+                message_type="reminder_due",
+                idempotency_key=f"reminder_due:{reminder.id}",
+                event_occurred_at=reminder.due_at,
+                title_snapshot="Delivered evidence",
+                body_snapshot=None,
+                target_snapshot={
+                    "competition_id": competition.id,
+                    "competition_title": competition.title,
+                    "node_type": node.node_type,
+                    "node_occurs_at": stored_datetime_as_utc(node.occurs_at).isoformat(),
+                    "reason_summary": None,
+                },
+                retained_until=datetime.now(UTC) + timedelta(days=365),
+            )
+        )
+        db.session.commit()
+
+        if path == "cancel_resubscribe":
+            cancel_subscription(student, competition.id)
+            assert db.session.get(Reminder, reminder.id).cancel_reason == (
+                "global_reminder_disabled"
+            )
+            subscribe_to_competition(student, competition.id, _payload())
+        update_student_preferences(student, {"message_enabled": True})
+
+        protected = db.session.get(Reminder, reminder.id)
+        assert protected.status == ReminderStatus.CANCELLED
+        assert protected.cancel_reason == "global_reminder_disabled"
+        assert Message.query.filter_by(reminder_id=reminder.id).count() == 1
+
+
+@pytest.mark.parametrize(
+    ("path", "expected_reason"),
+    [
+        ("unsubscribe", "subscription_cancelled"),
+        ("patch", "subscription_offset_not_future"),
+    ],
+)
+def test_subscription_revocation_keeps_requeued_attempt_failed(
+    app, engagement_fixture, path: str, expected_reason: str
+) -> None:
+    student, competition, _, node = engagement_fixture
+    with app.app_context():
+        failed_at = datetime.now(UTC) - timedelta(minutes=1)
+        reminder = _current_pending_reminder(student, competition, node)
+        reminder.attempt_count = 1
+        reminder.failed_at = failed_at
+        reminder.last_error_code = "message_persistence_unavailable"
+        db.session.add(reminder)
+        db.session.commit()
+
+        if path == "unsubscribe":
+            cancel_subscription(student, competition.id)
+        else:
+            update_subscription(student, competition.id, _payload(remind_days=30))
+
+        revoked = db.session.get(Reminder, reminder.id)
+        assert revoked.status == ReminderStatus.FAILED
+        assert revoked.cancel_reason == expected_reason
+        assert revoked.attempt_count == 1
+        assert stored_datetime_as_utc(revoked.failed_at) == stored_datetime_as_utc(failed_at)
+        assert revoked.last_error_code == "message_persistence_unavailable"
+        assert revoked.next_attempt_at is None
+
+
+def _current_pending_reminder(
+    student: User,
+    competition: Competition,
+    node: CompetitionTimeNode,
+) -> Reminder:
+    return Reminder(
+        id=60,
+        user_id=student.id,
+        competition_id=competition.id,
+        time_node_snapshot_id=node.id,
+        logical_node_key=node.logical_node_key,
+        time_node_revision=node.node_revision,
+        node_type=node.node_type,
+        due_at=stored_datetime_as_utc(node.occurs_at) - timedelta(days=3),
+        title="current pending",
+        status=ReminderStatus.PENDING,
+    )
 
 
 @pytest.mark.parametrize(
@@ -201,7 +459,25 @@ def test_terminal_or_system_owned_plan_is_not_restored(
             status=status,
             cancel_reason=reason,
         )
-        message = Message(id=70, user_id=student.id, reminder=reminder, title="Delivered evidence")
+        message = Message(
+            id=70,
+            user_id=student.id,
+            reminder=reminder,
+            competition_id=competition.id,
+            message_type="reminder_due",
+            idempotency_key="reminder_due:60",
+            event_occurred_at=reminder.due_at,
+            title_snapshot="Delivered evidence",
+            body_snapshot=None,
+            target_snapshot={
+                "competition_id": competition.id,
+                "competition_title": competition.title,
+                "node_type": node.node_type,
+                "node_occurs_at": node.occurs_at.isoformat(),
+                "reason_summary": None,
+            },
+            retained_until=datetime.now(UTC) + timedelta(days=365),
+        )
         db.session.add_all([reminder, message])
         db.session.commit()
 
@@ -210,7 +486,7 @@ def test_terminal_or_system_owned_plan_is_not_restored(
         assert protected.status == status
         assert protected.cancel_reason == reason
         assert protected.title == "terminal"
-        assert db.session.get(Message, message.id).title == "Delivered evidence"
+        assert db.session.get(Message, message.id).title_snapshot == "Delivered evidence"
 
 
 def test_post_resubscription_restores_subscription_cancelled_plan(app, engagement_fixture) -> None:
@@ -239,9 +515,17 @@ def test_post_resubscription_restores_subscription_cancelled_plan(app, engagemen
         assert db.session.get(Reminder, reminder.id).status == ReminderStatus.PENDING
 
 
-@pytest.mark.parametrize("blocked_by", ["subscription", "global", "past_due", "old_revision"])
+@pytest.mark.parametrize(
+    ("blocked_by", "expected_reason"),
+    [
+        ("subscription", "reminder_disabled"),
+        ("global", "global_reminder_disabled"),
+        ("past_due", "subscription_offset_not_future"),
+        ("old_revision", "reminder_disabled"),
+    ],
+)
 def test_controlled_cancelled_plan_stays_terminal_when_restoration_is_ineligible(
-    app, engagement_fixture, blocked_by
+    app, engagement_fixture, blocked_by, expected_reason
 ) -> None:
     student, competition, subscription, node = engagement_fixture
     with app.app_context():
@@ -276,7 +560,7 @@ def test_controlled_cancelled_plan_stays_terminal_when_restoration_is_ineligible
 
         protected = db.session.get(Reminder, reminder.id)
         assert protected.status == ReminderStatus.CANCELLED
-        assert protected.cancel_reason == "reminder_disabled"
+        assert protected.cancel_reason == expected_reason
         assert protected.id == reminder.id
 
 

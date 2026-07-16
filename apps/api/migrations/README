@@ -5,8 +5,9 @@ outbox in `61f2c8e4a9bd`, immutable publication persistence in `13eb10903bd7`,
 governed recommendation rule sets in `be7dfc45f976`, Issue #38 engagement and
 reminder integrity in `7f3c2a91d8e4`, and canonical subscription node-type
 ordering in `4d8b6e1a3f20`. Issue #37 revision/lifecycle evidence follows in
-`8b4d2f7a1c90`, and privacy-minimized outbound click analytics are added in
-the current head `a64f1b9d2c7e`.
+`8b4d2f7a1c90`, privacy-minimized outbound click analytics in
+`a64f1b9d2c7e`, and retained immutable message snapshots in the current head
+`a2c4e6f8b0d1`.
 
 Fresh databases apply the complete chain. A database at the known
 `13eb10903bd7` predecessor can upgrade to the governed recommendation schema
@@ -84,7 +85,7 @@ the upgrade and reports row IDs for malformed JSON, non-list/non-string,
 duplicate, or unknown values. Its downgrade is intentionally a no-op: ordering
 normalization is lossless because prior request order was never contractual.
 
-## Issue #37 revision and lifecycle evidence
+## Issue #37, #39, and #40 evidence
 
 `8b4d2f7a1c90` follows `4d8b6e1a3f20`. It adds source-backed replacement
 reasons and lifecycle warning context, plus idempotent competition-event
@@ -104,6 +105,44 @@ Neither table stores a user, session, or device identifier. The recorded
 `legacy_create_all` path remains unchanged. Downgrading drops both analytics
 tables and their retained counts, so export any required metrics before a
 shared-database rollback.
+
+The nullable competition-event columns added by `8b4d2f7a1c90` are an
+intentional predecessor for the preservation bridge in `a2c4e6f8b0d1`, not
+the final message-center schema. `a2c4e6f8b0d1` follows `a64f1b9d2c7e`; the
+analytics migration does not alter message rows.
+
+`a2c4e6f8b0d1` performs a preservation-first message upgrade. Before any DDL it
+validates every retained row and derives required user, competition, message
+type, event time, idempotency key, and conditional reminder/node facts. Existing
+values win; a reminder-backed legacy row may supply its competition, the
+`reminder_due` type, its due time, and node snapshot. A missing key becomes
+`legacy-message:{id}`, and `retained_until` is always the existing `created_at`
+plus exactly 365 days. If any required fact cannot be derived, the upgrade stops
+at `a64f1b9d2c7e` before adding or renaming message columns and reports the row
+IDs and missing facts. Operators must repair the authoritative predecessor data
+and retry; do not stamp, delete, or invent message ownership or targets.
+On PostgreSQL, the upgrade also advances the `messages.id` sequence past the
+largest preserved ID before normal message creation resumes.
+
+The same preflight also validates delivery lineage. A `reminder_due` message
+may reference only a reminder with durable delivered markers
+(`status = sent`, `attempt_count > 0`, and non-null `sent_at`), while every
+non-`reminder_due` message must have a null `reminder_id`. These markers remain
+the replay authority after normal retention purges the message row, so invalid
+lineage fails before any DDL instead of being normalized into false delivery
+evidence.
+
+After successful backfill, `title/body` become
+`title_snapshot/body_snapshot`, target snapshots and retention deadlines become
+required, and the supported message-type and lookup indexes are installed. The
+upgrade does not purge already-expired rows. The normal retention worker owns
+that cleanup after deployment.
+
+Downgrading to `a64f1b9d2c7e` preserves rows and read evidence, renames the text
+columns back, removes target/retention fields and Issue #40 indexes, and restores
+the four Issue #37 event columns to nullable. Re-upgrading performs the same
+deterministic derivation. Back up a shared database and validate the round trip
+on a copy before using this compatibility downgrade operationally.
 
 `seed-e2e --reset` rebuilds only the isolated browser-test database. It is not a
 reset, migration, or recovery path for a development, shared, or production

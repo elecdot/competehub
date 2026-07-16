@@ -4,6 +4,8 @@ from pathlib import Path
 from typing import Any
 
 from flask import Flask
+from flask.sessions import SecureCookieSessionInterface
+from itsdangerous import SignatureExpired, TimestampSigner
 
 from competehub_api.blueprints import register_blueprints
 from competehub_api.cli import register_cli_commands
@@ -14,12 +16,43 @@ from competehub_api.extensions import init_extensions
 from competehub_api.services.email_verification import configure_email_verification_sender
 
 
+class _E2ETimestampSigner(TimestampSigner):
+    """Keep browser tests stable across a one-second host clock correction."""
+
+    def unsign(
+        self,
+        signed_value: str | bytes,
+        max_age: int | None = None,
+        return_timestamp: bool = False,
+    ):
+        try:
+            return super().unsign(signed_value, max_age, return_timestamp)
+        except SignatureExpired as error:
+            if error.date_signed is None:
+                raise
+            future_skew = int(error.date_signed.timestamp()) - self.get_timestamp()
+            if not 0 < future_skew <= 1:
+                raise
+            return super().unsign(signed_value, None, return_timestamp)
+
+
+class _E2ESessionInterface(SecureCookieSessionInterface):
+    def get_signing_serializer(self, app: Flask):
+        serializer = super().get_signing_serializer(app)
+        if serializer is not None:
+            serializer.signer = _E2ETimestampSigner
+        return serializer
+
+
 def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     app = Flask(__name__)
     app.config.from_object(config_from_env())
 
     if test_config:
         app.config.update(test_config)
+
+    if app.config.get("E2E_TESTING"):
+        app.session_interface = _E2ESessionInterface()
 
     configure_email_verification_sender(app.config)
     init_extensions(app)

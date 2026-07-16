@@ -11,6 +11,15 @@ def get_user(user_id: int) -> User | None:
     return db.session.get(User, user_id)
 
 
+def get_user_for_update(user_id: int) -> User | None:
+    return db.session.scalar(
+        select(User)
+        .where(User.id == user_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+
 def find_identity(identity_type: str, normalized_value: str) -> UserIdentity | None:
     return db.session.scalar(
         select(UserIdentity)

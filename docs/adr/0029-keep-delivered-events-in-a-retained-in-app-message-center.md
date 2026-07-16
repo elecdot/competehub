@@ -24,14 +24,20 @@ The global navigation shows an unread badge and opens a compact message list
 with all and unread tabs, controlled-type filtering, stable pagination,
 one-message read, and read-all. The four P1 message types are `reminder_due`,
 `competition_time_changed`, `competition_cancelled`, and
-`competition_offline`. The system remains in-app only.
+`competition_offline`. The badge loads with the authenticated student session,
+refreshes on message-center entry, route change, and window focus, and consumes
+the count returned by read mutations. P1 adds neither background polling nor a
+real-time transport; the system remains in-app only.
 
 Messages snapshot their title, body, event time, competition reference, relevant
 node time, and reason summary at delivery. Later competition edits do not
 rewrite them. If the current target is unavailable, the snapshot remains
-readable and the target link is disabled. Message creation uses a unique key per
-user and domain event so duplicate workers or event handling cannot duplicate
-history.
+readable and the target link is disabled. A due reminder uses its planned
+`due_at` as the event time and keeps the competition node occurrence as a
+separate snapshot fact; other types use their domain-event time. Target
+availability and its nullable URL are derived from current visibility rather
+than stored in the snapshot. Message creation uses a unique key per user and
+domain event so duplicate workers or event handling cannot duplicate history.
 
 User-triggered unsubscription or reminder disablement does not create a message
 because the action itself provides feedback. Competition cancellation or
@@ -45,6 +51,10 @@ message.
 Read and unread messages are retained for 365 days. Reading does not delete or
 rewrite a message. P1 offers no per-message deletion; a periodic task purges
 expired messages, and account deletion follows the account-data cleanup policy.
+The schema upgrade preserves derivable legacy messages with deterministic
+snapshot and idempotency backfill. It does not combine retention cleanup with
+migration or silently discard a row whose required domain facts cannot be
+recovered; such a row stops the upgrade before destructive schema mutation.
 
 ## Consequences
 
