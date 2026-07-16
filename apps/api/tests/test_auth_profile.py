@@ -690,7 +690,7 @@ def test_failed_verification_always_runs_one_challenge_hash_check(
     assert verification_hashes[0].startswith("scrypt:32768:8:1$")
 
 
-def test_existing_registration_runs_password_and_challenge_hash_work(
+def test_existing_active_registration_conflict_runs_password_and_challenge_hash_work(
     client, app, monkeypatch
 ) -> None:
     provision_user(app)
@@ -714,7 +714,8 @@ def test_existing_registration_runs_password_and_challenge_hash_work(
 
     response = register_email(client)
 
-    assert response.status_code == 202
+    assert response.status_code == 409
+    assert response.get_json()["error"]["code"] == "identity_already_registered"
     assert password_hash_calls == 1
     assert challenge_hash_calls == 1
 
