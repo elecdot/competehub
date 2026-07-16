@@ -4,6 +4,7 @@ import { expect, test } from './fixtures/actors'
 
 type CalendarView = 'month' | 'week' | 'list'
 type CalendarBox = { x: number; y: number; width: number; height: number }
+type CalendarControlBox = { label: string; box: CalendarBox }
 
 const CALENDAR_COMPETITION_ID = 2005
 const CALENDAR_NODE_IDS = ['2501', '2502', '2503', '2504']
@@ -218,24 +219,55 @@ async function expectCalendarLayout(page: Page) {
       return button
     }),
   )
-  const boxes = await Promise.all(viewButtons.map((button) => button.boundingBox()))
-  for (const box of boxes) {
+  const controls = await Promise.all(
+    viewButtons.map(async (button, index) => ({
+      label: viewButtonName((['month', 'week', 'list'] as CalendarView[])[index]),
+      box: await button.boundingBox(),
+    })),
+  )
+  for (const control of controls) {
+    const { box } = control
     expect(box).not.toBeNull()
     expect(box!.x).toBeGreaterThanOrEqual(-1)
     expect(box!.x + box!.width).toBeLessThanOrEqual(dimensions.viewport + 1)
   }
-  for (let left = 0; left < boxes.length; left += 1) {
-    for (let right = left + 1; right < boxes.length; right += 1) {
-      expect(boxesOverlap(boxes[left]!, boxes[right]!)).toBe(false)
+  for (let left = 0; left < controls.length; left += 1) {
+    for (let right = left + 1; right < controls.length; right += 1) {
+      const leftControl = { ...controls[left], box: controls[left].box! }
+      const rightControl = { ...controls[right], box: controls[right].box! }
+      const overlap = boxesOverlap(leftControl.box, rightControl.box)
+      expect(
+        hasMeaningfulControlOverlap(overlap),
+        `${describeControlOverlap(leftControl, rightControl, overlap)}; ` +
+          'only a 1px shared FullCalendar button border is permitted',
+      ).toBe(false)
     }
   }
 }
 
 function boxesOverlap(left: CalendarBox, right: CalendarBox) {
+  const horizontal = Math.max(
+    0,
+    Math.min(left.x + left.width, right.x + right.width) - Math.max(left.x, right.x),
+  )
+  const vertical = Math.max(
+    0,
+    Math.min(left.y + left.height, right.y + right.height) - Math.max(left.y, right.y),
+  )
+  return { horizontal, vertical, area: horizontal * vertical }
+}
+
+function hasMeaningfulControlOverlap(overlap: ReturnType<typeof boxesOverlap>) {
+  return overlap.horizontal > 1 && overlap.vertical > 1
+}
+
+function describeControlOverlap(
+  left: CalendarControlBox,
+  right: CalendarControlBox,
+  overlap: ReturnType<typeof boxesOverlap>,
+) {
   return (
-    left.x < right.x + right.width &&
-    left.x + left.width > right.x &&
-    left.y < right.y + right.height &&
-    left.y + left.height > right.y
+    `${left.label} ${JSON.stringify(left.box)} overlaps ` +
+    `${right.label} ${JSON.stringify(right.box)} by ${JSON.stringify(overlap)}`
   )
 }
