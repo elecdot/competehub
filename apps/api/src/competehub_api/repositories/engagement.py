@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from sqlalchemy import func, select
+from dataclasses import dataclass
+from datetime import datetime
+
+from sqlalchemy import and_, exists, func, or_, select, update
 
 from competehub_api.extensions import db
 from competehub_api.models import (
@@ -13,6 +16,32 @@ from competehub_api.models import (
     Subscription,
 )
 from competehub_api.models.enums import ReminderStatus, SubscriptionStatus
+
+RECLASSIFIABLE_CANCEL_REASONS = frozenset(
+    {
+        "subscription_cancelled",
+        "reminder_disabled",
+        "node_type_removed",
+        "subscription_offset_not_future",
+        "global_reminder_disabled",
+    }
+)
+
+
+@dataclass(frozen=True)
+class MessageQuery:
+    page: int = 1
+    page_size: int = 20
+    read_status: str = "all"
+    message_type: str | None = None
+
+
+@dataclass(frozen=True)
+class MessagePage:
+    items: list[Message]
+    page: int
+    page_size: int
+    total: int
 
 
 def get_competition(competition_id: int) -> Competition | None:
@@ -97,6 +126,88 @@ def get_message_by_idempotency(user_id: int, idempotency_key: str) -> Message | 
         select(Message).where(
             Message.user_id == user_id,
             Message.idempotency_key == idempotency_key,
+        )
+    )
+
+
+def list_messages_for_user(user_id: int, query: MessageQuery, *, now: datetime) -> MessagePage:
+    filters = [
+        Message.user_id == user_id,
+        Message.retained_until > now,
+    ]
+    if query.read_status == "unread":
+        filters.append(Message.is_read.is_(False))
+    if query.message_type is not None:
+        filters.append(Message.message_type == query.message_type)
+
+    total = db.session.scalar(select(func.count(Message.id)).where(*filters)) or 0
+    items = list(
+        db.session.scalars(
+            select(Message)
+            .where(*filters)
+            .order_by(Message.created_at.desc(), Message.id.desc())
+            .offset((query.page - 1) * query.page_size)
+            .limit(query.page_size)
+        )
+    )
+    return MessagePage(
+        items=items,
+        page=query.page,
+        page_size=query.page_size,
+        total=total,
+    )
+
+
+def count_retained_unread_messages(user_id: int, *, now: datetime) -> int:
+    return (
+        db.session.scalar(
+            select(func.count(Message.id)).where(
+                Message.user_id == user_id,
+                Message.is_read.is_(False),
+                Message.retained_until > now,
+            )
+        )
+        or 0
+    )
+
+
+def get_retained_message_for_update(
+    user_id: int, message_id: int, *, now: datetime
+) -> Message | None:
+    return db.session.scalar(
+        select(Message)
+        .where(
+            Message.id == message_id,
+            Message.user_id == user_id,
+            Message.retained_until > now,
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+
+def mark_all_retained_messages_read(user_id: int, read_at: datetime) -> int:
+    result = db.session.execute(
+        update(Message)
+        .where(
+            Message.user_id == user_id,
+            Message.is_read.is_(False),
+            Message.retained_until > read_at,
+        )
+        .values(is_read=True, read_at=read_at, updated_at=read_at)
+    )
+    return result.rowcount or 0
+
+
+def list_expired_messages_for_update(now: datetime, limit: int) -> list[Message]:
+    return list(
+        db.session.scalars(
+            select(Message)
+            .where(Message.retained_until <= now)
+            .order_by(Message.retained_until, Message.id)
+            .limit(limit)
+            .with_for_update(of=Message, skip_locked=True)
+            .execution_options(populate_existing=True)
         )
     )
 

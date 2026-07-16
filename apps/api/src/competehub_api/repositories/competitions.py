@@ -223,6 +223,20 @@ def get_public_competition(competition_id: int) -> Competition | None:
     return db.session.scalar(statement)
 
 
+def list_available_public_detail_ids(competition_ids: set[int]) -> set[int]:
+    if not competition_ids:
+        return set()
+    return set(
+        db.session.scalars(
+            select(Competition.id).where(
+                Competition.id.in_(competition_ids),
+                Competition.status.in_(PUBLIC_DETAIL_STATUSES),
+                Competition.published_revision_id.is_not(None),
+            )
+        )
+    )
+
+
 def list_competitions_with_current_published_revision(
     competition_ids: list[int],
 ) -> list[Competition]:

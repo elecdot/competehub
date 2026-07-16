@@ -16,7 +16,6 @@ from competehub_api.models import (
     CompetitionTag,
     CompetitionTagLink,
     CompetitionTimeNode,
-    Message,
     Reminder,
     ReviewRecord,
     Subscription,
@@ -40,6 +39,8 @@ from competehub_api.repositories.competitions import (
     get_latest_terminal_competition_revision,
 )
 from competehub_api.services.errors import ServiceError
+from competehub_api.services.notifications import bounded_title, create_competition_event_message
+from competehub_api.services.reminder_state import revoke_pending_reminder
 
 REVISION_FIELDS = (
     "title",
@@ -927,22 +928,16 @@ def _reconcile_subscriber_state(
         if not _subscription_affected(subscription, schedule_changes):
             continue
         idempotency_key = f"competition_revision:{revision.id}:time_changed"
-        existing_message = engagement_repository.get_message_by_idempotency(
-            subscription.user_id, idempotency_key
+        create_competition_event_message(
+            user_id=subscription.user_id,
+            competition=revision.competition,
+            message_type="competition_time_changed",
+            idempotency_key=idempotency_key,
+            event_occurred_at=now,
+            title_snapshot=bounded_title(revision.title, " schedule changed"),
+            body_snapshot="Review the updated competition timeline.",
+            reason_summary="Competition timeline changed.",
         )
-        if existing_message is None:
-            db.session.add(
-                Message(
-                    id=engagement_repository.next_sqlite_id(Message),
-                    user_id=subscription.user_id,
-                    competition_id=revision.competition_id,
-                    message_type="competition_time_changed",
-                    idempotency_key=idempotency_key,
-                    event_occurred_at=now,
-                    title=f"{revision.title} schedule changed",
-                    body="Review the updated competition timeline.",
-                )
-            )
 
 
 def _required_reminder_settings(

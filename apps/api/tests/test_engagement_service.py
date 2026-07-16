@@ -201,7 +201,25 @@ def test_terminal_or_system_owned_plan_is_not_restored(
             status=status,
             cancel_reason=reason,
         )
-        message = Message(id=70, user_id=student.id, reminder=reminder, title="Delivered evidence")
+        message = Message(
+            id=70,
+            user_id=student.id,
+            reminder=reminder,
+            competition_id=competition.id,
+            message_type="reminder_due",
+            idempotency_key="reminder_due:60",
+            event_occurred_at=reminder.due_at,
+            title_snapshot="Delivered evidence",
+            body_snapshot=None,
+            target_snapshot={
+                "competition_id": competition.id,
+                "competition_title": competition.title,
+                "node_type": node.node_type,
+                "node_occurs_at": node.occurs_at.isoformat(),
+                "reason_summary": None,
+            },
+            retained_until=datetime.now(UTC) + timedelta(days=365),
+        )
         db.session.add_all([reminder, message])
         db.session.commit()
 
@@ -210,7 +228,7 @@ def test_terminal_or_system_owned_plan_is_not_restored(
         assert protected.status == status
         assert protected.cancel_reason == reason
         assert protected.title == "terminal"
-        assert db.session.get(Message, message.id).title == "Delivered evidence"
+        assert db.session.get(Message, message.id).title_snapshot == "Delivered evidence"
 
 
 def test_post_resubscription_restores_subscription_cancelled_plan(app, engagement_fixture) -> None:

@@ -4,11 +4,13 @@ from datetime import UTC, datetime
 from http import HTTPStatus
 
 from competehub_api.extensions import db
-from competehub_api.models import AuditLog, Competition, Message, User
+from competehub_api.models import AuditLog, Competition, User
 from competehub_api.models.enums import CompetitionStatus, ReminderStatus
 from competehub_api.repositories import engagement as engagement_repository
 from competehub_api.repositories.competitions import get_competition_for_update
 from competehub_api.services.errors import ServiceError
+from competehub_api.services.notifications import bounded_title, create_competition_event_message
+from competehub_api.services.reminder_state import revoke_pending_reminder
 
 POST_PUBLICATION_TARGET_STATUSES = {
     CompetitionStatus.OFFLINE,
@@ -144,17 +146,18 @@ def _apply_lifecycle_effects(
     for subscription in engagement_repository.list_active_subscriptions_for_competition(
         competition.id
     ):
-        idempotency_key = f"competition:{competition.id}:{status.value}:{now.isoformat()}"
-        db.session.add(
-            Message(
-                id=engagement_repository.next_sqlite_id(Message),
-                user_id=subscription.user_id,
-                competition_id=competition.id,
-                message_type=message_type,
-                idempotency_key=idempotency_key,
-                event_occurred_at=now,
-                title=f"{competition.title} is {status.value}",
-                body=competition.lifecycle_reason,
-            )
+        idempotency_key = (
+            f"competition:{competition.id}:published_revision:"
+            f"{competition.published_revision_id}:{status.value}"
+        )
+        create_competition_event_message(
+            user_id=subscription.user_id,
+            competition=competition,
+            message_type=message_type,
+            idempotency_key=idempotency_key,
+            event_occurred_at=now,
+            title_snapshot=bounded_title(competition.title, f" is {status.value}"),
+            body_snapshot=competition.lifecycle_reason,
+            reason_summary=competition.lifecycle_reason,
         )
     return impact

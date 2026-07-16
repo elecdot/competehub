@@ -11,6 +11,13 @@ def _env_bool(name: str, *, default: bool = False) -> bool:
     return os.getenv(name, str(default)).casefold() == "true"
 
 
+def _env_int(name: str, *, default: int, minimum: int, maximum: int) -> int:
+    value = int(os.getenv(name, str(default)))
+    if value < minimum or value > maximum:
+        raise ValueError(f"{name} must be between {minimum} and {maximum}")
+    return value
+
+
 class BaseConfig:
     SECRET_KEY = os.getenv("SECRET_KEY", "dev-only-change-me")
     SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL", "sqlite:///competehub_dev.db")
@@ -34,6 +41,26 @@ class BaseConfig:
     OUTBOUND_RATE_LIMIT_MAX_ATTEMPTS = 60
     OUTBOUND_RATE_LIMIT_WINDOW_SECONDS = 60
     VERIFICATION_DELIVERY_BATCH_SIZE = 100
+    REMINDER_DISPATCH_BATCH_SIZE = _env_int(
+        "REMINDER_DISPATCH_BATCH_SIZE", default=100, minimum=1, maximum=1000
+    )
+    REMINDER_MAX_ATTEMPTS = _env_int("REMINDER_MAX_ATTEMPTS", default=3, minimum=1, maximum=10)
+    REMINDER_RETRY_BASE_SECONDS = _env_int(
+        "REMINDER_RETRY_BASE_SECONDS", default=60, minimum=1, maximum=3600
+    )
+    MESSAGE_RETENTION_DAYS = 365
+    MESSAGE_RETENTION_BATCH_SIZE = _env_int(
+        "MESSAGE_RETENTION_BATCH_SIZE", default=500, minimum=1, maximum=5000
+    )
+    REMINDER_DISPATCH_INTERVAL_SECONDS = _env_int(
+        "REMINDER_DISPATCH_INTERVAL_SECONDS", default=15, minimum=1, maximum=3600
+    )
+    REMINDER_REQUEUE_INTERVAL_SECONDS = _env_int(
+        "REMINDER_REQUEUE_INTERVAL_SECONDS", default=30, minimum=1, maximum=3600
+    )
+    MESSAGE_RETENTION_INTERVAL_SECONDS = _env_int(
+        "MESSAGE_RETENTION_INTERVAL_SECONDS", default=86400, minimum=60, maximum=604800
+    )
     PROFILE_ALLOWED_GRADES = ("大一", "大二", "大三", "大四", "研一", "研二", "研三")
     PROFILE_ALLOWED_MAJORS_BY_COLLEGE = {
         "计算机学院": ("软件工程", "计算机科学与技术", "人工智能", "网络工程"),
