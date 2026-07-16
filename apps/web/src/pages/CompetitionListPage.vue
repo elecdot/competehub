@@ -372,6 +372,10 @@ watch(
             </div>
           </div>
           <div class="card-side">
+            <p v-if="competition.registration_status_basis" class="registration-basis">
+              报名状态依据：{{ formatNodeLabel(competition.registration_status_basis.node_type) }} ·
+              {{ formatNodeDate(competition.registration_status_basis, true) }}
+            </p>
             <p class="next-node">
               <CalendarOutlined />
               <template v-if="competition.next_node">

@@ -13,6 +13,15 @@ function deferred() {
 test('shows actionable discovery, staged detail, historical context, and direct official links', async ({
   actorPage,
 }) => {
+  await actorPage.addInitScript(() => {
+    const originalSendBeacon = navigator.sendBeacon.bind(navigator)
+    const state = window as Window & { outboundBeaconCalls?: string[] }
+    state.outboundBeaconCalls = []
+    navigator.sendBeacon = (url, data) => {
+      state.outboundBeaconCalls?.push(String(url))
+      return originalSendBeacon(url, data)
+    }
+  })
   await actorPage.goto('/competitions?registration_status=open&sort=actionable')
 
   const publicCard = actorPage
@@ -20,6 +29,7 @@ test('shows actionable discovery, staged detail, historical context, and direct 
     .filter({ has: actorPage.getByRole('heading', { name: 'Seeded University Innovation Challenge 2025' }) })
   await expect(publicCard).toBeVisible()
   await expect(publicCard).toContainText('报名开放')
+  await expect(publicCard).toContainText('报名状态依据：报名截止')
 
   await publicCard.getByRole('link', { name: '查看详情' }).click()
   await expect(
@@ -45,6 +55,14 @@ test('shows actionable discovery, staged detail, historical context, and direct 
     target_type: 'official_url',
     source_surface: 'competition_detail',
   })
+  await expect
+    .poll(() =>
+      actorPage.evaluate(
+        () =>
+          (window as Window & { outboundBeaconCalls?: string[] }).outboundBeaconCalls ?? [],
+      ),
+    )
+    .toContain('/api/v1/competitions/2001/outbound_clicks')
   await (await popup).close()
 
   await actorPage.goto('/competitions/2004')

@@ -64,10 +64,29 @@ export function recordCompetitionOutboundClick(
   targetType: 'source_url' | 'official_url' | 'attachment_url',
   sourceSurface: 'competition_list' | 'competition_detail' | 'recommendation',
 ) {
-  return apiClient.post(`/competitions/${id}/outbound_clicks`, {
+  const baseURL = apiClient.defaults.baseURL ?? '/api/v1'
+  const url = `${baseURL.replace(/\/$/, '')}/competitions/${id}/outbound_clicks`
+  const payload = JSON.stringify({
     target_type: targetType,
     source_surface: sourceSurface,
   })
+
+  try {
+    const beacon = new Blob([payload], { type: 'application/json' })
+    if (navigator.sendBeacon(url, beacon)) {
+      return Promise.resolve()
+    }
+  } catch {
+    // A keepalive request remains available when Beacon is unavailable or rejected.
+  }
+
+  return fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: payload,
+    credentials: 'include',
+    keepalive: true,
+  }).then(() => undefined, () => undefined)
 }
 
 export async function favoriteCompetition(id: number) {
