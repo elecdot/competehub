@@ -37,6 +37,7 @@ from competehub_api.repositories.competitions import (
     get_competition_series_by_name,
     get_competition_tag_by_code,
     get_latest_terminal_competition_revision,
+    get_max_approved_node_revisions,
 )
 from competehub_api.services.errors import ServiceError
 from competehub_api.services.notifications import bounded_title, create_competition_event_message
@@ -791,15 +792,32 @@ def _freeze_node_revisions(revision: CompetitionRevision) -> None:
     base_nodes = {
         node.logical_node_key: (stage, node) for stage in base.stages for node in stage.time_nodes
     }
+    logical_keys = {
+        node.logical_node_key for node in revision.time_nodes if node.logical_node_key is not None
+    }
+    approved_revision_maxima = get_max_approved_node_revisions(
+        revision.competition_id,
+        logical_keys,
+    )
     for stage in revision.stages:
         for node in stage.time_nodes:
             prior_entry = base_nodes.get(node.logical_node_key)
             if prior_entry is None:
-                node.node_revision = 1
+                # Approved removal keeps historical reminder identities. Re-adding
+                # the same logical milestone must allocate a fresh identity.
+                prior_maximum = approved_revision_maxima.get(node.logical_node_key)
+                node.node_revision = prior_maximum + 1 if prior_maximum is not None else 1
                 continue
             prior_stage, prior = prior_entry
             changed = _node_behavior_facts(prior_stage, prior) != _node_behavior_facts(stage, node)
-            node.node_revision = prior.node_revision + 1 if changed else prior.node_revision
+            if changed:
+                prior_maximum = approved_revision_maxima.get(
+                    node.logical_node_key,
+                    prior.node_revision,
+                )
+                node.node_revision = prior_maximum + 1
+            else:
+                node.node_revision = prior.node_revision
 
 
 def _node_behavior_facts(stage: CompetitionStage, node: CompetitionTimeNode) -> tuple:

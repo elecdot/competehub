@@ -178,6 +178,35 @@ def get_latest_terminal_competition_revision(
     )
 
 
+def get_max_approved_node_revisions(
+    competition_id: int,
+    logical_node_keys: set[str],
+) -> dict[str, int]:
+    if not logical_node_keys:
+        return {}
+    rows = db.session.execute(
+        select(
+            CompetitionTimeNode.logical_node_key,
+            func.max(CompetitionTimeNode.node_revision),
+        )
+        .join(
+            CompetitionRevision,
+            CompetitionRevision.id == CompetitionTimeNode.competition_revision_id,
+        )
+        .where(
+            CompetitionRevision.competition_id == competition_id,
+            CompetitionRevision.revision_status == CompetitionRevisionStatus.APPROVED,
+            CompetitionTimeNode.logical_node_key.in_(logical_node_keys),
+        )
+        .group_by(CompetitionTimeNode.logical_node_key)
+    ).all()
+    return {
+        logical_node_key: max_revision
+        for logical_node_key, max_revision in rows
+        if logical_node_key is not None and max_revision is not None
+    }
+
+
 def list_competition_revisions(status: str | None = None) -> list[CompetitionRevision]:
     statement = select(CompetitionRevision).options(
         selectinload(CompetitionRevision.stages).selectinload(CompetitionStage.time_nodes),

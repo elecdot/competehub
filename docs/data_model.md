@@ -330,9 +330,12 @@ Rules:
   stores the exact `published_revision_id` it copied. Draft and review read
   models compare against that baseline and separately expose the current public
   revision so stale state is visible.
-- Submission freezes server-derived node revisions against `base_revision_id`.
-  Unchanged logical nodes keep their prior `node_revision`; changed nodes
-  increment it and new nodes start at one. Clients never assign this value.
+- Submission freezes server-derived node revisions against `base_revision_id`
+  and the edition's approved node history. Unchanged logical nodes keep their
+  prior `node_revision`; changed nodes increment from the approved historical
+  maximum. A logical key never present in approved history starts at one, while
+  a previously approved key re-added after an approved absence uses the
+  historical maximum plus one. Clients never assign this value.
 - Approval locks the edition and submitted revision, verifies that
   `base_revision_id` still equals `published_revision_id` (or both are null for
   initial publication), then atomically selects the revision and refreshes
@@ -421,12 +424,13 @@ Rules:
   `logical_node_key` is stable within one赛事届次 across official schedule
   corrections, is never reused for a different milestone, and is interpreted
   only together with the edition reached through `competition_revision_id`.
-- `node_revision` is a positive integer that increases only when an approved
+- `node_revision` is a positive integer that increases when an approved
   successor changes behavior-bearing facts for the same edition and
-  `logical_node_key` (type, stage, occurrence, prominence, or description).
-  An unchanged node copied into another competition revision receives a new
-  snapshot `id` but keeps its node revision. Old snapshots remain immutable,
-  and audit evidence retains old/new facts and the reason.
+  `logical_node_key` (type, stage, occurrence, prominence, or description), or
+  reintroduces that key after an approved revision removed it. An unchanged node
+  copied directly from the current approved revision receives a new snapshot
+  `id` but keeps its node revision. Old snapshots remain immutable, and audit
+  evidence retains old/new facts and the reason.
 - Revision comparison classifies `occurs_at` change, controlled `node_type`
   change, and node addition or removal as schedule-semantic changes. Stage,
   prominence, and description-only changes are presentation/context changes;

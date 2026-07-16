@@ -507,11 +507,11 @@ must not infer pairing or importance from free-text descriptions.
 `snapshot_id` identifies one immutable time-node row in the selected
 competition revision. `logical_node_key` is the stable opaque identity for the
 same milestone across revisions of one赛事届次, and `node_revision` increases as
-approved behavior-bearing node facts for that key change. A node copied
-unchanged into a new competition revision has a new snapshot id but keeps its
-node revision. Clients use the snapshot id for exact response references and
-the logical key for cross-revision reconciliation; they must not treat either
-value as globally meaningful outside the edition.
+approved behavior-bearing node facts or the key's approved presence change. A
+node copied unchanged into a new competition revision has a new snapshot id but
+keeps its node revision. Clients use the snapshot id for exact response
+references and the logical key for cross-revision reconciliation; they must not
+treat either value as globally meaningful outside the edition.
 
 Tags and fit/value fields belong to the selected public revision. Candidate
 revision tag changes do not appear in list, detail, outbound-link context, or
@@ -1298,8 +1298,12 @@ requires team-size facts. Optional official and attachment URLs must also use
 HTTP(S).
 
 Submission derives and freezes each time node's effective `node_revision`
-against the immutable base revision. Clients may submit logical keys and node
-facts but cannot assign authoritative node-revision numbers.
+against the immutable base revision and the edition's approved node history.
+An unchanged node in the base keeps its revision, a changed node advances from
+the approved historical maximum, a logical key never approved before starts at
+one, and a previously approved key re-added after absence advances from its
+historical maximum. Clients may submit logical keys and node facts but cannot
+assign authoritative node-revision numbers.
 
 ### `POST /admin/competition_revisions/{revision_id}/withdraw`
 

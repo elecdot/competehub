@@ -724,6 +724,269 @@ def test_successor_revision_keeps_public_snapshot_until_approval_and_reconciles_
             ) == timedelta(days=365)
 
 
+def test_readded_logical_node_gets_fresh_revision_and_reminder_identity(client, app) -> None:
+    with app.app_context():
+        editor_id = create_user(
+            142,
+            UserRole.ADMIN,
+            "readded-node-editor@example.edu",
+            ["competition_editor"],
+        )
+        reviewer_id = create_user(
+            143,
+            UserRole.ADMIN,
+            "readded-node-reviewer@example.edu",
+            ["competition_reviewer"],
+        )
+        student_id = create_user(
+            144,
+            UserRole.STUDENT,
+            "readded-node-student@example.edu",
+        )
+
+    login(client, editor_id)
+    series_id = create_series(client)
+    payload = complete_edition_payload(series_id)
+    registration_open_at = (datetime.now(UTC) + timedelta(days=60)).replace(microsecond=0)
+    changed_registration_open_at = registration_open_at + timedelta(days=1)
+    registration_deadline_at = registration_open_at + timedelta(days=15)
+    registration_open_value = registration_open_at.isoformat().replace("+00:00", "Z")
+    changed_registration_open_value = changed_registration_open_at.isoformat().replace(
+        "+00:00",
+        "Z",
+    )
+    payload["stages"][0]["time_nodes"][0]["occurs_at"] = registration_open_value
+    payload["stages"][0]["time_nodes"][1]["occurs_at"] = (
+        registration_deadline_at.isoformat().replace("+00:00", "Z")
+    )
+    created_response = client.post("/api/v1/admin/competitions", json=payload)
+    assert created_response.status_code == 201
+    created = created_response.get_json()["data"]
+    edition_id = created["id"]
+    initial_revision_id = created["revision"]["id"]
+    assert (
+        client.post(
+            f"/api/v1/admin/competition_revisions/{initial_revision_id}/submit_review"
+        ).status_code
+        == 200
+    )
+    login(client, reviewer_id)
+    assert (
+        client.post(
+            f"/api/v1/admin/competition_revisions/{initial_revision_id}/review",
+            json={"action": "approve", "comment": "Initial source verified."},
+        ).status_code
+        == 200
+    )
+
+    with app.app_context():
+        initial = db.session.get(CompetitionRevision, initial_revision_id)
+        assert initial is not None
+        original_node = next(
+            node for node in initial.time_nodes if node.logical_node_key == "registration-open"
+        )
+        original_node_revision = original_node.node_revision
+        db.session.add_all(
+            [
+                ReminderSetting(id=142, user_id=student_id, enabled=True),
+                Subscription(
+                    id=142,
+                    user_id=student_id,
+                    competition_id=edition_id,
+                    reminder_enabled=True,
+                    remind_days=3,
+                    node_types=["registration_start"],
+                    reminder_confirmed_at=registration_open_at - timedelta(days=30),
+                ),
+                Reminder(
+                    id=142,
+                    user_id=student_id,
+                    competition_id=edition_id,
+                    time_node_snapshot_id=original_node.id,
+                    logical_node_key=original_node.logical_node_key,
+                    time_node_revision=original_node.node_revision,
+                    node_type=original_node.node_type,
+                    due_at=registration_open_at - timedelta(days=3),
+                    title="Original registration opening reminder",
+                    status=ReminderStatus.PENDING,
+                ),
+            ]
+        )
+        db.session.commit()
+
+    login(client, editor_id)
+    changed = client.post(
+        f"/api/v1/admin/competitions/{edition_id}/revisions",
+        json={"reason": "Official source postponed registration opening."},
+    ).get_json()["data"]
+    changed_stages = changed["stages"]
+    changed_node = next(
+        node
+        for stage in changed_stages
+        for node in stage["time_nodes"]
+        if node["logical_node_key"] == "registration-open"
+    )
+    changed_node["occurs_at"] = changed_registration_open_value
+    for stage in changed_stages:
+        stage.pop("id", None)
+        for node in stage["time_nodes"]:
+            node.pop("id", None)
+            node.pop("node_revision", None)
+    assert (
+        client.patch(
+            f"/api/v1/admin/competition_revisions/{changed['id']}",
+            json={"stages": changed_stages},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            f"/api/v1/admin/competition_revisions/{changed['id']}/submit_review"
+        ).status_code
+        == 200
+    )
+    login(client, reviewer_id)
+    assert (
+        client.post(
+            f"/api/v1/admin/competition_revisions/{changed['id']}/review",
+            json={"action": "approve", "comment": "Postponement matches the official source."},
+        ).status_code
+        == 200
+    )
+    with app.app_context():
+        changed_revision = db.session.get(CompetitionRevision, changed["id"])
+        assert changed_revision is not None
+        changed_node = next(
+            node
+            for node in changed_revision.time_nodes
+            if node.logical_node_key == "registration-open"
+        )
+        assert changed_node.node_revision == original_node_revision + 1
+        changed_reminder = Reminder.query.filter_by(
+            competition_id=edition_id,
+            logical_node_key="registration-open",
+            time_node_revision=changed_node.node_revision,
+        ).one()
+        assert changed_reminder.status == ReminderStatus.PENDING
+
+    login(client, editor_id)
+    removal = client.post(
+        f"/api/v1/admin/competitions/{edition_id}/revisions",
+        json={"reason": "Official source temporarily removed registration opening."},
+    ).get_json()["data"]
+    removal_stages = removal["stages"]
+    for stage in removal_stages:
+        stage.pop("id", None)
+        stage["time_nodes"] = [
+            node for node in stage["time_nodes"] if node["logical_node_key"] != "registration-open"
+        ]
+        for node in stage["time_nodes"]:
+            node.pop("id", None)
+            node.pop("node_revision", None)
+    assert (
+        client.patch(
+            f"/api/v1/admin/competition_revisions/{removal['id']}",
+            json={"stages": removal_stages},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            f"/api/v1/admin/competition_revisions/{removal['id']}/submit_review"
+        ).status_code
+        == 200
+    )
+    login(client, reviewer_id)
+    assert (
+        client.post(
+            f"/api/v1/admin/competition_revisions/{removal['id']}/review",
+            json={"action": "approve", "comment": "Removal matches the official source."},
+        ).status_code
+        == 200
+    )
+
+    login(client, editor_id)
+    readdition = client.post(
+        f"/api/v1/admin/competitions/{edition_id}/revisions",
+        json={"reason": "Official source restored registration opening."},
+    ).get_json()["data"]
+    readdition_stages = readdition["stages"]
+    registration_stage = next(
+        stage for stage in readdition_stages if stage["stage_key"] == "registration"
+    )
+    registration_stage["time_nodes"].append(
+        {
+            "logical_node_key": "registration-open",
+            "node_type": "registration_start",
+            "occurs_at": changed_registration_open_value,
+            "description": "Registration opens",
+            "prominence": "secondary",
+        }
+    )
+    for stage in readdition_stages:
+        stage.pop("id", None)
+        for node in stage["time_nodes"]:
+            node.pop("id", None)
+            node.pop("node_revision", None)
+    assert (
+        client.patch(
+            f"/api/v1/admin/competition_revisions/{readdition['id']}",
+            json={"stages": readdition_stages},
+        ).status_code
+        == 200
+    )
+    submitted = client.post(f"/api/v1/admin/competition_revisions/{readdition['id']}/submit_review")
+    assert submitted.status_code == 200
+    submitted_node = next(
+        node
+        for stage in submitted.get_json()["data"]["stages"]
+        for node in stage["time_nodes"]
+        if node["logical_node_key"] == "registration-open"
+    )
+    assert submitted_node["node_revision"] == original_node_revision + 2
+    login(client, reviewer_id)
+    approved = client.post(
+        f"/api/v1/admin/competition_revisions/{readdition['id']}/review",
+        json={"action": "approve", "comment": "Restoration matches the official source."},
+    )
+    assert approved.status_code == 200
+
+    with app.app_context():
+        readded_revision = db.session.get(CompetitionRevision, readdition["id"])
+        assert readded_revision is not None
+        readded_node = next(
+            node
+            for node in readded_revision.time_nodes
+            if node.logical_node_key == "registration-open"
+        )
+        assert readded_node.node_revision == original_node_revision + 2
+        reminders = (
+            Reminder.query.filter_by(
+                competition_id=edition_id,
+                logical_node_key="registration-open",
+            )
+            .order_by(Reminder.time_node_revision)
+            .all()
+        )
+        assert [
+            (reminder.time_node_revision, reminder.status, reminder.cancel_reason)
+            for reminder in reminders
+        ] == [
+            (
+                original_node_revision,
+                ReminderStatus.CANCELLED,
+                "competition_revision_superseded",
+            ),
+            (
+                original_node_revision + 1,
+                ReminderStatus.CANCELLED,
+                "competition_revision_superseded",
+            ),
+            (original_node_revision + 2, ReminderStatus.PENDING, None),
+        ]
+        assert reminders[2].time_node_snapshot_id == readded_node.id
+
+
 @pytest.mark.parametrize("presentation_change", ["stage_metadata", "description"])
 def test_presentation_only_revision_moves_pending_reminder_without_schedule_message(
     client, app, presentation_change: str

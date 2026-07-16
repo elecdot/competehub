@@ -15,12 +15,17 @@ calendar can leave the student unaware of the correction.
 ## Decision
 
 A schedule correction preserves an edition-scoped `logical_node_key` but
-creates a new immutable snapshot row and increments `node_revision` only when
-behavior-bearing node facts change. A snapshot ID identifies only the facts
-inside one赛事届次修订; reminders keep an FK to that exact snapshot, while
-reconciliation matches snapshots by logical key and node revision. The service
-records old/new values and reason, cancels superseded pending plans, and creates
-plans only for future triggers. Sent reminders are immutable.
+creates a new immutable snapshot row and increments `node_revision` when
+behavior-bearing node facts change or the key is reintroduced after an approved
+removal. A snapshot ID identifies only the facts inside one赛事届次修订;
+reminders keep an FK to that exact snapshot, while reconciliation matches
+snapshots by logical key and node revision. The service records old/new values
+and reason, cancels superseded pending plans, and creates plans only for future
+triggers. A logical key never present in approved edition history starts at
+revision one. If an approved revision removes that key and a later approved
+candidate re-adds it, submission allocates the approved historical maximum plus
+one even when the restored facts match an older snapshot. Sent reminders are
+immutable.
 
 For each approved replacement, the system creates at most one consolidated
 赛事时间变更通知 per affected active subscriber. It does so only when `occurs_at`,
