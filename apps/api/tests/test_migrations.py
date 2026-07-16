@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -90,6 +90,18 @@ def test_issue38_new_engagement_blocks_unsafe_downgrade(tmp_path, capsys) -> Non
 def test_subscription_node_types_upgrade_canonicalizes_existing_rows(tmp_path) -> None:
     app = _migration_app(tmp_path / "subscription-node-types.db")
     _assert_subscription_node_type_order_upgrade(app)
+
+
+def test_issue40_message_snapshot_upgrade_preserves_rows_and_round_trips(tmp_path) -> None:
+    app = _migration_app(tmp_path / "issue40-message-snapshots.db")
+    _assert_issue40_message_snapshot_upgrade_and_round_trip(app)
+
+
+def test_issue40_message_snapshot_upgrade_fails_closed_before_schema_mutation(
+    tmp_path, capsys
+) -> None:
+    app = _migration_app(tmp_path / "issue40-message-preflight.db")
+    _assert_issue40_unresolvable_message_fails_closed(app, capsys)
 
 
 def test_unowned_predecessor_competition_blocks_before_schema_mutation(tmp_path) -> None:
@@ -194,6 +206,20 @@ def test_postgresql_subscription_node_types_upgrade_canonicalizes_existing_rows(
     _assert_subscription_node_type_order_upgrade(app)
 
 
+def test_postgresql_issue40_message_snapshot_upgrade_preserves_rows_and_round_trips(
+    postgresql_database_uri,
+) -> None:
+    app = _migration_app(database_uri=postgresql_database_uri)
+    _assert_issue40_message_snapshot_upgrade_and_round_trip(app)
+
+
+def test_postgresql_issue40_message_snapshot_upgrade_fails_closed_before_schema_mutation(
+    postgresql_database_uri, capsys
+) -> None:
+    app = _migration_app(database_uri=postgresql_database_uri)
+    _assert_issue40_unresolvable_message_fails_closed(app, capsys)
+
+
 def test_postgresql_populated_recommendation_rule_predecessor_fails_closed(
     postgresql_database_uri,
 ) -> None:
@@ -241,6 +267,441 @@ def _assert_fresh_upgrade_and_downgrade(app) -> None:
         assert "competition_revisions" in _tables()
         check(directory=str(MIGRATIONS_DIR))
         downgrade(directory=str(MIGRATIONS_DIR), revision="base")
+
+
+def _assert_issue40_message_snapshot_upgrade_and_round_trip(app) -> None:
+    with app.app_context():
+        upgrade(directory=str(MIGRATIONS_DIR), revision="a64f1b9d2c7e")
+        metadata = sa.MetaData()
+        metadata.reflect(
+            bind=db.engine,
+            only=[
+                "users",
+                "competitions",
+                "competition_time_nodes",
+                "reminders",
+                "messages",
+            ],
+        )
+        now = datetime(2026, 7, 15, 8, 0, tzinfo=UTC)
+        db.session.execute(
+            metadata.tables["users"]
+            .insert()
+            .values(**_issue38_user_row(40, "issue40@example.edu", "student", now))
+        )
+        db.session.execute(
+            metadata.tables["competitions"]
+            .insert()
+            .values(
+                id=40,
+                title="Issue 40 Competition",
+                source_name="Migration Fixture",
+                source_url="https://example.edu/issue40",
+                participant_forms=[],
+                status="offline",
+                lifecycle_reason="Second offline episode reason",
+                lifecycle_changed_at=now + timedelta(days=1),
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        db.session.execute(
+            metadata.tables["messages"]
+            .insert()
+            .values(
+                id=40,
+                user_id=40,
+                competition_id=40,
+                message_type="competition_offline",
+                idempotency_key="competition_offline:40:2026-07-15T08:00:00Z",
+                event_occurred_at=now,
+                title="Original message title",
+                body="Original message body",
+                is_read=True,
+                read_at=now,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        node_occurs_at = datetime(2026, 8, 1, 4, 0, tzinfo=UTC)
+        reminder_due_at = datetime(2026, 7, 29, 4, 0, tzinfo=UTC)
+        db.session.execute(
+            metadata.tables["competition_time_nodes"]
+            .insert()
+            .values(
+                id=41,
+                competition_id=40,
+                logical_node_key="registration-deadline",
+                node_revision=2,
+                node_type="registration_deadline",
+                occurs_at=node_occurs_at,
+                prominence="primary",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        db.session.execute(
+            metadata.tables["reminders"]
+            .insert()
+            .values(
+                id=41,
+                user_id=40,
+                competition_id=40,
+                time_node_snapshot_id=41,
+                logical_node_key="registration-deadline",
+                time_node_revision=2,
+                node_type="registration_deadline",
+                due_at=reminder_due_at,
+                title="Reminder title",
+                body="Reminder body",
+                status="sent",
+                attempt_count=1,
+                sent_at=reminder_due_at,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        db.session.execute(
+            metadata.tables["messages"]
+            .insert()
+            .values(
+                id=41,
+                user_id=40,
+                reminder_id=41,
+                competition_id=None,
+                message_type=None,
+                idempotency_key=None,
+                event_occurred_at=None,
+                title="Legacy reminder delivery",
+                body="Legacy reminder body",
+                is_read=False,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        db.session.execute(
+            metadata.tables["messages"]
+            .insert()
+            .values(
+                id=42,
+                user_id=40,
+                competition_id=40,
+                message_type="competition_time_changed",
+                idempotency_key=None,
+                event_occurred_at=None,
+                title="Legacy event without an event instant",
+                body=None,
+                is_read=False,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        db.session.commit()
+
+        upgrade(directory=str(MIGRATIONS_DIR))
+
+        assert _columns("messages") >= {
+            "title_snapshot",
+            "body_snapshot",
+            "target_snapshot",
+            "retained_until",
+        }
+        assert "title" not in _columns("messages")
+        migrated = (
+            db.session.execute(
+                text(
+                    """
+                SELECT id, user_id, reminder_id, competition_id, message_type,
+                       idempotency_key, event_occurred_at, title_snapshot,
+                       body_snapshot, target_snapshot, retained_until, is_read, read_at,
+                       created_at, updated_at
+                FROM messages WHERE id = 40
+                """
+                )
+            )
+            .mappings()
+            .one()
+        )
+        target_snapshot = _decoded_json(migrated["target_snapshot"])
+        assert migrated["id"] == 40
+        assert migrated["user_id"] == 40
+        assert migrated["reminder_id"] is None
+        assert migrated["competition_id"] == 40
+        assert migrated["message_type"] == "competition_offline"
+        assert migrated["idempotency_key"] == ("competition_offline:40:2026-07-15T08:00:00Z")
+        assert migrated["title_snapshot"] == "Original message title"
+        assert migrated["body_snapshot"] == "Original message body"
+        assert target_snapshot == {
+            "competition_id": 40,
+            "competition_title": "Issue 40 Competition",
+            "node_type": None,
+            "node_occurs_at": None,
+            "reason_summary": "Original message body",
+        }
+        assert bool(migrated["is_read"]) is True
+        assert stored_datetime_as_utc(_decoded_datetime(migrated["retained_until"])) == (
+            datetime(2027, 7, 15, 8, 0, tzinfo=UTC)
+        )
+
+        reminder_message = (
+            db.session.execute(
+                text(
+                    """
+                SELECT competition_id, message_type, idempotency_key, event_occurred_at,
+                       target_snapshot
+                FROM messages WHERE id = 41
+                """
+                )
+            )
+            .mappings()
+            .one()
+        )
+        assert reminder_message["competition_id"] == 40
+        assert reminder_message["message_type"] == "reminder_due"
+        assert reminder_message["idempotency_key"] == "legacy-message:41"
+        assert (
+            stored_datetime_as_utc(_decoded_datetime(reminder_message["event_occurred_at"]))
+            == reminder_due_at
+        )
+        assert _decoded_json(reminder_message["target_snapshot"]) == {
+            "competition_id": 40,
+            "competition_title": "Issue 40 Competition",
+            "node_type": "registration_deadline",
+            "node_occurs_at": node_occurs_at.isoformat(),
+            "reason_summary": None,
+        }
+        created_fallback = (
+            db.session.execute(
+                text(
+                    """
+                SELECT idempotency_key, event_occurred_at, target_snapshot
+                FROM messages WHERE id = 42
+                """
+                )
+            )
+            .mappings()
+            .one()
+        )
+        assert created_fallback["idempotency_key"] == "legacy-message:42"
+        assert (
+            stored_datetime_as_utc(_decoded_datetime(created_fallback["event_occurred_at"])) == now
+        )
+        assert _decoded_json(created_fallback["target_snapshot"])["reason_summary"] is None
+
+        if db.engine.dialect.name == "postgresql":
+            next_message_id = db.session.execute(
+                text("SELECT nextval(pg_get_serial_sequence('messages', 'id'))")
+            ).scalar_one()
+            assert next_message_id > 42
+
+        db.session.remove()
+        downgrade(directory=str(MIGRATIONS_DIR), revision="a64f1b9d2c7e")
+        assert _columns("messages") >= {"title", "body"}
+        assert "title_snapshot" not in _columns("messages")
+        legacy = (
+            db.session.execute(text("SELECT id, title, body, is_read FROM messages WHERE id = 40"))
+            .mappings()
+            .one()
+        )
+        assert dict(legacy) == {
+            "id": 40,
+            "title": "Original message title",
+            "body": "Original message body",
+            "is_read": True,
+        }
+
+        db.session.remove()
+        upgrade(directory=str(MIGRATIONS_DIR))
+        assert db.session.execute(text("SELECT count(*) FROM messages")).scalar_one() == 3
+
+
+def _assert_issue40_unresolvable_message_fails_closed(app, capsys) -> None:
+    with app.app_context():
+        upgrade(directory=str(MIGRATIONS_DIR), revision="a64f1b9d2c7e")
+        metadata = sa.MetaData()
+        metadata.reflect(
+            bind=db.engine,
+            only=[
+                "users",
+                "competitions",
+                "competition_time_nodes",
+                "reminders",
+                "messages",
+            ],
+        )
+        now = datetime(2026, 7, 15, 8, 0, tzinfo=UTC)
+        db.session.execute(
+            metadata.tables["users"]
+            .insert()
+            .values(**_issue38_user_row(42, "unresolvable@example.edu", "student", now))
+        )
+        db.session.execute(
+            metadata.tables["users"]
+            .insert()
+            .values(**_issue38_user_row(43, "cross-owner@example.edu", "student", now))
+        )
+        for competition_id in (43, 44):
+            db.session.execute(
+                metadata.tables["competitions"]
+                .insert()
+                .values(
+                    id=competition_id,
+                    title=f"Corrupt link competition {competition_id}",
+                    source_name="Migration Fixture",
+                    source_url=f"https://example.edu/corrupt/{competition_id}",
+                    participant_forms=[],
+                    status="unpublished",
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+        db.session.execute(
+            metadata.tables["competition_time_nodes"]
+            .insert()
+            .values(
+                id=43,
+                competition_id=43,
+                logical_node_key="cross-linked-node",
+                node_revision=1,
+                node_type="registration_deadline",
+                occurs_at=datetime(2026, 8, 1, tzinfo=UTC),
+                prominence="primary",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        db.session.execute(
+            metadata.tables["reminders"]
+            .insert()
+            .values(
+                id=43,
+                user_id=43,
+                competition_id=43,
+                time_node_snapshot_id=43,
+                logical_node_key="cross-linked-node",
+                time_node_revision=1,
+                node_type="registration_deadline",
+                due_at=now,
+                title="Cross-linked reminder",
+                status="sent",
+                attempt_count=1,
+                sent_at=now,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        db.session.execute(
+            metadata.tables["reminders"]
+            .insert()
+            .values(
+                id=44,
+                user_id=42,
+                competition_id=43,
+                time_node_snapshot_id=43,
+                logical_node_key="cross-linked-node",
+                time_node_revision=1,
+                node_type="registration_deadline",
+                due_at=now,
+                title="Invalid delivery-state reminder",
+                status="pending",
+                attempt_count=0,
+                sent_at=None,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        db.session.execute(
+            metadata.tables["messages"]
+            .insert()
+            .values(
+                id=42,
+                user_id=42,
+                reminder_id=None,
+                competition_id=None,
+                message_type=None,
+                idempotency_key=None,
+                event_occurred_at=None,
+                title="Unresolvable legacy row",
+                body=None,
+                is_read=False,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        db.session.execute(
+            metadata.tables["messages"]
+            .insert()
+            .values(
+                id=43,
+                user_id=42,
+                reminder_id=43,
+                competition_id=44,
+                message_type=None,
+                idempotency_key=None,
+                event_occurred_at=None,
+                title="Cross-owner and cross-competition legacy row",
+                body=None,
+                is_read=False,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        db.session.execute(
+            metadata.tables["messages"]
+            .insert()
+            .values(
+                id=44,
+                user_id=42,
+                reminder_id=44,
+                competition_id=43,
+                message_type="reminder_due",
+                idempotency_key="invalid-delivery-state:44",
+                event_occurred_at=now,
+                title="Reminder message without sent evidence",
+                body=None,
+                is_read=False,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        db.session.execute(
+            metadata.tables["messages"]
+            .insert()
+            .values(
+                id=45,
+                user_id=43,
+                reminder_id=43,
+                competition_id=43,
+                message_type="competition_offline",
+                idempotency_key="non-reminder-with-reminder:45",
+                event_occurred_at=now,
+                title="Lifecycle message with invalid reminder link",
+                body=None,
+                is_read=False,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        db.session.commit()
+
+        with pytest.raises(SystemExit) as error:
+            upgrade(directory=str(MIGRATIONS_DIR))
+
+        assert error.value.code == 1
+        stderr = capsys.readouterr().err
+        assert stderr.find("message 42: competition_id, message_type") >= 0
+        assert "message 43: reminder.user_id, reminder.competition_id" in stderr
+        assert "time_node.competition_id" in stderr
+        assert "message 44: reminder.status, reminder.attempt_count, reminder.sent_at" in stderr
+        assert "message 45: non_reminder_due.reminder_id" in stderr
+        assert _columns("messages") >= {"title", "body"}
+        assert {"title_snapshot", "target_snapshot", "retained_until"}.isdisjoint(
+            _columns("messages")
+        )
+        assert (
+            db.session.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+            == "a64f1b9d2c7e"
+        )
 
 
 def _assert_populated_recommendation_rule_predecessor_fails_closed(app) -> None:

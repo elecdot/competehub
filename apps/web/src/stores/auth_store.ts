@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { computed, readonly, ref } from 'vue'
 
 import { fetchCurrentUser, loginCurrentUser } from '@/api/client'
 import type { CurrentUser, CurrentUserResponse, LoginPayload } from '@/types/auth'
@@ -12,45 +13,99 @@ function mapCurrentUser(user: CurrentUserResponse): CurrentUser {
   }
 }
 
-export const useAuthStore = defineStore('auth', {
-  state: () => ({
-    currentUser: null as CurrentUser | null,
-    loading: false,
-    errorMessage: '',
-  }),
-  getters: {
-    isAuthenticated: (state) => state.currentUser !== null,
-    isAdmin: (state) => state.currentUser?.role === 'admin',
-  },
-  actions: {
-    async loadCurrentUser() {
-      this.loading = true
-      this.errorMessage = ''
-      try {
-        this.currentUser = mapCurrentUser(await fetchCurrentUser())
-      } catch {
-        this.currentUser = null
-        this.errorMessage = 'unauthorized'
-      } finally {
-        this.loading = false
+export const useAuthStore = defineStore('auth', () => {
+  const currentUser = ref<CurrentUser | null>(null)
+  const initialized = ref(false)
+  const loading = ref(false)
+  const errorMessage = ref('')
+  const isAuthenticated = computed(() => currentUser.value !== null)
+  const isAdmin = computed(() => currentUser.value?.role === 'admin')
+
+  let currentUserRequest: Promise<CurrentUserResponse> | null = null
+  const sessionGeneration = ref(0)
+
+  function fetchCurrentUserOnce() {
+    currentUserRequest ??= fetchCurrentUser()
+    return currentUserRequest
+  }
+
+  function sessionIdentity(user: CurrentUser | null) {
+    return user === null ? '' : `${user.id}:${user.role}`
+  }
+
+  function acceptProbedCurrentUser(user: CurrentUser | null) {
+    if (sessionIdentity(currentUser.value) !== sessionIdentity(user)) {
+      sessionGeneration.value += 1
+    }
+    currentUser.value = user
+    return sessionGeneration.value
+  }
+
+  async function loadCurrentUser() {
+    let generation = sessionGeneration.value
+    const request = fetchCurrentUserOnce()
+    loading.value = true
+    errorMessage.value = ''
+    try {
+      const user = mapCurrentUser(await request)
+      if (generation === sessionGeneration.value) {
+        generation = acceptProbedCurrentUser(user)
       }
-    },
-    async login(payload: LoginPayload) {
-      this.loading = true
-      this.errorMessage = ''
-      try {
-        this.currentUser = mapCurrentUser(await loginCurrentUser(payload))
-      } catch {
-        this.currentUser = null
-        this.errorMessage = 'unauthorized'
-        throw new Error('login_failed')
-      } finally {
-        this.loading = false
+    } catch {
+      if (generation === sessionGeneration.value) {
+        generation = acceptProbedCurrentUser(null)
+        errorMessage.value = 'unauthorized'
       }
-    },
-    clearCurrentUser() {
-      this.currentUser = null
-      this.errorMessage = ''
-    },
-  },
+    } finally {
+      if (currentUserRequest === request) currentUserRequest = null
+      if (generation === sessionGeneration.value) {
+        initialized.value = true
+        loading.value = false
+      }
+    }
+  }
+
+  async function ensureCurrentUser() {
+    if (!initialized.value) await loadCurrentUser()
+  }
+
+  async function login(payload: LoginPayload) {
+    sessionGeneration.value += 1
+    currentUserRequest = null
+    loading.value = true
+    errorMessage.value = ''
+    try {
+      currentUser.value = mapCurrentUser(await loginCurrentUser(payload))
+      initialized.value = true
+    } catch {
+      currentUser.value = null
+      errorMessage.value = 'unauthorized'
+      throw new Error('login_failed')
+    } finally {
+      loading.value = false
+    }
+  }
+
+  function clearCurrentUser() {
+    sessionGeneration.value += 1
+    currentUserRequest = null
+    currentUser.value = null
+    initialized.value = true
+    loading.value = false
+    errorMessage.value = ''
+  }
+
+  return {
+    currentUser,
+    initialized,
+    loading,
+    errorMessage,
+    isAuthenticated,
+    isAdmin,
+    sessionGeneration: readonly(sessionGeneration),
+    loadCurrentUser,
+    ensureCurrentUser,
+    login,
+    clearCurrentUser,
+  }
 })

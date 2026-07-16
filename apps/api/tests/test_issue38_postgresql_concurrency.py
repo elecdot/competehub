@@ -139,10 +139,9 @@ def test_postgresql_simultaneous_first_favorite_post_creates_one_row_and_recover
 
 
 def test_postgresql_simultaneous_first_subscription_post_preserves_winner_consent(
-    postgresql_app, monkeypatch
+    postgresql_app,
 ) -> None:
     student_id, first, second = _clients_for_same_student(postgresql_app)
-    _barrier_after_absent_relation(monkeypatch, Subscription)
     first_payload = subscription_payload(remind_days=1)
     second_payload = subscription_payload(reminder_enabled=False, remind_days=9)
 

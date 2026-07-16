@@ -18,9 +18,12 @@ consent and current eligible future nodes, explicit re-subscription or semantic
 PATCH may restore only unsent plans cancelled as `subscription_cancelled`,
 `reminder_disabled`, `node_type_removed`, or
 `subscription_offset_not_future`. Delivered messages and sent, failed, elapsed,
-prior-revision, offline, deletion, lifecycle, supersession, global-setting, and
-other system-owned evidence remain terminal and are never restored or replayed.
-Global `message_enabled` false-to-true restoration remains Issue #40 scope.
+prior-revision, offline, deletion, lifecycle, supersession, and other
+system-owned evidence remain terminal and are never restored or replayed by
+re-subscription or semantic PATCH. Global-setting cancellation is likewise
+terminal to those user actions; Issue #40's separate false-to-true coordinator
+is the sole path that may restore an exact unattempted
+`global_reminder_disabled` row whose current trigger remains future.
 
 ## Consequences
 

@@ -128,16 +128,21 @@ class Message(db.Model, TimestampMixin):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     reminder_id: Mapped[int | None] = mapped_column(ForeignKey("reminders.id"))
-    competition_id: Mapped[int | None] = mapped_column(
+    competition_id: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey("competitions.id", name="fk_messages_competition_id_competitions"),
+        nullable=False,
         index=True,
     )
-    message_type: Mapped[str | None] = mapped_column(String(80), index=True)
-    idempotency_key: Mapped[str | None] = mapped_column(String(160))
-    event_occurred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    title: Mapped[str] = mapped_column(String(255), nullable=False)
-    body: Mapped[str | None] = mapped_column(Text)
+    message_type: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(160), nullable=False)
+    event_occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    title_snapshot: Mapped[str] = mapped_column(String(255), nullable=False)
+    body_snapshot: Mapped[str | None] = mapped_column(Text)
+    target_snapshot: Mapped[dict] = mapped_column(JSON, nullable=False)
+    retained_until: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
     is_read: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -145,4 +150,22 @@ class Message(db.Model, TimestampMixin):
 
     __table_args__ = (
         db.UniqueConstraint("user_id", "idempotency_key", name="uq_message_user_event"),
+        db.CheckConstraint(
+            "message_type IN ('reminder_due', 'competition_time_changed', "
+            "'competition_cancelled', 'competition_offline')",
+            name="ck_messages_supported_type",
+        ),
+        db.Index(
+            "ix_messages_user_retention_created",
+            "user_id",
+            "retained_until",
+            "created_at",
+            "id",
+        ),
+        db.Index(
+            "ix_messages_user_unread_retention",
+            "user_id",
+            "is_read",
+            "retained_until",
+        ),
     )

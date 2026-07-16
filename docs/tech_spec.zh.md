@@ -200,7 +200,7 @@ apps/web/
 - 推荐赛事。
 - 我的收藏与订阅。
 - 个人赛事日历：桌面默认月视图、移动端默认列表视图，可切换月/周/列表并在当前设备保留选择；突出 `primary`、当前阶段和最近节点，保留成对标签和同日多节点的紧凑展开。
-- 消息中心：全局消息图标与未读徽标，页面提供全部/未读标签、四类消息筛选、分页、单条已读和全部已读。使用紧凑列表而非卡片嵌套，目标不可访问时保留历史快照并禁用跳转。
+- 消息中心：全局消息图标与未读徽标，页面提供全部/未读标签、四类消息筛选、分页、单条已读和全部已读。使用紧凑列表而非卡片嵌套，目标不可访问时保留历史快照并禁用跳转。P1 在学生会话初始化、进入消息中心、路由切换和窗口重新聚焦时刷新未读数，已读操作直接采用 API 返回计数；不建设定时轮询、WebSocket 或服务端推送。
 - 个人画像。
 
 管理端页面：
@@ -224,7 +224,7 @@ Pinia stores：
 - `profile_store`：学生画像和推荐偏好。
 - `competition_filter_store`：列表筛选条件、排序和分页。
 - `dictionary_store`：赛事类别、标签、专业、年级等基础字典。
-- `notification_store`：未读消息数、消息列表、已读状态。
+- `notification_store`：未读消息数、消息列表、已读状态，以及会话初始化、消息中心进入、路由切换、窗口聚焦和已读操作触发的刷新协调；不持有后台轮询或实时连接。
 
 前端不得以隐藏按钮替代后端权限控制；所有权限判断必须由后端兜底。
 
@@ -324,22 +324,24 @@ Redis 不用于：
 站内提醒以数据库为事实来源：
 
 1. 用户订阅赛事后，API 根据赛事时间节点和提醒配置生成 `reminders`。
-2. Celery beat 周期扫描 `status = pending` 且 `due_at <= now` 的提醒；独立重试任务把已到 `next_attempt_at` 的可重试 `failed` 记录先转回 `pending`。
-3. Worker 幂等创建 `messages`。
-4. 成功后将提醒状态更新为 `sent`；每次实际投递递增 `attempt_count`。瞬时失败写入受控 `last_error_code`、`failed_at` 和下一次重试时间，永久失败或耗尽重试后保持 `failed` 且不再安排时间。
+2. Celery beat 周期扫描 `status = pending` 且 `due_at <= now` 的提醒；独立重试任务只选择已到非空 `next_attempt_at` 的可重试 `failed` 记录，在重新校验当前投递资格后先转回 `pending`。
+3. Worker 在创建消息前再次校验当前投递资格，并幂等创建 `messages`；不得直接投递 `failed` 记录。
+4. 成功后将提醒状态更新为 `sent`；每次实际投递递增 `attempt_count`。瞬时失败写入受控 `last_error_code`、`failed_at` 和下一次重试时间，永久失败或耗尽重试后保持 `failed` 且不再安排时间。若已安排重试的记录失去当前投递资格，则仍保持 `failed` 并保留尝试次数与错误证据，清空 `next_attempt_at`，同时用受控 `cancel_reason` 记录停止重试的资格原因；后续重新开启偏好或重新订阅不得恢复该已尝试记录。
 5. 赛事取消、下架或节点删除时，service 取消未发送提醒。归档/过期仅在不存在未来节点时允许，并在状态事务中取消任何异常残留的未发送提醒；它们保留历史订阅和过去日历节点，不产生消息。
-6. 同届节点事实变化时保留 `logical_node_key`、创建新的不可变 snapshot ID；在提交时由服务端相对基线冻结 `node_revision`。新节点修订取消旧修订的未发送提醒并重建未来计划；未变节点保持修订号并原地刷新 pending plan 的 snapshot FK 和文案，已发送提醒不可变。
+6. 同届节点事实变化时保留 `logical_node_key`、创建新的不可变 snapshot ID；在提交时由服务端相对基线并结合该届次已批准节点历史冻结 `node_revision`。从未获批的逻辑节点从 `1` 开始；被批准删除后再以同一 key 加回的节点，即使事实与旧快照相同，也从历史最大修订号递增。新节点修订取消旧修订的未发送提醒并重建未来计划；未变节点保持修订号并原地刷新 pending plan 的 snapshot FK 和文案，已发送提醒不可变。
 7. 每个批准修订按“订阅者 + 批准修订事件”最多幂等生成一条赛事时间变更汇总消息，仅覆盖发生时刻、所选节点增删或所选节点类型变化。阶段、重点级别、描述、标题等展示修正只刷新当前内容；已过去的普通触发时间不补发伪准时提醒。
 8. 首次订阅请求必须显式携带 `reminder_enabled`；开启时同时携带 `0–30` 的单一提前天数和非空受控节点类型。全局默认只用于前端确认面板预填，后端不得在字段缺失时推断同意。
-9. 关闭单项提醒只取消该订阅的未发送计划，关闭全局提醒取消用户全部未发送计划；两者均保留订阅和日历节点。仅显式重新订阅或语义 PATCH 可按新的提醒确认恢复受控原因取消的未来有效计划；全局 `message_enabled` 从 `false` 到 `true` 的恢复协调属于 #40。
+9. 关闭单项提醒只取消该订阅的未发送计划，关闭全局提醒取消用户全部未发送计划；两者均保留订阅和日历节点。仅显式重新订阅或语义 PATCH 可按新的提醒确认恢复受控订阅级原因取消的未来有效计划。#40 的全局 `message_enabled` `false -> true` 协调是唯一可原地恢复 `global_reminder_disabled` 行的路径，并且只处理未尝试、仍属于当前公开节点修订且重算触发时间仍在未来的精确普通计划；当前修订没有计划时可新建，已尝试、失败、已过时或其他终态证据不得恢复。
 10. `reminder_settings` 是全局开关、默认提前天数和默认节点类型的唯一事实来源；`student_profiles` 不重复存储提醒字段。
     对既有学生缺失该行属于数据完整性错误，不得按开启处理；订阅创建、重新订阅、语义 PATCH、计划协调和订阅摘要均返回既有的 `500 internal_server_error` 形状，并回滚订阅及提醒计划变更。
 11. `reminder_due`、`competition_time_changed`、`competition_cancelled` 和 `competition_offline` 使用“用户 + 领域事件”幂等键创建不可变消息快照。用户主动取消或关闭提醒不创建消息。
+    `target_snapshot` 固定包含赛事 ID、赛事标题及可空的节点类型、节点发生时间和原因摘要；普通到期提醒的 `event_occurred_at` 等于计划 `due_at`，其他类型使用领域事件时间，写入时间另存为 `created_at`。当前目标是否可访问及可空链接在响应时派生，不回写历史快照。
 12. 周期清理任务删除创建满 365 天的消息，不区分已读状态；账号删除使用统一账号数据清理流程。提醒的 `sent` 状态与消息的已读状态分别维护。
 13. #38 的 `reminder_settings` 持久化迁移遵循数据模型的完整性约束；迁移顺序、回填、序列同步和受保护降级由 `apps/api/migrations/README` 运行手册负责。服务继续让 `/me/preferences` 组合返回稳定公开形状，不把迁移过程暴露为 API 行为。
 14. 同一学生与赛事届次只保留一个订阅关系。重新订阅要求新的完整提醒确认，复用 cancelled 关系并仅保存最近一次确认；首次创建返回 `201`，重复 active POST 和重新订阅返回 `200`。
-15. 初始计划或用户显式恢复计划要求订阅开关与全局开关同时开启。#38 只允许恢复由 `subscription_cancelled`、`reminder_disabled`、`node_type_removed` 或 `subscription_offset_not_future` 取消、从未发送且按当前不可变 snapshot 重新计算后仍为未来的普通计划；已发送、失败、旧节点修订和系统协调取消的计划不得恢复。全局开关变化后的批量协调属于 #40。
+15. 初始计划或用户显式恢复计划要求订阅开关与全局开关同时开启。#38 只允许恢复由 `subscription_cancelled`、`reminder_disabled`、`node_type_removed` 或 `subscription_offset_not_future` 取消、从未发送且按当前不可变 snapshot 重新计算后仍为未来的普通计划；已发送、失败、旧节点修订和其他系统协调取消的计划不得由这些用户动作恢复。#40 的全局批量协调仅可原地恢复符合第 9 条的精确 `global_reminder_disabled` 行，或为不存在普通计划的当前节点修订创建一行。
 16. 订阅 POST、PATCH、DELETE 与普通计划协调锁定同一订阅关系，并依靠 `(user_id, competition_id)` 和完整普通计划唯一键处理并发，不创建第二份订阅或重复计划。
+17. #40 的消息 schema 升级保留旧行 ID、用户、可空提醒关联、已读状态和时间戳；将 `title/body` 迁移为快照字段，并按“现有消息字段 -> 关联提醒/赛事事实 -> `created_at` 回退”的受控顺序回填赛事、消息类型、事件时间和目标快照。`retained_until` 固定为 `created_at + 365 天`，缺失幂等键固定为 `legacy-message:{id}`。升级不顺带删除过期行；无法推导必需用户、赛事、消息类型或条件性提醒事实时，必须在破坏性 schema 变更前终止并输出诊断，不静默删除或伪造事实。
 
 ### 8.3 推荐任务
 
@@ -409,7 +411,9 @@ Redis 不用于：
 - `POST /api/v1/competitions/{id}/subscription`
 - `GET /api/v1/me/calendar`
 - `GET /api/v1/me/messages`
+- `GET /api/v1/me/messages/unread_count`
 - `POST /api/v1/me/messages/{id}/read`
+- `POST /api/v1/me/messages/read_all`
 - `GET /api/v1/recommendations`
 - `POST /api/v1/recommendation_events`
 - `GET /api/v1/admin/recommendation_rule_sets`

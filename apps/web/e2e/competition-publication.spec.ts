@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test'
 
-import { expect, test } from './fixtures/actors'
+import { expect, switchActor, test } from './fixtures/actors'
 
 test.use({ actorName: 'editor' })
 
@@ -213,7 +213,7 @@ test('editor submits, distinct reviewer publishes, and student sees the edition'
   await actorPage.getByRole('button', { name: new RegExp(competitionTitle) }).click()
 
   await switchActor(actorPage, 'reviewer.day1@example.edu', 'silver orchard compass cloud 59')
-  await actorPage.reload()
+  await actorPage.goto('/admin')
   await actorPage.getByRole('tab', { name: '审核队列' }).click()
   await actorPage.getByRole('button', { name: new RegExp(competitionTitle) }).click()
   await actorPage.getByTestId('review-comment').fill('Source, scope, and chronology verified.')
@@ -262,12 +262,18 @@ test('editor submits, distinct reviewer publishes, and student sees the edition'
   expect((await stillOldPublic.json()).data.revision_id).toBe(revisionId)
 
   await switchActor(actorPage, 'reviewer.day1@example.edu', 'silver orchard compass cloud 59')
-  await actorPage.reload()
+  await actorPage.goto('/admin')
   await actorPage.getByRole('tab').nth(1).click()
   await actorPage.getByRole('button', { name: new RegExp(competitionTitle) }).click()
   await expect(actorPage.getByTestId('review-diff')).toContainText('registration-deadline')
   await actorPage.getByTestId('review-comment').fill('Updated deadline verified at source.')
+  const successorApprovalResponsePromise = actorPage.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      response.url().endsWith(`/api/v1/admin/competition_revisions/${successorRevisionId}/review`),
+  )
   await actorPage.getByTestId('approve-revision').click()
+  expect((await successorApprovalResponsePromise).ok()).toBe(true)
 
   const switchedPublic = await actorPage.request.get(`/api/v1/competitions/${editionId}`)
   expect(switchedPublic).toBeOK()
@@ -300,15 +306,6 @@ test('editor submits, distinct reviewer publishes, and student sees the edition'
   await actorPage.goto('/admin')
   await expect(actorPage.getByText('无权访问赛事发布工作台', { exact: true })).toBeVisible()
 })
-
-async function switchActor(page: Page, account: string, password: string) {
-  const logoutResponse = await page.request.post('/api/v1/auth/logout')
-  expect(logoutResponse).toBeOK()
-  const loginResponse = await page.request.post('/api/v1/auth/login', {
-    data: { identity_type: 'email', identity: account, password },
-  })
-  expect(loginResponse).toBeOK()
-}
 
 async function selectEdition(page: Page, label: string) {
   await page.getByTestId('edition-select').click()
