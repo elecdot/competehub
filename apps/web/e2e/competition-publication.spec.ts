@@ -267,7 +267,13 @@ test('editor submits, distinct reviewer publishes, and student sees the edition'
   await actorPage.getByRole('button', { name: new RegExp(competitionTitle) }).click()
   await expect(actorPage.getByTestId('review-diff')).toContainText('registration-deadline')
   await actorPage.getByTestId('review-comment').fill('Updated deadline verified at source.')
+  const successorApprovalResponsePromise = actorPage.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      response.url().endsWith(`/api/v1/admin/competition_revisions/${successorRevisionId}/review`),
+  )
   await actorPage.getByTestId('approve-revision').click()
+  expect((await successorApprovalResponsePromise).ok()).toBe(true)
 
   const switchedPublic = await actorPage.request.get(`/api/v1/competitions/${editionId}`)
   expect(switchedPublic).toBeOK()
