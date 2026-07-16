@@ -805,7 +805,23 @@ def test_preview_uses_synthetic_profile_and_validates_all_fixtures(
         db.session.add(
             CompetitionTagLink(competition_revision_id=published_revision.id, tag_id=tag.id)
         )
+        db.session.add(
+            CompetitionTimeNode(
+                competition_revision_id=published_revision.id,
+                node_type="registration_deadline",
+                occurs_at=datetime.now(UTC) + timedelta(days=10),
+                prominence="primary",
+            )
+        )
         db.session.commit()
+        _public_competition_with_revision(
+            200,
+            reviewer,
+            current_majors=[major],
+            current_grades=["not-a-match"],
+            current_tags=[interest_tag],
+            current_deadline=datetime.now(UTC) + timedelta(days=10),
+        )
         active_id = active.id
         reviewer_id = reviewer.id
     monkeypatch.setattr(
@@ -821,7 +837,7 @@ def test_preview_uses_synthetic_profile_and_validates_all_fixtures(
             "grade": grade,
             "interest_tags": [interest_tag],
         },
-        "competition_ids": [201],
+        "competition_ids": [200, 201],
     }
 
     preview = client.post(
@@ -830,11 +846,13 @@ def test_preview_uses_synthetic_profile_and_validates_all_fixtures(
     )
     invalid = client.post(
         f"/api/v1/admin/recommendation_rule_sets/{active_id}/preview",
-        json={**payload, "competition_ids": [201, 202, 999, 201]},
+        json={**payload, "competition_ids": [200, 201, 202, 999, 201]},
     )
 
     assert preview.status_code == 200
-    item = preview.get_json()["data"]["results"][0]
+    results = preview.get_json()["data"]["results"]
+    assert [result["competition_id"] for result in results] == [201, 200]
+    item = results[0]
     assert item["competition_id"] == 201
     assert item["competition"] == {
         "id": 201,
@@ -842,8 +860,18 @@ def test_preview_uses_synthetic_profile_and_validates_all_fixtures(
         "edition_label": None,
     }
     assert item["position"] == 1
-    assert item["matched_rule_codes"] == ["major_match", "grade_match", "interest_match"]
-    assert item["reason_codes"] == ["major_match", "grade_match", "interest_match"]
+    assert item["matched_rule_codes"] == [
+        "major_match",
+        "grade_match",
+        "interest_match",
+        "deadline_urgency",
+    ]
+    assert item["reason_codes"] == item["matched_rule_codes"]
+    assert results[1]["matched_rule_codes"] == [
+        "major_match",
+        "interest_match",
+        "deadline_urgency",
+    ]
     assert "score" not in item
     assert invalid.status_code == 400
     assert invalid.get_json()["error"]["details"] == {

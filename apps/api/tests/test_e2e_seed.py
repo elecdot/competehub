@@ -81,7 +81,7 @@ def test_e2e_seed_rebuilds_the_expected_actor_set() -> None:
     result = runner.invoke(args=["seed-e2e", "--reset"])
 
     assert result.exit_code == 0
-    assert "Provisioned 7 deterministic E2E actors." in result.output
+    assert "Provisioned 8 deterministic E2E actors." in result.output
 
     with app.app_context():
         db.session.add(
@@ -104,9 +104,10 @@ def test_e2e_seed_rebuilds_the_expected_actor_set() -> None:
         reminder_settings = db.session.query(ReminderSetting).all()
 
         expected_actors = sorted(SEEDED_E2E_ACTORS, key=lambda actor: actor.id)
-        calendar_actors = [actor for actor in E2E_ACTORS if actor.id == 1007]
-        assert len(calendar_actors) == 1
-        assert calendar_actors[0].email == "calendar.student-day1@example.edu"
+        calendar_actor = next(
+            actor for actor in E2E_ACTORS if actor.email == "calendar.student-day1@example.edu"
+        )
+        assert calendar_actor.id == 1007
         assert [user.id for user in users] == [actor.id for actor in expected_actors]
         assert [user.email for user in users] == [actor.email for actor in expected_actors]
         assert [user.display_name for user in users] == [
@@ -137,6 +138,20 @@ def test_e2e_seed_rebuilds_the_expected_actor_set() -> None:
         assert all(
             setting.node_types == DEFAULT_REMINDER_NODE_TYPES for setting in reminder_settings
         )
+        recommendation_incomplete_actor = next(
+            actor for actor in E2E_ACTORS if actor.email == "recommendation.incomplete@example.edu"
+        )
+        assert recommendation_incomplete_actor.id == 1008
+        recommendation_incomplete_profile = (
+            db.session.query(StudentProfile)
+            .filter_by(user_id=recommendation_incomplete_actor.id)
+            .one_or_none()
+        )
+        assert recommendation_incomplete_profile is not None
+        assert recommendation_incomplete_profile.college is None
+        assert recommendation_incomplete_profile.major is None
+        assert recommendation_incomplete_profile.grade is None
+        assert recommendation_incomplete_profile.interest_tags == []
         series = db.session.get(CompetitionSeries, 2001)
         edition = db.session.get(Competition, 2001)
         revision = db.session.get(CompetitionRevision, 2001)

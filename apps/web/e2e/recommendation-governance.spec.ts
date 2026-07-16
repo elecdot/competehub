@@ -44,12 +44,20 @@ test('editor previews and submits, then a distinct reviewer activates the candid
   expect(JSON.stringify(previewData)).not.toMatch(
     /score|probability|percentage|percentile|weight_contribution/i,
   )
+  const previewReasonCodes = previewData.results[0].reason_codes
+  expect(previewReasonCodes).toEqual([
+    'major_match',
+    'grade_match',
+    'interest_match',
+    'deadline_urgency',
+  ])
+  expect(previewData.results[0].matched_rule_codes).toEqual(previewReasonCodes)
   const previewResults = actorPage.getByTestId('preview-results')
   await expect(previewResults).toContainText('v2 / personalized')
   await expect(previewResults).toContainText('#1 Seeded University Innovation Challenge 2025')
-  await expect(previewResults).toContainText('major_match')
-  await expect(previewResults).toContainText('grade_match')
-  await expect(previewResults).toContainText('interest_match')
+  for (const reasonCode of previewReasonCodes) {
+    await expect(previewResults).toContainText(reasonCode)
+  }
   await expect(previewResults).not.toContainText(/score|probability|percentage|percentile/i)
 
   await actorPage.getByTestId('submit-rule-set').click()

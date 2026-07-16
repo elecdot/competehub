@@ -71,6 +71,26 @@ and linearizable unread counts. Run `just api-migration-test-postgres` plus
 `POSTGRES_TEST_ADMIN_URL` configured. A SQLite pass or PostgreSQL skip is not
 Issue #40 concurrency evidence.
 
+Issue #42 adds service and API evidence for private weighted ordering, current
+published-revision-only eligibility, controlled reasons, the three explicit
+general fallback values, exact incomplete-profile fields, and absence of public
+score fields. Ranking tests prove every matched governed rule contributes to
+private ordering before the public reasons are capped at three; governance
+preview retains all matched-rule evidence. Corrupted conditions or reason
+templates in any active snapshot rule must fail closed to general mode rather
+than enter personalization or fail during rendering. Fallback tests preserve
+`anonymous` and `profile_incomplete` ahead of `no_active_rule_set` even when the
+fixed general explanation is used because configuration is unavailable. Its
+Playwright path uses anonymous, incomplete, and
+recommendation-ready actors plus controlled response interception to cover
+loading, populated, empty, missing-rule fallback, and error states in desktop
+and mobile projects. The recommendation-ready and incomplete-profile paths use
+dedicated actors so mutable profile tests cannot change their prerequisites,
+and the personalized assertion follows the active rule-set version returned by
+the API instead of assuming a fixed seed version. Anonymous and authenticated
+non-student callers also share neutral general-fallback copy. Run `just
+api-test` and `just web-e2e` before claiming the slice complete.
+
 ## TDD Usage
 
 Use TDD when the change affects observable behavior and a reasonable automated
@@ -112,10 +132,11 @@ just web-e2e
 The underlying project command, also used by CI, is
 `npm --prefix apps/web run test:e2e`. It rebuilds only the isolated
 `.cache/tmp/competehub-e2e.db` database and provisions distinct Day 1 student,
-calendar-acceptance student, editor, and reviewer accounts through controlled
-test setup. Actor fixtures use the real login endpoint and browser Cookie state;
-they do not inject privileged frontend state or imply that public registration
-bypasses verification.
+profile-ready student, recommendation-incomplete student, calendar-acceptance
+student, editor, and reviewer accounts through controlled test setup. Actor
+fixtures use the real login endpoint and browser Cookie state; they do not
+inject privileged frontend state or imply that public registration bypasses
+verification.
 
 The harness runs the same Chromium scenarios in desktop and mobile viewports
 and treats uncaught page errors and browser console errors as failures.

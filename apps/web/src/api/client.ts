@@ -27,6 +27,7 @@ import type {
   StudentProfileUpdate,
 } from '@/types/auth'
 import type { CalendarPayload, CalendarQuery } from '@/types/calendar'
+import type { RecommendationFeed } from '@/types/recommendation'
 
 export const apiClient = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL ?? '/api/v1',
@@ -57,6 +58,11 @@ export async function fetchCompetitions(params: CompetitionListParams = {}) {
 
 export async function fetchCompetitionDetail(id: number) {
   const response = await apiClient.get<ApiEnvelope<CompetitionDetail>>(`/competitions/${id}`)
+  return response.data.data
+}
+
+export async function fetchRecommendations() {
+  const response = await apiClient.get<ApiEnvelope<RecommendationFeed>>('/recommendations')
   return response.data.data
 }
 

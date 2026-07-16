@@ -351,9 +351,9 @@ Redis 不用于：
 
 ### 8.3 推荐任务
 
-规则推荐可同步计算并缓存短时间结果。个性化计算只读取单一 `active` 推荐规则集，缓存键必须包含规则集版本；响应返回版本和可追溯理由，不返回内部得分。无激活版本时降级为通用可行动结果并暴露管理配置异常，不使用 service 常量。候选预览仅使用合成画像和选定公开赛事，不读取任意真实学生画像，也不持久化结果。合成画像复用真实画像更新与 readiness 的受控学院—专业、年级和兴趣字典。赛事专业、年级、标签、报名截止与时间节点等推荐事实统一来自 `competition.published_revision_id` 指向的当前不可变公开修订，不读取展平旧字段，也不回退到非 current 历史修订。
+规则推荐可同步计算并缓存短时间结果。生产候选复用公开发现服务的 `published` 与当前 `published_revision_id` 资格边界；通用模式沿用可行动排序，个性化模式使用全部启用且匹配的规则私有权重排序，并以可行动候选补足，最多返回 20 项。每项只公开权重最高的三个理由，但该展示上限不从私有排序中删除其余匹配；治理候选预览继续返回全部匹配规则与理由。个性化计算只读取单一 `active` 推荐规则集，并在使用前按完整受控快照校验所有规则代码、条件、权重和理由模板；任一规则无效都按缺少有效配置关闭个性化，缓存键必须包含规则集版本。响应返回版本和可追溯理由，不返回内部得分。通用模式的公开 `fallback_reason` 只使用 `anonymous`、`profile_incomplete` 和 `no_active_rule_set`，并按调用者状态依次优先；配置不可用时匿名和画像不完整仍保留各自原因，只有推荐就绪学生使用 `no_active_rule_set`。固定通用说明可用于三种配置不可用场景，不得伪装为激活规则或个人匹配。候选预览仅使用合成画像和选定公开赛事，不读取任意真实学生画像，也不持久化结果。合成画像复用真实画像更新与 readiness 的受控学院—专业、年级和兴趣字典。赛事专业、年级、标签、报名截止与时间节点等推荐事实统一来自 `competition.published_revision_id` 指向的当前不可变公开修订，不读取展平旧字段，也不回退到非 current 历史修订。
 
-每次推荐响应为返回项创建随机 request ID 下的 90 天服务端快照。前端实际渲染后批量尽力记录曝光，从推荐页导航详情时尽力记录点击；统计失败不影响展示或导航。事件 API 只接受 request ID、事件类型和赛事 ID，从服务端快照读取位置、模式、规则版本、理由代码和登录状态类别。曝光和点击分别按 request item 幂等，点击要求已有曝光。原始行不保存用户、账号、画像、IP、User-Agent 或跨 request 标识，也不用于自动个性化。
+FR-014 的后续交互统计切片会为每次推荐响应的返回项创建随机 request ID 下的 90 天服务端快照；该切片不属于 Issue #42 的推荐服务与页面范围。在快照表和事件端点正式交付前，`GET /recommendations` 不返回 request ID，`POST /recommendation_events` 也不注册。交付后，前端实际渲染才批量尽力记录曝光，从推荐页导航详情时尽力记录点击；统计失败不影响展示或导航。事件 API 只接受 request ID、事件类型和赛事 ID，从服务端快照读取位置、模式、规则版本、理由代码和登录状态类别。曝光和点击分别按 request item 幂等，点击要求已有曝光。原始行不保存用户、账号、画像、IP、User-Agent 或跨 request 标识，也不用于自动个性化。
 
 周期任务在删除超过 90 天的原始行前写入两类幂等聚合：曝光使用 `impressed_at` 的 `Asia/Shanghai` 日期，点击使用 `clicked_at` 的日期，因此同一 request item 可在不同日期贡献两类事件。item-level 总量按事件日期、规则版本、模式、位置、登录状态类别和赛事计数，每个 request item 对每类事件最多一次；reason-level 归因在相同维度增加去重后的理由代码，一个多理由 item 可进入多个归因行。管理端 7/30 日总体曝光、点击及比值只读取 item-level 总量；该比值是窗口内点击事件除以窗口内曝光事件的 event-period interaction ratio，不是按曝光日期分 cohort 的转化率。理由行明确标注为不可加总的归因而非因果。若后续数据量增长，可预计算推荐结果，但版本和理由仍必须可追溯。
 
@@ -526,14 +526,14 @@ revision `8b4d2f7a1c90`; the merged #35 migration remains unchanged.
 | Integration tests | 管理员发布赛事、学生搜索订阅、提醒生成消息和日历节点。 | P1 主闭环稳定后补服务/API 集成测试；自动化前使用手工验收脚本。 |
 | Frontend static checks | Vue routes、TypeScript 类型、构建产物。 | `just web-lint` 执行 `vue-tsc --noEmit`，`just web-build` 执行生产构建。 |
 | Frontend component tests | 筛选、详情状态、订阅状态、消息状态。 | P1 UI 稳定后再引入 Vitest 或等价框架，并同步 `apps/web/package.json`、`justfile` 和本文档。 |
-| E2E / manual acceptance | 中期和答辩演示主流程。 | `just web-e2e` 在桌面和移动 Chromium 项目运行共享门禁；基础层提供确定性学生、日历验收学生、编辑者和审核者 Cookie 会话。P1 日历路径使用真实 API/seed 覆盖三视图、状态语义、同日展开、响应式和站内跳转；手工验收补充探索性与视觉检查。 |
+| E2E / manual acceptance | 中期和答辩演示主流程。 | `just web-e2e` 在桌面和移动 Chromium 项目运行共享门禁；基础层提供确定性普通学生、画像就绪/不完整学生、日历验收学生、编辑者和审核者 Cookie 会话。P1 日历与 P2 推荐路径均使用真实 API/seed 覆盖各自关键状态和站内跳转；手工验收补充探索性与视觉检查。 |
 
 ### 11.2 Frontend quality gates
 
 - Current static checks：`vue-tsc --noEmit`，通过 `just web-lint` 执行；`just web-build` 同时执行类型检查和 Vite build。
 - Stage 1 lint / format：P1 页面和 stores 稳定后，引入 ESLint、`eslint-plugin-vue` 和 Prettier。
 - Stage 2 unit / component tests：核心组件和 stores 稳定后，引入 Vitest 和 Vue Test Utils，覆盖工具函数、stores、赛事筛选、详情状态和消息状态。
-- Stage 3 E2E tests：共享 Playwright Chromium 门禁已通过 `just web-e2e` 建立，使用每项目隔离重建的数据库、真实登录 Cookie、确定性学生/编辑者/审核者 actor，并将未捕获页面或 console 错误视为失败。P1 赛事治理工作台覆盖独立管理员编辑提交、审核发布和学生端可见；个人日历已在桌面/移动项目覆盖月/周/列表、设备默认与选择保留、同日展开、重点/当前/最近/配对/修订语义、提醒关闭但节点保留、不可访问目标、响应式和详情跳转。P2 再覆盖推荐结果以及审核、审计、统计三个治理标签页的导航、筛选、详情和权限边界。
+- Stage 3 E2E tests：共享 Playwright Chromium 门禁已通过 `just web-e2e` 建立，使用每项目隔离重建的数据库、真实登录 Cookie 和确定性分角色 actor，并将未捕获页面或 console 错误视为失败。P1 赛事治理工作台覆盖独立管理员编辑提交、审核发布和学生端可见；个人日历已在桌面/移动项目覆盖月/周/列表、设备默认与选择保留、同日展开、重点/当前/最近/配对/修订语义、提醒关闭但节点保留、不可访问目标、响应式和详情跳转。P2 推荐已覆盖匿名、画像就绪/不完整、非学生、空结果、配置降级、错误恢复、详情跳转和规则治理预览；审核、审计、统计治理标签页继续由后续切片覆盖。
 - 每个前端质量门禁阶段必须在同一变更中同步 `apps/web/package.json`、lockfile、`justfile` 和本文档；分阶段决策见 `docs/adr/0010-staged-frontend-quality-gates.md`。
 
 ### 11.3 TDD 与非功能验证
