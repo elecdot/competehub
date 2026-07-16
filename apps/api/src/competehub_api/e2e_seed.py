@@ -620,7 +620,7 @@ def _seed_personal_calendar_fixture() -> None:
     revision = CompetitionRevision(
         id=2005,
         competition=edition,
-        revision_number=1,
+        revision_number=2,
         revision_status=CompetitionRevisionStatus.APPROVED,
         title=edition.title,
         category=edition.category,
@@ -642,6 +642,53 @@ def _seed_personal_calendar_fixture() -> None:
         decided_at=decided_at,
         published_at=decided_at,
     )
+    legacy_revision = CompetitionRevision(
+        id=2105,
+        competition=edition,
+        revision_number=1,
+        revision_status=CompetitionRevisionStatus.APPROVED,
+        title="Legacy Calendar Challenge Revision 2026",
+        category=edition.category,
+        organizer=edition.organizer,
+        source_name=edition.source_name,
+        source_url=edition.source_url,
+        official_url=edition.official_url,
+        summary="An immutable historical revision excluded from the calendar projection.",
+        eligibility=edition.eligibility,
+        registration_applicability=edition.registration_applicability,
+        participant_forms=edition.participant_forms,
+        major_scope=edition.major_scope,
+        grade_scope=edition.grade_scope,
+        suitable_majors=edition.suitable_majors,
+        suitable_grades=edition.suitable_grades,
+        created_by_id=1002,
+        submitted_by_id=1002,
+        submitted_at=decided_at,
+        decided_at=decided_at,
+        published_at=decided_at,
+    )
+    legacy_stage = CompetitionStage(
+        id=2511,
+        revision=legacy_revision,
+        stage_key="legacy-registration",
+        stage_type="registration",
+        label="Legacy registration stage",
+        stage_order=1,
+    )
+    legacy_stage.time_nodes.append(
+        CompetitionTimeNode(
+            id=2511,
+            competition=edition,
+            revision=legacy_revision,
+            logical_node_key="legacy-registration-deadline",
+            node_revision=1,
+            node_type="registration_deadline",
+            occurs_at=datetime(2026, 7, 16, 0, 30, tzinfo=UTC),
+            description="Legacy revision deadline that must not render",
+            prominence="secondary",
+        )
+    )
+    legacy_revision.stages.append(legacy_stage)
     node_facts = (
         (
             2501,
@@ -754,6 +801,7 @@ def _seed_personal_calendar_fixture() -> None:
         [
             series,
             edition,
+            legacy_revision,
             offline_stage,
             Subscription(
                 id=2005,

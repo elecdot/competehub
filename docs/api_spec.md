@@ -830,7 +830,7 @@ Query parameters:
 
 - `from` (required)
 - `to` (required)
-- `view`: `month`, `week`, or `list`
+- `view` (required): `month`, `week`, or `list`
 
 `from` and `to` are `Asia/Shanghai` product-calendar dates. All views resolve
 the same underlying nodes; `view` selects range/grouping metadata rather than a
@@ -838,6 +838,10 @@ different source of truth. Items include edition and stage identifiers, stage
 label/order, node snapshot id/logical key/revision/type/description,
 `occurs_at`, `prominence`, pair metadata, current-stage state, current lifecycle
 visibility, and a target-availability flag.
+
+To keep Shanghai-midnight conversion and the exclusive end boundary within the
+supported UTC datetime range, both dates must be from `0001-01-02` through
+`9999-12-30`, inclusive.
 
 Example response:
 

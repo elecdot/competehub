@@ -1,13 +1,26 @@
 from __future__ import annotations
 
+from datetime import date
+
 from marshmallow import Schema, ValidationError, fields, validate, validates_schema
 
 from competehub_api.schemas.common import UtcDateTime
 
+CALENDAR_DATE_MIN = date(1, 1, 2)
+CALENDAR_DATE_MAX = date(9999, 12, 30)
+
 
 class CalendarQuerySchema(Schema):
-    date_from = fields.Date(required=True, data_key="from")
-    date_to = fields.Date(required=True, data_key="to")
+    date_from = fields.Date(
+        required=True,
+        data_key="from",
+        validate=validate.Range(min=CALENDAR_DATE_MIN, max=CALENDAR_DATE_MAX),
+    )
+    date_to = fields.Date(
+        required=True,
+        data_key="to",
+        validate=validate.Range(min=CALENDAR_DATE_MIN, max=CALENDAR_DATE_MAX),
+    )
     view = fields.String(
         required=True,
         validate=validate.OneOf(["month", "week", "list"]),

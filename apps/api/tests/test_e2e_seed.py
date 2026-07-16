@@ -177,6 +177,7 @@ def test_e2e_seed_rebuilds_the_expected_actor_set() -> None:
         message_subscription = db.session.get(Subscription, 2001)
         calendar_edition = db.session.get(Competition, 2005)
         calendar_revision = db.session.get(CompetitionRevision, 2005)
+        legacy_calendar_revision = db.session.get(CompetitionRevision, 2105)
         calendar_subscription = db.session.get(Subscription, 2005)
         offline_calendar_subscription = db.session.get(Subscription, 2006)
         sent_reminder = db.session.get(Reminder, 3001)
@@ -202,7 +203,18 @@ def test_e2e_seed_rebuilds_the_expected_actor_set() -> None:
         )
         assert favorite_only_subscription is None
         assert calendar_edition.published_revision_id == calendar_revision.id
+        assert calendar_revision.revision_number == 2
         assert calendar_revision.revision_status == CompetitionRevisionStatus.APPROVED
+        assert legacy_calendar_revision.revision_number == 1
+        assert legacy_calendar_revision.revision_status == CompetitionRevisionStatus.APPROVED
+        assert legacy_calendar_revision.title == "Legacy Calendar Challenge Revision 2026"
+        assert [stage.id for stage in legacy_calendar_revision.stages] == [2511]
+        assert [
+            node.id for stage in legacy_calendar_revision.stages for node in stage.time_nodes
+        ] == [2511]
+        assert legacy_calendar_revision.stages[0].time_nodes[0].description == (
+            "Legacy revision deadline that must not render"
+        )
         assert [stage.id for stage in calendar_revision.stages] == [2501, 2502, 2503, 2504]
         assert [node.id for stage in calendar_revision.stages for node in stage.time_nodes] == [
             2501,
@@ -210,6 +222,16 @@ def test_e2e_seed_rebuilds_the_expected_actor_set() -> None:
             2503,
             2504,
         ]
+        assert all(
+            node.revision is calendar_revision
+            for stage in calendar_revision.stages
+            for node in stage.time_nodes
+        )
+        assert all(
+            node.revision is legacy_calendar_revision
+            for stage in legacy_calendar_revision.stages
+            for node in stage.time_nodes
+        )
         assert all(stage.id == stage.time_nodes[0].id for stage in calendar_revision.stages)
         assert all(
             stored_datetime_as_utc(node.occurs_at).date().isoformat() == "2026-07-16"

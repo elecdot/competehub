@@ -64,7 +64,7 @@ const calendarOptions: CalendarOptions = {
   firstDay: 1,
   height: 'auto',
   nowIndicator: true,
-  navLinks: true,
+  navLinks: false,
   dayMaxEvents: 3,
   eventDisplay: 'block',
   eventOrderStrict: true,
@@ -267,6 +267,17 @@ function lifecycleLabel(item: CalendarItem): string | null {
   return LIFECYCLE_LABELS[item.lifecycle_status] ?? null
 }
 
+function eventMetadataLabels(event: EventApi): string[] {
+  const item = calendarItemFromEvent(event)
+  return [
+    item.stage_label ? `阶段：${item.stage_label}` : null,
+    formatPairLabel(item),
+    `修订 ${item.node_revision}`,
+    lifecycleLabel(item),
+    item.target_available ? null : '不可访问',
+  ].filter((value): value is string => Boolean(value))
+}
+
 function toProductDate(value: Date): string {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: PRODUCT_TIME_ZONE,
@@ -317,6 +328,15 @@ function reloadCalendar() {
                 calendarItemFromEvent(event).description?.trim() ||
                 formatNodeLabel(calendarItemFromEvent(event).node_type)
               }}</span>
+              <span class="calendar-event-meta" data-calendar-meta aria-hidden="true">
+                <span
+                  v-for="label in eventMetadataLabels(event)"
+                  :key="label"
+                  class="calendar-event-meta-token"
+                >
+                  {{ label }}
+                </span>
+              </span>
               <span class="calendar-event-badges" aria-hidden="true">
                 <span
                   v-if="calendarItemFromEvent(event).prominence === 'primary'"
@@ -477,6 +497,10 @@ function reloadCalendar() {
   margin-top: 2px;
 }
 
+.calendar-event-meta {
+  display: none;
+}
+
 .calendar-event-badge {
   background: rgb(255 255 255 / 20%);
   border: 1px solid currentColor;
@@ -548,6 +572,26 @@ function reloadCalendar() {
   :deep(.fc .fc-timegrid-event .calendar-event-node),
   :deep(.fc .fc-timegrid-event .calendar-event-badges) {
     display: none;
+  }
+
+  :deep(.fc .fc-daygrid-event .calendar-event-meta),
+  :deep(.fc .fc-timegrid-event .calendar-event-meta),
+  :deep(.fc .fc-list-event .calendar-event-meta) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    margin-top: 2px;
+    max-width: 100%;
+  }
+
+  .calendar-event-meta-token {
+    border: 1px solid currentColor;
+    border-radius: 3px;
+    font-size: 9px;
+    line-height: 1.2;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    padding: 1px 3px;
   }
 
   :deep(.fc .fc-toolbar-title) {

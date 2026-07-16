@@ -196,6 +196,7 @@ def test_calendar_requires_a_student_session(client, app) -> None:
     [
         ("to=2026-08-31&view=month", "from"),
         ("from=not-a-date&to=2026-08-31&view=month", "from"),
+        ("from=2026-08-01&to=2026-08-31", "view"),
         ("from=2026-08-01&to=2026-08-31&view=agenda", "view"),
         ("from=2026-09-01&to=2026-08-31&view=month", "to"),
     ],
@@ -223,6 +224,68 @@ def test_calendar_rejects_invalid_query(client, app, query: str, field: str) -> 
         "details": {"field": field},
         "message": "calendar query is invalid",
     }
+
+
+@pytest.mark.parametrize(
+    ("query", "field"),
+    [
+        ("from=0001-01-01&to=0001-01-02&view=month", "from"),
+        ("from=9999-12-30&to=9999-12-31&view=month", "to"),
+    ],
+)
+def test_calendar_rejects_dates_that_overflow_shanghai_utc_range(
+    client, app, query: str, field: str
+) -> None:
+    with app.app_context():
+        student = User(
+            id=21,
+            email="calendar-date-boundary-student@example.edu",
+            password_hash="not-used",
+            role=UserRole.STUDENT,
+        )
+        db.session.add(student)
+        db.session.commit()
+        student_id = student.id
+        session_version = student.session_version
+
+    _sign_in(client, student_id, session_version)
+
+    response = client.get(f"/api/v1/me/calendar?{query}")
+
+    assert response.status_code == 400
+    assert response.get_json()["error"] == {
+        "code": "validation_error",
+        "details": {"field": field},
+        "message": "calendar query is invalid",
+    }
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "from=0001-01-02&to=0001-01-02&view=month",
+        "from=9999-12-30&to=9999-12-30&view=list",
+    ],
+)
+def test_calendar_accepts_shanghai_utc_safe_date_boundaries(client, app, query: str) -> None:
+    with app.app_context():
+        student = User(
+            id=22,
+            email="calendar-safe-date-boundary-student@example.edu",
+            password_hash="not-used",
+            role=UserRole.STUDENT,
+        )
+        db.session.add(student)
+        db.session.commit()
+        student_id = student.id
+        session_version = student.session_version
+
+    _sign_in(client, student_id, session_version)
+
+    response = client.get(f"/api/v1/me/calendar?{query}")
+
+    assert response.status_code == 200
+    assert response.get_json()["error"] is None
 
 
 def test_calendar_uses_active_subscriptions_and_the_current_public_revision(client, app) -> None:
