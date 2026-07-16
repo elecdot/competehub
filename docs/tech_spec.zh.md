@@ -95,6 +95,9 @@ scripts/agent-env.sh
   `daygrid`、`timegrid`、`list` 开源标准模块实现月、周和列表视图。
   `luxon3` `6.1.21` 与 Luxon `3.7.2` 提供 `Asia/Shanghai` 命名时区实现；
   日历页使用路由懒加载，不引入 premium resource/scheduler，也不手写日期网格算法。
+  事件同时使用文本徽标和样式层级表达 `primary`、当前阶段、最近节点、
+  配对角色、生命周期和不可访问状态；同日溢出使用 FullCalendar 的可访问
+  `dayMaxEvents` popover，不可用目标不生成链接，可用目标通过 Vue Router 站内跳转。
 
 ### 4.2 Backend
 
