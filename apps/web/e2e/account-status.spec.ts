@@ -1,6 +1,21 @@
+import type { Page } from '@playwright/test'
 import { expect, pendingActor, test } from './fixtures/actors'
 
+async function allowPublicEmailRegistration(page: Page) {
+  await page.route('**/api/v1/auth/capabilities', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        data: { public_email_registration_enabled: true },
+        error: null,
+      }),
+    })
+  })
+}
+
 test('logs in through the login page and shows a real cookie session', async ({ page }) => {
+  await allowPublicEmailRegistration(page)
   await page.goto('/login?return_to=/me')
 
   const accountNav = page.getByRole('navigation', { name: '用户导航' })
@@ -172,6 +187,7 @@ test.describe('logout', () => {
 })
 
 test('registers with email and verifies without auto-login', async ({ page }) => {
+  await allowPublicEmailRegistration(page)
   await page.route('**/api/v1/auth/register', async (route) => {
     await route.fulfill({
       status: 202,
