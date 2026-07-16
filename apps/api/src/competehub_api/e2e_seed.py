@@ -78,6 +78,14 @@ E2E_ACTORS = (
         },
     ),
     E2EActor(
+        id=1007,
+        email="recommendation.incomplete@example.edu",
+        password="quiet compass incomplete profile 73",
+        display_name="Recommendation Incomplete Student",
+        role=UserRole.STUDENT,
+        profile={},
+    ),
+    E2EActor(
         id=1002,
         email="admin.day1@example.edu",
         password="copper meadow signal river 82",
