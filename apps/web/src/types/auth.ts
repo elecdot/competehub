@@ -20,6 +20,10 @@ export interface CurrentUser {
   capabilities: string[]
 }
 
+export interface AuthCapabilities {
+  public_email_registration_enabled: boolean
+}
+
 export interface StudentProfile {
   id: number
   user_id: number

@@ -187,6 +187,8 @@ def test_register_without_configured_sender_returns_unavailable() -> None:
             "SECRET_KEY": "test-secret",
             "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:",
             "EMAIL_VERIFICATION_SENDER": None,
+            "EMAIL_VERIFICATION_SENDER_DSN": None,
+            "PUBLIC_EMAIL_REGISTRATION_ENABLED": False,
         }
     )
     with app.app_context():
@@ -200,6 +202,37 @@ def test_register_without_configured_sender_returns_unavailable() -> None:
     assert client.get("/api/v1/me").status_code == 401
     with app.app_context():
         assert db.session.query(User).count() == 0
+        db.session.remove()
+        db.drop_all()
+
+
+def test_auth_capabilities_report_public_registration_availability(client) -> None:
+    response = client.get("/api/v1/auth/capabilities")
+
+    assert response.status_code == 200
+    assert response.get_json()["data"] == {"public_email_registration_enabled": True}
+
+
+def test_auth_capabilities_report_disabled_without_sender() -> None:
+    app = create_app(
+        {
+            "TESTING": True,
+            "SECRET_KEY": "test-secret",
+            "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:",
+            "EMAIL_VERIFICATION_SENDER": None,
+            "EMAIL_VERIFICATION_SENDER_DSN": None,
+            "PUBLIC_EMAIL_REGISTRATION_ENABLED": False,
+        }
+    )
+    with app.app_context():
+        db.create_all()
+    client = app.test_client()
+
+    response = client.get("/api/v1/auth/capabilities")
+
+    assert response.status_code == 200
+    assert response.get_json()["data"] == {"public_email_registration_enabled": False}
+    with app.app_context():
         db.session.remove()
         db.drop_all()
 
@@ -264,19 +297,17 @@ def test_register_existing_pending_email_keeps_generic_accepted_response(client,
         )
 
 
-def test_register_existing_active_email_returns_registered_conflict(client, app, sender) -> None:
+def test_register_existing_active_email_keeps_generic_accepted_response(
+    client, app, sender
+) -> None:
     register_email(client, identity="Active-Duplicate@Example.edu")
     dispatch_verification_email(app)
     assert verify_email(client, sender, identity="active-duplicate@example.edu").status_code == 200
 
     response = register_email(client, identity="active-duplicate@example.edu")
 
-    assert response.status_code == 409
-    assert response.get_json()["error"] == {
-        "code": "identity_already_registered",
-        "message": "identity is already registered",
-        "details": {"field": "identity"},
-    }
+    assert response.status_code == 202
+    assert response.get_json()["data"] == {"accepted": True}
     with app.app_context():
         stored_identity = (
             db.session.query(UserIdentity)
@@ -690,7 +721,7 @@ def test_failed_verification_always_runs_one_challenge_hash_check(
     assert verification_hashes[0].startswith("scrypt:32768:8:1$")
 
 
-def test_existing_active_registration_conflict_runs_password_and_challenge_hash_work(
+def test_existing_active_registration_runs_password_and_challenge_hash_work(
     client, app, monkeypatch
 ) -> None:
     provision_user(app)
@@ -714,8 +745,8 @@ def test_existing_active_registration_conflict_runs_password_and_challenge_hash_
 
     response = register_email(client)
 
-    assert response.status_code == 409
-    assert response.get_json()["error"]["code"] == "identity_already_registered"
+    assert response.status_code == 202
+    assert response.get_json()["data"] == {"accepted": True}
     assert password_hash_calls == 1
     assert challenge_hash_calls == 1
 

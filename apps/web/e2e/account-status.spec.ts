@@ -36,12 +36,12 @@ test('returns to a safe site-relative path after login', async ({ page }) => {
   await expect(page).toHaveURL(/\/competitions\/123$/)
 })
 
-test('falls back to competitions after login without a return target', async ({ page }) => {
+test('falls back to personal information after login without a return target', async ({ page }) => {
   await page.goto('/login')
 
   await loginAsDayOneStudent(page)
 
-  await expect(page).toHaveURL(/\/competitions$/)
+  await expect(page).toHaveURL(/\/me$/)
 })
 
 test.describe('unsafe login return targets', () => {
@@ -54,12 +54,54 @@ test.describe('unsafe login return targets', () => {
     '',
     '%',
   ]) {
-    test(`falls back to competitions for ${JSON.stringify(target)}`, async ({ page }) => {
+    test(`falls back to personal information for ${JSON.stringify(target)}`, async ({ page }) => {
       await page.goto(`/login?return_to=${target}`)
 
       await loginAsDayOneStudent(page)
 
-      await expect(page).toHaveURL(/\/competitions$/)
+      await expect(page).toHaveURL(/\/me$/)
+    })
+  }
+})
+
+test.describe('typed login identities', () => {
+  for (const [label, identityType, identifier] of [
+    ['邮箱', 'email', 'student.day1@example.edu'],
+    ['学号', 'student_no', '20260001'],
+    ['手机号', 'phone', '+8613800000000'],
+  ] as const) {
+    test(`submits ${label} identity type`, async ({ page }) => {
+      await page.route('**/api/v1/auth/login', async (route) => {
+        expect(route.request().postDataJSON()).toMatchObject({
+          identity_type: identityType,
+          identifier,
+          password: 'violet harbor lantern orbit 47',
+        })
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            data: {
+              id: 1,
+              display_name: 'Day 1 Student',
+              role: 'student',
+              capabilities: [],
+            },
+            error: null,
+          }),
+        })
+      })
+
+      await page.goto('/login')
+      if (identityType !== 'email') {
+        await page.getByTestId('identity-type').locator('.ant-select-selector').click()
+        await page.locator('.ant-select-dropdown:visible').getByTitle(label).click()
+      }
+      await page.locator('input[autocomplete="username"]').fill(identifier)
+      await page.locator('input[autocomplete="current-password"]').fill('violet harbor lantern orbit 47')
+      await page.getByRole('button', { name: '登录' }).click()
+
+      await expect(page).toHaveURL(/\/me$/)
     })
   }
 })
@@ -170,35 +212,26 @@ test('registers with email and verifies without auto-login', async ({ page }) =>
   await expect(page.getByRole('heading', { name: '个人信息' })).toHaveCount(0)
 })
 
-test.describe('registration conflict', () => {
-  test.use({ allowRegistrationConflictConsoleError: true })
-
-  test('shows a red registered-email message when an active email signs up again', async ({
-    page,
-  }) => {
-    await page.route('**/api/v1/auth/register', async (route) => {
+test.describe('registration availability', () => {
+  test('hides registration when public email registration is unavailable', async ({ page }) => {
+    await page.route('**/api/v1/auth/capabilities', async (route) => {
       await route.fulfill({
-        status: 409,
+        status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          data: null,
-          error: {
-            code: 'identity_already_registered',
-            message: 'identity is already registered',
-            details: { field: 'identity' },
-          },
+          data: { public_email_registration_enabled: false },
+          error: null,
         }),
       })
     })
 
-    await page.goto('/register')
-    await page.locator('input[autocomplete="email"]').fill('student.day1@example.edu')
-    await page.locator('input[autocomplete="name"]').fill('Existing Student')
-    await page.locator('input[autocomplete="new-password"]').fill('correct horse campus lantern')
-    await page.getByRole('button', { name: '提交注册' }).click()
+    await page.goto('/login')
+    await expect(page.getByRole('navigation', { name: '用户导航' }).getByRole('link', { name: '注册' })).toHaveCount(0)
+    await expect(page.getByRole('link', { name: '去注册' })).toHaveCount(0)
 
-    await expect(page.getByTestId('register-error')).toContainText('该邮箱已经被注册过')
-    await expect(page.getByTestId('register-form')).toBeVisible()
+    await page.goto('/register')
+    await expect(page.getByTestId('register-unavailable')).toContainText('当前暂未开放自助注册')
+    await expect(page.getByTestId('register-form')).toHaveCount(0)
   })
 })
 

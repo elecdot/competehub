@@ -23,6 +23,7 @@ const theme = {
 }
 
 onMounted(() => {
+  void auth.loadAuthCapabilities()
   void auth.loadCurrentUser()
 })
 </script>
@@ -50,7 +51,9 @@ onMounted(() => {
             </template>
             <template v-else>
               <RouterLink to="/login">登录</RouterLink>
-              <RouterLink to="/register">注册</RouterLink>
+              <RouterLink v-if="auth.publicEmailRegistrationEnabled" to="/register">
+                注册
+              </RouterLink>
             </template>
           </nav>
         </div>

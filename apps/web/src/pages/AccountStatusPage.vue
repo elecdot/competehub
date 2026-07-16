@@ -256,7 +256,11 @@ onMounted(reload)
               <LoginOutlined />
               去登录
             </RouterLink>
-            <RouterLink class="secondary-action-link" to="/register">
+            <RouterLink
+              v-if="auth.publicEmailRegistrationEnabled"
+              class="secondary-action-link"
+              to="/register"
+            >
               <UserAddOutlined />
               注册
             </RouterLink>

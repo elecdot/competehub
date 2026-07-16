@@ -20,6 +20,7 @@ import type {
   RevisionDraftUpdate,
 } from '@/types/admin'
 import type {
+  AuthCapabilities,
   CurrentUserResponse,
   LoginPayload,
   ProfileOptions,
@@ -225,6 +226,11 @@ export async function reviewCompetitionRevision(
 
 export async function fetchCurrentUser() {
   const response = await apiClient.get<ApiEnvelope<CurrentUserResponse>>('/me')
+  return response.data.data
+}
+
+export async function fetchAuthCapabilities() {
+  const response = await apiClient.get<ApiEnvelope<AuthCapabilities>>('/auth/capabilities')
   return response.data.data
 }
 

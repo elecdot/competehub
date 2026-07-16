@@ -14,16 +14,24 @@ import {
   FormItem as AFormItem,
   Input as AInput,
   InputPassword as AInputPassword,
+  Select as ASelect,
 } from 'ant-design-vue'
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
 import { useAuthStore } from '@/stores/auth_store'
-import type { LoginPayload } from '@/types/auth'
+import type { IdentityType, LoginPayload } from '@/types/auth'
 
 const auth = useAuthStore()
+const route = useRoute()
 const router = useRouter()
 const loginError = ref('')
+
+const identityTypeOptions: Array<{ value: IdentityType; label: string }> = [
+  { value: 'email', label: '邮箱' },
+  { value: 'student_no', label: '学号' },
+  { value: 'phone', label: '手机号' },
+]
 
 const loginForm = ref<LoginPayload>({
   identity_type: 'email',
@@ -31,15 +39,70 @@ const loginForm = ref<LoginPayload>({
   password: '',
 })
 
+const identityInputLabel = computed(() => {
+  switch (loginForm.value.identity_type) {
+    case 'student_no':
+      return '学号 Student number'
+    case 'phone':
+      return '手机号 Phone'
+    default:
+      return '邮箱 Email'
+  }
+})
+
+const identityInputPlaceholder = computed(() => {
+  switch (loginForm.value.identity_type) {
+    case 'student_no':
+      return '请输入学校配置的学号'
+    case 'phone':
+      return '请输入已配置的手机号'
+    default:
+      return 'name@example.com'
+  }
+})
+
 async function submitLogin() {
   loginError.value = ''
   try {
     await auth.login(loginForm.value)
-    await router.push('/me')
+    await router.push(getSafeReturnPath(route.query.return_to))
   } catch {
     loginError.value = '登录失败'
   }
 }
+
+function getSafeReturnPath(value: unknown) {
+  if (typeof value !== 'string' || !value) return '/me'
+
+  let decoded: string
+  try {
+    decoded = decodeURIComponent(value)
+  } catch {
+    return '/me'
+  }
+
+  if (!decoded.startsWith('/') || decoded.startsWith('//') || decoded.includes('\\')) {
+    return '/me'
+  }
+
+  const origin = 'https://competehub.invalid'
+  try {
+    const target = new URL(decoded, origin)
+    if (target.origin !== origin || !target.pathname.startsWith('/')) {
+      return '/me'
+    }
+  } catch {
+    return '/me'
+  }
+
+  return decoded
+}
+
+onMounted(() => {
+  if (!auth.capabilitiesLoaded) {
+    void auth.loadAuthCapabilities()
+  }
+})
 
 </script>
 
@@ -78,7 +141,7 @@ async function submitLogin() {
         </div>
         <div class="auth-tabs" aria-label="登录注册切换">
           <RouterLink class="active" to="/login">登录</RouterLink>
-          <RouterLink to="/register">注册</RouterLink>
+          <RouterLink v-if="auth.publicEmailRegistrationEnabled" to="/register">注册</RouterLink>
         </div>
         <AAlert
           v-if="loginError"
@@ -94,11 +157,18 @@ async function submitLogin() {
           :model="loginForm"
           @finish="submitLogin"
         >
-          <AFormItem label="邮箱 Email" name="identifier">
+          <AFormItem label="登录方式" name="identity_type">
+            <ASelect
+              data-testid="identity-type"
+              v-model:value="loginForm.identity_type"
+              :options="identityTypeOptions"
+            />
+          </AFormItem>
+          <AFormItem :label="identityInputLabel" name="identifier">
             <AInput
               v-model:value="loginForm.identifier"
               autocomplete="username"
-              placeholder="name@example.com"
+              :placeholder="identityInputPlaceholder"
             />
           </AFormItem>
           <AFormItem label="密码 Password" name="password">
@@ -115,10 +185,11 @@ async function submitLogin() {
         </AForm>
         <p class="auth-switch-line">
           还没有账号？
-          <RouterLink to="/register">
+          <RouterLink v-if="auth.publicEmailRegistrationEnabled" to="/register">
             <UserAddOutlined />
             去注册
           </RouterLink>
+          <span v-else>当前暂未开放自助注册</span>
         </p>
       </div>
     </div>

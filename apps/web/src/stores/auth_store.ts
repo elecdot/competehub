@@ -1,7 +1,17 @@
 import { defineStore } from 'pinia'
 
-import { fetchCurrentUser, loginCurrentUser, logoutCurrentUser } from '@/api/client'
-import type { CurrentUser, CurrentUserResponse, LoginPayload } from '@/types/auth'
+import {
+  fetchAuthCapabilities,
+  fetchCurrentUser,
+  loginCurrentUser,
+  logoutCurrentUser,
+} from '@/api/client'
+import type {
+  AuthCapabilities,
+  CurrentUser,
+  CurrentUserResponse,
+  LoginPayload,
+} from '@/types/auth'
 
 function mapCurrentUser(user: CurrentUserResponse): CurrentUser {
   return {
@@ -15,14 +25,29 @@ function mapCurrentUser(user: CurrentUserResponse): CurrentUser {
 export const useAuthStore = defineStore('auth', {
   state: () => ({
     currentUser: null as CurrentUser | null,
+    capabilities: {
+      public_email_registration_enabled: false,
+    } as AuthCapabilities,
+    capabilitiesLoaded: false,
     loading: false,
     errorMessage: '',
   }),
   getters: {
     isAuthenticated: (state) => state.currentUser !== null,
     isAdmin: (state) => state.currentUser?.role === 'admin',
+    publicEmailRegistrationEnabled: (state) =>
+      state.capabilities.public_email_registration_enabled,
   },
   actions: {
+    async loadAuthCapabilities() {
+      try {
+        this.capabilities = await fetchAuthCapabilities()
+      } catch {
+        this.capabilities = { public_email_registration_enabled: false }
+      } finally {
+        this.capabilitiesLoaded = true
+      }
+    },
     async loadCurrentUser() {
       this.loading = true
       this.errorMessage = ''

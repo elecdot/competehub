@@ -17,6 +17,7 @@ from competehub_api.schemas.auth import (
 from competehub_api.schemas.common import load_payload
 from competehub_api.services.auth import (
     authenticate_user,
+    public_email_registration_available,
     register_student,
     resend_verification,
     start_session,
@@ -25,6 +26,13 @@ from competehub_api.services.auth import (
 from competehub_api.services.errors import ServiceError
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
+
+
+@auth_bp.get("/capabilities")
+def capabilities():
+    return success_response(
+        {"public_email_registration_enabled": public_email_registration_available()}
+    )
 
 
 @auth_bp.post("/register")
