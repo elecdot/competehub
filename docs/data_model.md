@@ -495,6 +495,7 @@ Key fields:
   `recommendation`
 - `actor_kind`: `authenticated` or `anonymous`
 - `occurred_at`
+- `aggregated_at`: nullable until this row is included in a durable daily count
 
 Rules:
 
@@ -505,7 +506,12 @@ Rules:
   ephemeral and are not copied into analytics rows.
 - Each accepted activation is a click count, not a unique person or completed
   registration. Best-effort delivery may undercount.
-- Raw events expire after 90 days and are aggregated before deletion.
+- The aggregation transaction selects only rows with `aggregated_at IS NULL`,
+  increments the daily dimensions, and marks those rows before commit.
+- PostgreSQL aggregation workers share a transaction advisory lock so
+  simultaneous jobs cannot count one raw row twice.
+- Raw rows with `occurred_at < now - 90 days` expire after aggregation. The
+  exact cutoff row remains retained.
 
 ### `outbound_click_daily_stats`
 
@@ -522,7 +528,9 @@ Key fields:
 
 Rules:
 
-- The dimension tuple is unique and aggregation is idempotent.
+- The dimension tuple is unique; raw-row markers plus the PostgreSQL worker
+  lock make aggregation durable and idempotent across retries and concurrent
+  jobs.
 - Counts are labeled as recorded outbound clicks, not people or registration
   conversion.
 
@@ -1202,6 +1210,8 @@ Initial indexes should prioritize:
 - `reminders.due_at`
 - `messages.user_id`
 - `messages.is_read`
+- `outbound_click_events.competition_id, occurred_at`
+- `outbound_click_daily_stats.stat_date, competition_id`
 - `audit_logs.action`
 - `audit_logs.target_type`
 
@@ -1217,6 +1227,11 @@ Search can start with PostgreSQL filters and simple text matching. Add a dedicat
   data consistency across supported upgrade and downgrade paths. Exact revision
   order, commands, backfill procedures, and guarded recovery guidance are owned
   by the [migrations README](https://github.com/elecdot/competehub/blob/main/apps/api/migrations/README).
-- `seed-e2e --reset` provisions distinct student/editor/reviewer actors plus one
-  approved series/edition/revision fixture with an ordered stage and immutable
-  `occurs_at` node. It is isolated browser-test data, not a production backfill.
+- The outbound analytics revision follows the revision/lifecycle evidence
+  revision and stores privacy-minimized raw activations plus durable daily
+  aggregate dimensions without a user or device identifier.
+- `seed-e2e --reset` provisions distinct student/editor/reviewer actors,
+  recommendation governance, engagement lifecycle records, and published and
+  historical public-detail fixtures with immutable revisions, staged nodes, and
+  controlled official-link evidence. It is isolated browser-test data, not a
+  production backfill.

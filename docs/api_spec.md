@@ -429,9 +429,11 @@ Response item:
   "registration_status": "open",
   "registration_status_basis": {
     "stage_id": 7,
-    "node_snapshot_id": 11,
+    "snapshot_id": 11,
     "logical_node_key": "registration-main-deadline",
-    "node_revision": 1
+    "node_revision": 1,
+    "node_type": "registration_deadline",
+    "occurs_at": "2026-12-15T16:00:00Z"
   },
   "source_name": "示例高校竞赛通知",
   "source_url": "https://example.edu/notices/innovation",
@@ -539,6 +541,9 @@ Historical detail includes `lifecycle_warning` with the current lifecycle
 `status`, the required maintenance `reason`, and `changed_at`. Published detail
 returns `lifecycle_warning: null`. The reason is current warning context; the
 append-only audit event remains the durable transition evidence.
+Clients render `changed_at` in the `Asia/Shanghai` product timezone. Historical
+detail does not offer create or update subscription actions; an authenticated
+student may still cancel their own existing subscription.
 
 Response data extends the list item with detail fields:
 
@@ -547,6 +552,11 @@ Response data extends the list item with detail fields:
   "id": 1,
   "title": "大学生创新创业竞赛",
   "status": "published",
+  "edition_label": "2026",
+  "current_revision": {
+    "id": 11,
+    "revision_number": 2
+  },
   "lifecycle_warning": null,
   "source_name": "示例高校竞赛通知",
   "source_url": "https://example.edu/notices/innovation",
@@ -600,6 +610,11 @@ reference and official or school notices remain authoritative.
 `content_updated_at` is the approval time of the current public revision. It
 changes only when a later approved revision replaces the prior public snapshot;
 editing or submitting a non-public candidate does not change the public value.
+`current_revision` identifies that selected immutable snapshot, while
+`edition_label` identifies the concrete participation cycle. Clients display
+these values with source facts and the time-node stage metadata, formatting
+user-facing timestamps in `Asia/Shanghai`, instead of inferring currentness
+from an editable candidate.
 
 For anonymous requests, `is_favorited` and `is_subscribed` are `false`. For an
 authenticated student, they reflect that student's persisted edition-bound
@@ -629,7 +644,14 @@ Controlled source surfaces initially include `competition_list`,
 `competition_detail`, and `recommendation`. The server resolves the target from
 the edition's currently viewable public revision and rejects a missing or
 inaccessible target; clients cannot submit an arbitrary URL. Accepted events
-return `202` and use server time.
+return `202` and use server time. The endpoint applies an ephemeral
+request-source rate limit through the shared Redis-backed limiter. Exceeding
+the configured window returns `429 rate_limited` and does not create another
+event; the response details include `retry_after_seconds`.
+
+The browser opens the HTTP(S) target directly with `noopener noreferrer`, then
+may send this request as a best-effort action. A failed, delayed, or blocked
+recording request never changes the link target or prevents navigation.
 
 The event stores edition id, public revision id, target type, source surface,
 `actor_kind` (`authenticated` or `anonymous`), and occurrence time. It does not
@@ -637,10 +659,15 @@ store user id, account identifiers, IP address, User-Agent, or a cross-day
 visitor identifier. Request-source data may be used ephemerally for rate
 limiting but is not persisted in analytics records.
 
-Raw events are retained for 90 days. Daily aggregation uses the
-`Asia/Shanghai` product date and dimensions of edition, target type, source
-surface, and actor kind. Statistics describe recorded clicks, not unique people
-or registration conversion, and may undercount when best-effort delivery fails.
+Raw events are retained against the exact event-time cutoff: rows with
+`occurred_at < now - 90 days` expire, while a row exactly on the boundary is
+retained. A transactionally stored aggregation marker makes repeated jobs
+idempotent, and PostgreSQL workers serialize aggregation with a transaction
+advisory lock before incrementing durable counts and deleting expired rows.
+Daily aggregation uses the `Asia/Shanghai` product date and dimensions of
+edition, target type, source surface, and actor kind. Statistics describe
+recorded clicks, not unique people or registration conversion, and may
+undercount when best-effort delivery fails.
 
 ## Favorite And Subscription APIs
 

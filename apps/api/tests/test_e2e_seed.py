@@ -101,6 +101,8 @@ def test_e2e_seed_rebuilds_the_expected_actor_set() -> None:
         series = db.session.get(CompetitionSeries, 2001)
         edition = db.session.get(Competition, 2001)
         revision = db.session.get(CompetitionRevision, 2001)
+        historical_edition = db.session.get(Competition, 2004)
+        historical_revision = db.session.get(CompetitionRevision, 2004)
         assert series.canonical_name == "Seeded University Innovation Challenge"
         assert edition.published_revision_id == revision.id
         assert revision.revision_status == CompetitionRevisionStatus.APPROVED
@@ -108,6 +110,13 @@ def test_e2e_seed_rebuilds_the_expected_actor_set() -> None:
         assert revision.stages[0].time_nodes[0].occurs_at is not None
         assert revision.stages[0].time_nodes[0].starts_at is None
         assert revision.stages[0].time_nodes[0].due_at is None
+        assert revision.official_url == "https://example.org/seeded-innovation-2025"
+        assert historical_edition.status == CompetitionStatus.ARCHIVED
+        assert historical_edition.lifecycle_reason == (
+            "Official archive notice retained for student reference."
+        )
+        assert historical_edition.lifecycle_changed_at is not None
+        assert historical_edition.published_revision_id == historical_revision.id
         assert [link.tag.name for link in revision.tag_links] == ["人工智能"]
         recommendation_rule_set = db.session.query(RecommendationRuleSet).one()
         assert recommendation_rule_set.version == 1
@@ -118,10 +127,13 @@ def test_e2e_seed_rebuilds_the_expected_actor_set() -> None:
         assert unpublished.status == CompetitionStatus.UNPUBLISHED
         offline_favorite = db.session.get(Favorite, 2002)
         unpublished_subscription = db.session.get(Subscription, 2003)
+        historical_subscription = db.session.get(Subscription, 2004)
         assert offline_favorite.user_id == E2E_ACTORS[0].id
         assert offline_favorite.is_active is True
         assert unpublished_subscription.user_id == E2E_ACTORS[0].id
         assert unpublished_subscription.status == SubscriptionStatus.ACTIVE
+        assert historical_subscription.user_id == E2E_ACTORS[0].id
+        assert historical_subscription.status == SubscriptionStatus.ACTIVE
 
     login_response = app.test_client().post(
         "/api/v1/auth/login",

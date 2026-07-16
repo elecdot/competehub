@@ -6,11 +6,11 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
-    "e2e:install": "playwright install chromium",
+    "e2e:install": "node ./scripts/e2e-env.mjs node node_modules/playwright/cli.js install chromium",
     "preview": "vite preview",
     "lint": "vue-tsc --noEmit",
-    "seed:e2e": "bash ../../scripts/agent-env.sh uv run --project ../api flask --app competehub_api.app:create_e2e_app seed-e2e --reset",
-    "test:e2e": "npm run seed:e2e && playwright test",
+    "seed:e2e": "node ./scripts/e2e-env.mjs uv run --project ../api flask --app competehub_api.app:create_e2e_app seed-e2e --reset",
+    "test:e2e": "node ./scripts/run-e2e.mjs",
     "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {

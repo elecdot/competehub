@@ -2,9 +2,10 @@ import { defineStore } from 'pinia'
 import type { LocationQuery, LocationQueryRaw } from 'vue-router'
 
 import type { CompetitionListParams } from '@/api/client'
-import type { ParticipantForm } from '@/types/competition'
+import type { DiscoverySort, ParticipantForm, RegistrationStatus } from '@/types/competition'
 
 type ParticipantFormFilter = ParticipantForm | ''
+type RegistrationStatusFilter = RegistrationStatus | ''
 
 function queryValue(query: LocationQuery, key: string): string {
   const value = query[key]
@@ -38,6 +39,18 @@ function participantForm(value: string): ParticipantFormFilter {
   return value === 'individual' || value === 'team' ? value : ''
 }
 
+function registrationStatus(value: string): RegistrationStatusFilter {
+  return ['open', 'upcoming', 'closed', 'unknown', 'not_applicable'].includes(value)
+    ? (value as RegistrationStatus)
+    : ''
+}
+
+function discoverySort(value: string): DiscoverySort {
+  return ['actionable', 'registration_deadline', 'published_at'].includes(value)
+    ? (value as DiscoverySort)
+    : 'actionable'
+}
+
 function initialState() {
   return {
     keyword: '',
@@ -45,11 +58,13 @@ function initialState() {
     grade: '',
     major: '',
     tag: '',
+    registrationStatus: '' as RegistrationStatusFilter,
     participantForm: '' as ParticipantFormFilter,
     deadlineFrom: '',
     deadlineTo: '',
     page: 1,
     pageSize: 20,
+    sort: 'actionable' as DiscoverySort,
   }
 }
 
@@ -66,11 +81,13 @@ export const useCompetitionFilterStore = defineStore('competitionFilter', {
         major: queryValue(query, 'major'),
         grade: queryValue(query, 'grade'),
         tag: queryValue(query, 'tag'),
+        registrationStatus: registrationStatus(queryValue(query, 'registration_status')),
         participantForm: participantForm(queryValue(query, 'participant_form')),
         deadlineFrom: isoDate(queryValue(query, 'deadline_from')),
         deadlineTo: isoDate(queryValue(query, 'deadline_to')),
         page: positiveInteger(queryValue(query, 'page'), 1),
         pageSize: positiveInteger(queryValue(query, 'page_size'), 20, 100),
+        sort: discoverySort(queryValue(query, 'sort')),
       })
     },
     toRouteQuery(): LocationQueryRaw {
@@ -80,11 +97,13 @@ export const useCompetitionFilterStore = defineStore('competitionFilter', {
       if (this.major) query.major = this.major
       if (this.grade) query.grade = this.grade
       if (this.tag) query.tag = this.tag
+      if (this.registrationStatus) query.registration_status = this.registrationStatus
       if (this.participantForm) query.participant_form = this.participantForm
       if (this.deadlineFrom) query.deadline_from = this.deadlineFrom
       if (this.deadlineTo) query.deadline_to = this.deadlineTo
       if (this.page > 1) query.page = String(this.page)
       if (this.pageSize !== 20) query.page_size = String(this.pageSize)
+      if (this.sort !== 'actionable') query.sort = this.sort
       return query
     },
     toQueryParams(): CompetitionListParams {
@@ -94,11 +113,13 @@ export const useCompetitionFilterStore = defineStore('competitionFilter', {
         major: this.major || undefined,
         grade: this.grade || undefined,
         tag: this.tag || undefined,
+        registration_status: this.registrationStatus || undefined,
         participant_form: this.participantForm || undefined,
         deadline_from: this.deadlineFrom || undefined,
         deadline_to: this.deadlineTo || undefined,
         page: this.page,
         page_size: this.pageSize,
+        sort: this.sort,
       }
     },
   },

@@ -12,6 +12,7 @@ def make_celery() -> Celery:
         broker=flask_app.config["CELERY_BROKER_URL"],
         backend=flask_app.config["CELERY_RESULT_BACKEND"],
         include=[
+            "competehub_api.tasks.outbound_clicks",
             "competehub_api.tasks.reminders",
             "competehub_api.tasks.verification_delivery",
         ],
@@ -20,7 +21,11 @@ def make_celery() -> Celery:
         "dispatch-verification-delivery-outbox": {
             "task": "competehub.auth.dispatch_verification_deliveries",
             "schedule": 1.0,
-        }
+        },
+        "aggregate-recorded-outbound-clicks": {
+            "task": "competehub.outbound_clicks.aggregate",
+            "schedule": 3600.0,
+        },
     }
 
     class FlaskContextTask(celery.Task):

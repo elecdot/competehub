@@ -19,6 +19,7 @@ from competehub_api.models.engagement import (
     ReminderSetting,
     Subscription,
 )
+from competehub_api.models.outbound import OutboundClickDailyStat, OutboundClickEvent
 from competehub_api.models.review import AuditLog, ReviewRecord
 from competehub_api.models.user import (
     IdentityVerificationChallenge,
@@ -40,6 +41,8 @@ __all__ = [
     "Favorite",
     "IdentityVerificationChallenge",
     "Message",
+    "OutboundClickDailyStat",
+    "OutboundClickEvent",
     "RecommendationRule",
     "RecommendationRuleSet",
     "Reminder",

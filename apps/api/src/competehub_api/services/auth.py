@@ -7,8 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
 
-from flask import current_app, request
-from redis import Redis
+from flask import current_app
 from sqlalchemy import select, update
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -29,6 +28,7 @@ from competehub_api.services.passwords import (
     verify_password_hash,
 )
 from competehub_api.services.profiles import provision_student_owned_rows
+from competehub_api.services.rate_limits import increment_rate_limit, request_source
 from competehub_api.services.verification_delivery import derive_verification_code
 
 WEAK_PASSWORDS = {
@@ -44,14 +44,6 @@ SESSION_TIMEOUTS = {
     UserRole.ADMIN: (timedelta(minutes=30), timedelta(hours=8)),
 }
 SESSION_ACTIVITY_REFRESH_INTERVAL = timedelta(minutes=1)
-
-RATE_LIMIT_INCREMENT_SCRIPT = """
-local count = redis.call("INCR", KEYS[1])
-if redis.call("TTL", KEYS[1]) < 0 then
-    redis.call("EXPIRE", KEYS[1], tonumber(ARGV[1]))
-end
-return count
-"""
 
 DUMMY_PASSWORD_HASH = (
     "$argon2id$v=19$m=19456,t=2,p=1$GrwzQDiQxvi+JlFbriwXyQ$"
@@ -373,42 +365,26 @@ def _check_rate_limit(action: str, identity_type: str, identity: str) -> None:
     max_attempts = current_app.config.get("AUTH_RATE_LIMIT_MAX_ATTEMPTS", 10)
     window_seconds = current_app.config.get("AUTH_RATE_LIMIT_WINDOW_SECONDS", 60)
     normalized_identity = normalize_identity(identity_type, identity)
+    source = request_source(
+        trust_proxy_headers=current_app.config.get("AUTH_TRUST_PROXY_HEADERS", False)
+    )
     keys = (
         f"auth-rate:{action}:identity:{identity_type}:{normalized_identity}",
-        f"auth-rate:{action}:source:{_request_source()}",
+        f"auth-rate:{action}:source:{source}",
     )
     for key in keys:
-        count = _increment_rate_limit_key(key, window_seconds)
+        count = increment_rate_limit(
+            key,
+            window_seconds,
+            store_config_key="AUTH_RATE_LIMIT_STORE",
+            extension_key="auth_rate_limit_redis",
+        )
         if count > max_attempts:
             raise ServiceError(
                 HTTPStatus.TOO_MANY_REQUESTS,
                 "rate_limited",
                 "too many attempts",
             )
-
-
-def _increment_rate_limit_key(key: str, window_seconds: int) -> int:
-    store = _rate_limit_store()
-    return int(store.eval(RATE_LIMIT_INCREMENT_SCRIPT, 1, key, window_seconds))
-
-
-def _rate_limit_store():
-    configured_store = current_app.config.get("AUTH_RATE_LIMIT_STORE")
-    if configured_store is not None:
-        return configured_store
-    if "auth_rate_limit_redis" not in current_app.extensions:
-        current_app.extensions["auth_rate_limit_redis"] = Redis.from_url(
-            current_app.config["REDIS_URL"],
-            decode_responses=True,
-        )
-    return current_app.extensions["auth_rate_limit_redis"]
-
-
-def _request_source() -> str:
-    forwarded_for = request.headers.get("X-Forwarded-For", "")
-    if current_app.config.get("AUTH_TRUST_PROXY_HEADERS", False) and forwarded_for:
-        return forwarded_for.split(",", 1)[0].strip()
-    return request.remote_addr or "unknown"
 
 
 def _identity_validation_error(field: str) -> ServiceError:

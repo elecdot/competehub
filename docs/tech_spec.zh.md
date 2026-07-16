@@ -152,6 +152,8 @@ routes -> schemas -> services -> repositories -> models
 - models：定义数据库表、枚举和关系。
 - tasks：异步任务入口，调用 services，不直接复制业务规则。
 
+公开外链记录端点使用共享 Redis/Lua 限流组件按临时请求来源限流，超过窗口返回 `429`，且请求来源不写入分析表。赛事发现的可行动状态计算、排序和分页属于 services；repositories 只负责 SQL 筛选和关系加载，不反向依赖 services。
+
 ### 5.3 Blueprints
 
 首批 Blueprints：
@@ -246,8 +248,8 @@ Pinia stores：
   `logical_node_key` 用于跨修订对齐，`node_revision` 随审核通过的改期递增。
 - `competition_tags`：参考标签和适配标签。
 - `competition_tag_links`：不可变赛事修订与受控标签关系；公开读取只解析当前 `published_revision_id` 的标签快照。
-- `outbound_click_events`：隐私最小化的外链原始点击事件，保留 90 天。
-- `outbound_click_daily_stats`：按上海产品日历日期和受控维度聚合的外链点击次数。
+- `outbound_click_events`：隐私最小化的外链原始点击事件；通过 `aggregated_at` 标记已进入持久聚合，并按精确事件时间边界保留 90 天。
+- `outbound_click_daily_stats`：按上海产品日历日期和受控维度聚合的外链点击次数；PostgreSQL 周期任务在同一事务中获取 advisory lock、增量聚合未处理事件并清理过期原始行。
 - `favorites`：收藏记录。
 - `subscriptions`：订阅记录和订阅状态。
 - `reminder_settings`：用户提醒偏好。

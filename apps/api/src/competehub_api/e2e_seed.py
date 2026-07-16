@@ -215,6 +215,7 @@ def _seed_publication_fixture() -> None:
         organizer="Example University",
         source_name="Example University Notice",
         source_url="https://example.edu/notices/seeded-innovation-2025",
+        official_url="https://example.org/seeded-innovation-2025",
         summary="A deterministic published edition used by browser acceptance.",
         eligibility="Enrolled students.",
         registration_applicability="applicable",
@@ -237,6 +238,7 @@ def _seed_publication_fixture() -> None:
         organizer=edition.organizer,
         source_name=edition.source_name,
         source_url=edition.source_url,
+        official_url=edition.official_url,
         summary=edition.summary,
         eligibility=edition.eligibility,
         registration_applicability=edition.registration_applicability,
@@ -261,13 +263,26 @@ def _seed_publication_fixture() -> None:
     )
     stage.time_nodes.append(
         CompetitionTimeNode(
+            id=2002,
+            competition=edition,
+            revision=revision,
+            logical_node_key="registration-start",
+            node_revision=1,
+            node_type="registration_start",
+            occurs_at=datetime(2020, 1, 1, 0, 0, tzinfo=UTC),
+            description="Registration opens",
+            prominence="secondary",
+        )
+    )
+    stage.time_nodes.append(
+        CompetitionTimeNode(
             id=2001,
             competition=edition,
             revision=revision,
             logical_node_key="registration-deadline",
             node_revision=1,
             node_type="registration_deadline",
-            occurs_at=datetime(2026, 8, 15, 16, 0, tzinfo=UTC),
+            occurs_at=datetime(2099, 8, 15, 16, 0, tzinfo=UTC),
             description="Registration closes",
             prominence="primary",
         )
@@ -286,10 +301,63 @@ def _seed_publication_fixture() -> None:
         )
     )
     edition.published_revision = revision
+    historical_edition = Competition(
+        id=2004,
+        series=CompetitionSeries(
+            id=2004,
+            canonical_name="Seeded Historical Innovation Challenge",
+            created_by_id=1002,
+        ),
+        edition_label="2024",
+        title="Seeded Historical Innovation Challenge 2024",
+        category="innovation",
+        organizer="Example University",
+        source_name="Example University Archive",
+        source_url="https://example.edu/notices/seeded-historical-2024",
+        summary="A deterministic historical edition used by browser acceptance.",
+        eligibility="Enrolled students.",
+        registration_applicability="applicable",
+        participant_form="individual",
+        participant_forms=["individual"],
+        major_scope="selected",
+        grade_scope="selected",
+        suitable_majors=["Computer Science"],
+        suitable_grades=["Year 2"],
+        status=CompetitionStatus.ARCHIVED,
+        lifecycle_reason="Official archive notice retained for student reference.",
+        lifecycle_changed_at=decided_at,
+        created_by_id=1002,
+    )
+    historical_revision = CompetitionRevision(
+        id=2004,
+        competition=historical_edition,
+        revision_number=1,
+        revision_status=CompetitionRevisionStatus.APPROVED,
+        title=historical_edition.title,
+        category=historical_edition.category,
+        organizer=historical_edition.organizer,
+        source_name=historical_edition.source_name,
+        source_url=historical_edition.source_url,
+        summary=historical_edition.summary,
+        eligibility=historical_edition.eligibility,
+        registration_applicability=historical_edition.registration_applicability,
+        participant_forms=["individual"],
+        major_scope=historical_edition.major_scope,
+        grade_scope=historical_edition.grade_scope,
+        suitable_majors=historical_edition.suitable_majors,
+        suitable_grades=historical_edition.suitable_grades,
+        created_by_id=1002,
+        submitted_by_id=1002,
+        submitted_at=decided_at,
+        decided_at=decided_at,
+        published_at=decided_at,
+    )
+    historical_edition.published_revision = historical_revision
     db.session.add_all(
         [
             series,
             edition,
+            historical_edition,
             tag,
             ReviewRecord(
                 target_type="competition_revision",
@@ -374,6 +442,15 @@ def _seed_owned_lifecycle_engagement() -> None:
                 id=2003,
                 user_id=student_id,
                 competition_id=unpublished.id,
+                status=SubscriptionStatus.ACTIVE,
+                reminder_enabled=False,
+                remind_days=3,
+                node_types=["registration_deadline"],
+            ),
+            Subscription(
+                id=2004,
+                user_id=student_id,
+                competition_id=2004,
                 status=SubscriptionStatus.ACTIVE,
                 reminder_enabled=False,
                 remind_days=3,
