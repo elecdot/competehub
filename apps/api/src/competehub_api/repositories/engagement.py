@@ -153,22 +153,26 @@ def list_reminders(user_id: int, competition_id: int) -> list[Reminder]:
     )
 
 
-def list_active_subscriptions_for_competition(competition_id: int) -> list[Subscription]:
-    return list(
-        db.session.scalars(
-            select(Subscription).where(
-                Subscription.competition_id == competition_id,
-                Subscription.status == SubscriptionStatus.ACTIVE,
-            )
+def list_active_subscriptions_for_competition(
+    competition_id: int, *, for_update: bool = False
+) -> list[Subscription]:
+    statement = (
+        select(Subscription)
+        .where(
+            Subscription.competition_id == competition_id,
+            Subscription.status == SubscriptionStatus.ACTIVE,
         )
+        .order_by(Subscription.user_id, Subscription.id)
     )
+    if for_update:
+        statement = statement.with_for_update().execution_options(populate_existing=True)
+    return list(db.session.scalars(statement))
 
 
 def list_pending_reminders_for_competition(
     competition_id: int,
     *,
     snapshot_ids: set[int] | None = None,
-    for_update: bool = False,
 ) -> list[Reminder]:
     if snapshot_ids is not None and not snapshot_ids:
         return []

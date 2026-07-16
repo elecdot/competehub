@@ -91,6 +91,16 @@ PRIMARY_NODE_TYPES = {
     "submission_deadline",
     "competition_start",
 }
+NODE_BEHAVIOR_CHANGE_FIELDS = (
+    "stage_key",
+    "stage_type",
+    "stage_label",
+    "stage_order",
+    "node_type",
+    "occurs_at",
+    "prominence",
+    "description",
+)
 REVISION_WORKFLOW_LIFECYCLE_STATUSES = frozenset(
     {
         CompetitionStatus.UNPUBLISHED,
@@ -225,6 +235,8 @@ def create_successor_revision(
             for base_node in base_stage.time_nodes:
                 stage.time_nodes.append(
                     CompetitionTimeNode(
+                        revision=revision,
+                        competition=edition,
                         logical_node_key=base_node.logical_node_key,
                         node_revision=base_node.node_revision,
                         node_type=base_node.node_type,
@@ -385,8 +397,15 @@ def review_revision(
     action: str,
     comment: str,
 ) -> CompetitionRevision:
-    revision = get_competition_revision_for_update(revision.id)
+    revision_id = revision.id
+    competition_id = revision.competition_id
+    edition = get_competition_for_update(competition_id)
+    if edition is None:
+        raise ServiceError(HTTPStatus.NOT_FOUND, "not_found", "competition edition not found")
+    revision = get_competition_revision_for_update(revision_id)
     if revision is None:
+        raise ServiceError(HTTPStatus.NOT_FOUND, "not_found", "competition revision not found")
+    if revision.competition_id != edition.id:
         raise ServiceError(HTTPStatus.NOT_FOUND, "not_found", "competition revision not found")
     if revision.revision_status != CompetitionRevisionStatus.PENDING_REVIEW:
         raise ServiceError(
@@ -400,9 +419,6 @@ def review_revision(
             "forbidden",
             "the submitter cannot review the same revision",
         )
-    edition = get_competition_for_update(revision.competition_id)
-    if edition is None:
-        raise ServiceError(HTTPStatus.NOT_FOUND, "not_found", "competition edition not found")
     if action == "approve":
         _require_revision_workflow_lifecycle(edition)
     now = datetime.now(UTC)
@@ -468,7 +484,7 @@ def review_revision(
         revision.published_at = now
         _sync_projection(edition, revision)
         if revision.base_revision_id is not None:
-            _reconcile_subscriber_state(revision, comparison, now)
+            impact.update(_reconcile_subscriber_state(revision, comparison, now))
             _write_reconciliation_event(actor, revision, comment, comparison)
 
     revision.revision_status = revision_status
@@ -559,9 +575,8 @@ def revision_comparison(revision: CompetitionRevision) -> dict[str, list[dict[st
 def revision_impact(revision: CompetitionRevision) -> dict[str, Any]:
     visibility = "publish" if revision.base_revision_id is None else "replace"
     comparison = revision_comparison(revision)
-    node_changes = comparison["time_node_changes"]
     schedule_changes = _schedule_changes(comparison)
-    changed_keys = {change["logical_node_key"] for change in node_changes}
+    replacement_keys = _reminder_replacement_keys(comparison)
     subscriptions = engagement_repository.list_active_subscriptions_for_competition(
         revision.competition_id
     )
@@ -577,7 +592,7 @@ def revision_impact(revision: CompetitionRevision) -> dict[str, Any]:
         base_node_ids = {
             node.id
             for node in (base.time_nodes if base is not None else [])
-            if node.logical_node_key in changed_keys
+            if node.logical_node_key in replacement_keys
         }
     pending_to_supersede = engagement_repository.list_pending_reminders_for_competition(
         revision.competition_id,
@@ -588,11 +603,12 @@ def revision_impact(revision: CompetitionRevision) -> dict[str, Any]:
         1
         for subscription in subscriptions
         for node in revision.time_nodes
-        if node.logical_node_key in changed_keys
+        if node.logical_node_key in replacement_keys
         and node.node_type in (subscription.node_types or [])
         and node.occurs_at is not None
         and _aware_utc(node.occurs_at) - timedelta(days=subscription.remind_days) > now
         and subscription.reminder_enabled
+        and subscription.reminder_confirmed_at is not None
         and reminder_settings[subscription.user_id].enabled
     )
     return {
@@ -787,16 +803,8 @@ def _freeze_node_revisions(revision: CompetitionRevision) -> None:
 
 
 def _node_behavior_facts(stage: CompetitionStage, node: CompetitionTimeNode) -> tuple:
-    return (
-        stage.stage_key,
-        stage.stage_type,
-        stage.label,
-        stage.stage_order,
-        node.node_type,
-        _utc_iso(node.occurs_at),
-        node.prominence,
-        node.description,
-    )
+    facts = _node_facts(stage, node)
+    return tuple(facts[field] for field in NODE_BEHAVIOR_CHANGE_FIELDS)
 
 
 def _write_reconciliation_event(
@@ -834,6 +842,21 @@ def _schedule_changes(
     return result
 
 
+def _reminder_replacement_keys(
+    comparison: dict[str, list[dict[str, Any]]],
+) -> set[str]:
+    """Return nodes whose behavior requires a new ordinary reminder identity."""
+    replacement_keys = set()
+    for change in comparison["time_node_changes"]:
+        before = change.get("before") or {}
+        after = change.get("after") or {}
+        if change.get("change") in {"added", "removed"} or any(
+            before.get(field) != after.get(field) for field in NODE_BEHAVIOR_CHANGE_FIELDS
+        ):
+            replacement_keys.add(change["logical_node_key"])
+    return replacement_keys
+
+
 def _subscription_affected(
     subscription: Subscription,
     schedule_changes: list[dict[str, Any]],
@@ -855,60 +878,81 @@ def _reconcile_subscriber_state(
     revision: CompetitionRevision,
     comparison: dict[str, list[dict[str, Any]]],
     now: datetime,
-) -> None:
-    node_changes = comparison["time_node_changes"]
+) -> dict[str, Any]:
     schedule_changes = _schedule_changes(comparison)
-    changed_keys = {change["logical_node_key"] for change in node_changes}
+    replacement_keys = _reminder_replacement_keys(comparison)
     base = db.session.get(CompetitionRevision, revision.base_revision_id)
     base_nodes_by_key = {
         node.logical_node_key: node for node in (base.time_nodes if base is not None else [])
     }
     new_nodes_by_key = {node.logical_node_key: node for node in revision.time_nodes}
-    subscriptions = engagement_repository.list_active_subscriptions_for_competition(
+    subscription_snapshot = engagement_repository.list_active_subscriptions_for_competition(
         revision.competition_id
     )
-    reminder_settings = _required_reminder_settings(subscriptions, for_update=True)
-    unchanged_keys = (base_nodes_by_key.keys() & new_nodes_by_key.keys()) - changed_keys
-    unchanged_base_ids = {base_nodes_by_key[key].id for key in unchanged_keys}
-    unchanged_base_nodes = {
-        base_nodes_by_key[key].id: base_nodes_by_key[key] for key in unchanged_keys
+    reminder_settings = _required_reminder_settings(subscription_snapshot, for_update=True)
+    subscriptions = engagement_repository.list_active_subscriptions_for_competition(
+        revision.competition_id, for_update=True
+    )
+    reminders = engagement_repository.list_reconcilable_reminders_for_competition_for_update(
+        revision.competition_id
+    )
+    reconciled_at = datetime.now(UTC)
+    affected_subscriptions = [
+        subscription
+        for subscription in subscriptions
+        if _subscription_affected(subscription, schedule_changes)
+    ]
+    impact = {
+        "active_subscriptions": len(subscriptions),
+        "affected_active_subscriptions": len(affected_subscriptions),
+        "pending_reminders_to_supersede": 0,
+        "future_reminders_to_create": 0,
+        "schedule_change_messages_estimate": len(affected_subscriptions),
+        "as_of": reconciled_at.isoformat(),
     }
-    if unchanged_base_ids:
-        for reminder in engagement_repository.list_pending_reminders_for_competition(
-            revision.competition_id,
-            snapshot_ids=unchanged_base_ids,
-            for_update=True,
-        ):
-            base_node = unchanged_base_nodes[reminder.time_node_snapshot_id]
+    in_place_keys = (base_nodes_by_key.keys() & new_nodes_by_key.keys()) - replacement_keys
+    in_place_base_ids = {base_nodes_by_key[key].id for key in in_place_keys}
+    in_place_base_nodes = {
+        base_nodes_by_key[key].id: base_nodes_by_key[key] for key in in_place_keys
+    }
+    if in_place_base_ids:
+        for reminder in reminders:
+            if reminder.time_node_snapshot_id not in in_place_base_ids:
+                continue
+            base_node = in_place_base_nodes[reminder.time_node_snapshot_id]
             new_node = new_nodes_by_key[base_node.logical_node_key]
-            reminder.time_node_snapshot_id = new_node.id
-            reminder.logical_node_key = new_node.logical_node_key
-            reminder.time_node_revision = new_node.node_revision
-            reminder.node_type = new_node.node_type
-            reminder.title = f"{revision.title}: {new_node.node_type}"
-            reminder.body = new_node.description
+            _move_reminder_to_current_snapshot(reminder, revision, new_node)
 
-    if not node_changes:
-        return
+    if not replacement_keys:
+        return impact
     changed_base_nodes = {
-        node.id: node for key, node in base_nodes_by_key.items() if key in changed_keys
+        node.id: node for key, node in base_nodes_by_key.items() if key in replacement_keys
     }
-    for reminder in engagement_repository.list_pending_reminders_for_competition(
-        revision.competition_id,
-        snapshot_ids=set(changed_base_nodes),
-        for_update=True,
-    ):
-        reminder.status = ReminderStatus.CANCELLED
+    changed_base_ids = set(changed_base_nodes)
+    for reminder in reminders:
+        if reminder.time_node_snapshot_id not in changed_base_ids:
+            continue
+        if reminder.status == ReminderStatus.PENDING:
+            impact["pending_reminders_to_supersede"] += 1
+            revoke_pending_reminder(reminder, "competition_revision_superseded")
+        else:
+            reminder.next_attempt_at = None
         reminder.cancel_reason = "competition_revision_superseded"
 
-    changed_new_nodes = {key: node for key, node in new_nodes_by_key.items() if key in changed_keys}
+    changed_new_nodes = {
+        key: node for key, node in new_nodes_by_key.items() if key in replacement_keys
+    }
     for subscription in subscriptions:
-        if subscription.reminder_enabled and reminder_settings[subscription.user_id].enabled:
+        if (
+            subscription.reminder_enabled
+            and subscription.reminder_confirmed_at is not None
+            and reminder_settings[subscription.user_id].enabled
+        ):
             for node in changed_new_nodes.values():
                 if node.node_type not in (subscription.node_types or []) or node.occurs_at is None:
                     continue
                 due_at = _aware_utc(node.occurs_at) - timedelta(days=subscription.remind_days)
-                if due_at <= now:
+                if due_at <= reconciled_at:
                     continue
                 db.session.add(
                     Reminder(
@@ -920,11 +964,12 @@ def _reconcile_subscriber_state(
                         time_node_revision=node.node_revision,
                         node_type=node.node_type,
                         due_at=due_at,
-                        title=f"{revision.title}: {node.node_type}",
+                        title=bounded_title(revision.title, f": {node.node_type}"),
                         body=node.description,
                         status=ReminderStatus.PENDING,
                     )
                 )
+                impact["future_reminders_to_create"] += 1
         if not _subscription_affected(subscription, schedule_changes):
             continue
         idempotency_key = f"competition_revision:{revision.id}:time_changed"
@@ -938,6 +983,7 @@ def _reconcile_subscriber_state(
             body_snapshot="Review the updated competition timeline.",
             reason_summary="Competition timeline changed.",
         )
+    return impact
 
 
 def _required_reminder_settings(
@@ -961,6 +1007,19 @@ def _required_reminder_settings(
             )
         settings[subscription.user_id] = setting
     return settings
+
+
+def _move_reminder_to_current_snapshot(
+    reminder: Reminder,
+    revision: CompetitionRevision,
+    node: CompetitionTimeNode,
+) -> None:
+    reminder.time_node_snapshot_id = node.id
+    reminder.logical_node_key = node.logical_node_key
+    reminder.time_node_revision = node.node_revision
+    reminder.node_type = node.node_type
+    reminder.title = bounded_title(revision.title, f": {node.node_type}")
+    reminder.body = node.description
 
 
 def _aware_utc(value: datetime) -> datetime:

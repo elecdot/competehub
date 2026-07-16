@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -13,11 +13,17 @@ from competehub_api.models import (
     Reminder,
     ReminderSetting,
     ReviewRecord,
+    StudentProfile,
     Subscription,
     User,
 )
-from competehub_api.models.enums import ReminderStatus, UserRole
+from competehub_api.models.enums import ReminderStatus, SubscriptionStatus, UserRole
 from competehub_api.services.auth import start_session
+from competehub_api.services.reminder_delivery import (
+    dispatch_due_reminders,
+    requeue_failed_reminders,
+)
+from competehub_api.timezones import stored_datetime_as_utc
 
 
 def create_user(
@@ -431,6 +437,7 @@ def test_distinct_reviewer_atomically_publishes_without_mutating_snapshot(client
 def test_successor_revision_keeps_public_snapshot_until_approval_and_reconciles_nodes(
     client, app
 ) -> None:
+    max_title = "T" * 255
     with app.app_context():
         editor_id = create_user(
             31, UserRole.ADMIN, "successor-editor@example.edu", ["competition_editor"]
@@ -441,6 +448,9 @@ def test_successor_revision_keeps_public_snapshot_until_approval_and_reconciles_
         student_id = create_user(33, UserRole.STUDENT, "successor-student@example.edu")
         disabled_student_id = create_user(
             37, UserRole.STUDENT, "successor-disabled-student@example.edu"
+        )
+        unconfirmed_student_id = create_user(
+            41, UserRole.STUDENT, "successor-unconfirmed-student@example.edu"
         )
     login(client, editor_id)
     series_id = create_series(client)
@@ -464,6 +474,7 @@ def test_successor_revision_keeps_public_snapshot_until_approval_and_reconciles_
             [
                 ReminderSetting(id=1, user_id=student_id, enabled=True),
                 ReminderSetting(id=2, user_id=disabled_student_id, enabled=False),
+                ReminderSetting(id=3, user_id=unconfirmed_student_id, enabled=True),
             ]
         )
         db.session.add(
@@ -474,6 +485,7 @@ def test_successor_revision_keeps_public_snapshot_until_approval_and_reconciles_
                 reminder_enabled=True,
                 remind_days=3,
                 node_types=["registration_deadline"],
+                reminder_confirmed_at=datetime(2026, 7, 1, tzinfo=UTC),
             )
         )
         db.session.add(
@@ -484,6 +496,18 @@ def test_successor_revision_keeps_public_snapshot_until_approval_and_reconciles_
                 reminder_enabled=True,
                 remind_days=3,
                 node_types=["registration_deadline"],
+                reminder_confirmed_at=datetime(2026, 7, 1, tzinfo=UTC),
+            )
+        )
+        db.session.add(
+            Subscription(
+                id=3,
+                user_id=unconfirmed_student_id,
+                competition_id=edition_id,
+                reminder_enabled=True,
+                remind_days=3,
+                node_types=["registration_deadline"],
+                reminder_confirmed_at=None,
             )
         )
         db.session.add(
@@ -512,6 +536,9 @@ def test_successor_revision_keeps_public_snapshot_until_approval_and_reconciles_
                 due_at=datetime(2026, 8, 12, 16, tzinfo=UTC),
                 title="Globally disabled old deadline reminder",
                 status=ReminderStatus.PENDING,
+                attempt_count=1,
+                failed_at=datetime(2026, 8, 10, 16, tzinfo=UTC),
+                last_error_code="message_persistence_unavailable",
             )
         )
         db.session.commit()
@@ -568,13 +595,13 @@ def test_successor_revision_keeps_public_snapshot_until_approval_and_reconciles_
 
     updated = client.patch(
         f"/api/v1/admin/competition_revisions/{successor_id}",
-        json={"stages": stages},
+        json={"title": max_title, "stages": stages},
     )
     assert updated.status_code == 200
-    assert updated.get_json()["data"]["impact"]["affected_active_subscriptions"] == 2
+    assert updated.get_json()["data"]["impact"]["affected_active_subscriptions"] == 3
     assert updated.get_json()["data"]["impact"]["pending_reminders_to_supersede"] == 2
     assert updated.get_json()["data"]["impact"]["future_reminders_to_create"] == 1
-    assert updated.get_json()["data"]["impact"]["schedule_change_messages_estimate"] == 2
+    assert updated.get_json()["data"]["impact"]["schedule_change_messages_estimate"] == 3
     assert (
         client.post(f"/api/v1/admin/competition_revisions/{successor_id}/submit_review").status_code
         == 200
@@ -643,20 +670,58 @@ def test_successor_revision_keeps_public_snapshot_until_approval_and_reconciles_
         reminders = Reminder.query.filter_by(competition_id=edition_id).order_by(Reminder.id).all()
         assert [reminder.status for reminder in reminders] == [
             ReminderStatus.CANCELLED,
-            ReminderStatus.CANCELLED,
+            ReminderStatus.FAILED,
             ReminderStatus.PENDING,
         ]
         assert reminders[0].cancel_reason == "competition_revision_superseded"
         assert reminders[1].cancel_reason == "competition_revision_superseded"
+        assert reminders[1].attempt_count == 1
+        assert reminders[1].failed_at is not None
+        assert reminders[1].last_error_code == "message_persistence_unavailable"
         assert reminders[2].user_id == student_id
         assert reminders[2].time_node_snapshot_id == changed_deadline["id"]
         assert reminders[2].logical_node_key == changed_deadline["logical_node_key"]
         assert reminders[2].time_node_revision == changed_deadline["node_revision"]
-        messages = Message.query.filter_by(
-            competition_id=edition_id,
-            message_type="competition_time_changed",
-        ).all()
-        assert {message.user_id for message in messages} == {student_id, disabled_student_id}
+        assert reminders[2].user_id != unconfirmed_student_id
+        assert len(reminders[2].title) == 255
+        assert reminders[2].title.endswith(": registration_deadline")
+        messages = (
+            Message.query.filter_by(
+                competition_id=edition_id,
+                message_type="competition_time_changed",
+            )
+            .order_by(Message.user_id)
+            .all()
+        )
+        assert {message.user_id for message in messages} == {
+            student_id,
+            disabled_student_id,
+            unconfirmed_student_id,
+        }
+        successor_revision = db.session.get(CompetitionRevision, successor_id)
+        assert successor_revision is not None
+        assert successor_revision.decided_at is not None
+        assert successor_revision.published_at is not None
+        expected_event_at = stored_datetime_as_utc(successor_revision.decided_at)
+        assert stored_datetime_as_utc(successor_revision.published_at) == expected_event_at
+        for message in messages:
+            assert message.reminder_id is None
+            assert message.idempotency_key == (f"competition_revision:{successor_id}:time_changed")
+            assert stored_datetime_as_utc(message.event_occurred_at) == expected_event_at
+            assert len(message.title_snapshot) == 255
+            assert message.title_snapshot.endswith(" schedule changed")
+            assert message.body_snapshot == "Review the updated competition timeline."
+            assert message.target_snapshot == {
+                "competition_id": edition_id,
+                "competition_title": max_title,
+                "node_type": None,
+                "node_occurs_at": None,
+                "reason_summary": "Competition timeline changed.",
+            }
+            assert (
+                stored_datetime_as_utc(message.retained_until)
+                - stored_datetime_as_utc(message.created_at)
+            ) == timedelta(days=365)
 
 
 @pytest.mark.parametrize("presentation_change", ["stage_metadata", "description"])
@@ -698,6 +763,7 @@ def test_presentation_only_revision_moves_pending_reminder_without_schedule_mess
                 reminder_enabled=True,
                 remind_days=3,
                 node_types=["registration_deadline"],
+                reminder_confirmed_at=datetime(2026, 7, 1, tzinfo=UTC),
             )
         )
         db.session.add(ReminderSetting(id=3, user_id=student_id, enabled=True))
@@ -862,6 +928,311 @@ def test_presentation_only_revision_moves_pending_reminder_without_schedule_mess
         )
 
 
+def test_override_reason_only_revision_refreshes_pending_reminder_in_place(client, app) -> None:
+    with app.app_context():
+        editor_id = create_user(
+            137,
+            UserRole.ADMIN,
+            "override-reason-editor@example.edu",
+            ["competition_editor"],
+        )
+        reviewer_id = create_user(
+            138,
+            UserRole.ADMIN,
+            "override-reason-reviewer@example.edu",
+            ["competition_reviewer"],
+        )
+        student_id = create_user(
+            139,
+            UserRole.STUDENT,
+            "override-reason-student@example.edu",
+        )
+
+    login(client, editor_id)
+    payload = complete_edition_payload(create_series(client))
+    opening_payload = next(
+        node
+        for stage in payload["stages"]
+        for node in stage["time_nodes"]
+        if node["logical_node_key"] == "registration-open"
+    )
+    opening_payload["prominence"] = "primary"
+    opening_payload["prominence_override_reason"] = (
+        "Official source presents registration opening as a primary milestone."
+    )
+    deadline_payload = next(
+        node
+        for stage in payload["stages"]
+        for node in stage["time_nodes"]
+        if node["logical_node_key"] == "registration-deadline"
+    )
+    deadline_payload["prominence"] = "secondary"
+    deadline_payload["prominence_override_reason"] = (
+        "Official source initially presents this deadline as secondary."
+    )
+    created = client.post("/api/v1/admin/competitions", json=payload).get_json()["data"]
+    edition_id = created["id"]
+    initial_revision_id = created["revision"]["id"]
+    submitted = client.post(
+        f"/api/v1/admin/competition_revisions/{initial_revision_id}/submit_review"
+    )
+    assert submitted.status_code == 200, submitted.get_json()
+    login(client, reviewer_id)
+    assert (
+        client.post(
+            f"/api/v1/admin/competition_revisions/{initial_revision_id}/review",
+            json={"action": "approve", "comment": "Initial source verified."},
+        ).status_code
+        == 200
+    )
+
+    with app.app_context():
+        initial = db.session.get(CompetitionRevision, initial_revision_id)
+        assert initial is not None
+        deadline = next(
+            node for node in initial.time_nodes if node.logical_node_key == "registration-deadline"
+        )
+        original_snapshot_id = deadline.id
+        original_node_revision = deadline.node_revision
+        original_due_at = datetime(2026, 8, 12, 16, tzinfo=UTC)
+        db.session.add_all(
+            [
+                ReminderSetting(id=137, user_id=student_id, enabled=True),
+                Subscription(
+                    id=137,
+                    user_id=student_id,
+                    competition_id=edition_id,
+                    reminder_enabled=True,
+                    remind_days=3,
+                    node_types=["registration_deadline"],
+                    reminder_confirmed_at=datetime(2026, 7, 1, tzinfo=UTC),
+                ),
+                Reminder(
+                    id=137,
+                    user_id=student_id,
+                    competition_id=edition_id,
+                    time_node_snapshot_id=deadline.id,
+                    logical_node_key=deadline.logical_node_key,
+                    time_node_revision=deadline.node_revision,
+                    node_type=deadline.node_type,
+                    due_at=original_due_at,
+                    title="Original registration reminder",
+                    status=ReminderStatus.PENDING,
+                ),
+            ]
+        )
+        db.session.commit()
+
+    login(client, editor_id)
+    successor = client.post(
+        f"/api/v1/admin/competitions/{edition_id}/revisions",
+        json={"reason": "Clarify the prominence override evidence."},
+    ).get_json()["data"]
+    successor_id = successor["id"]
+    stages = successor["stages"]
+    successor_deadline = next(
+        node
+        for stage in stages
+        for node in stage["time_nodes"]
+        if node["logical_node_key"] == "registration-deadline"
+    )
+    successor_deadline["prominence_override_reason"] = (
+        "Official source clarification still presents this deadline as secondary."
+    )
+    for stage in stages:
+        stage.pop("id", None)
+        for node in stage["time_nodes"]:
+            node.pop("id", None)
+            node.pop("node_revision", None)
+
+    updated = client.patch(
+        f"/api/v1/admin/competition_revisions/{successor_id}",
+        json={"stages": stages},
+    )
+    assert updated.status_code == 200
+    updated_data = updated.get_json()["data"]
+    reason_change = next(
+        change
+        for change in updated_data["comparison"]["time_node_changes"]
+        if change["logical_node_key"] == "registration-deadline"
+    )
+    assert reason_change["before"]["node_revision"] == original_node_revision
+    assert reason_change["after"]["node_revision"] == original_node_revision
+    assert updated_data["impact"]["pending_reminders_to_supersede"] == 0
+    assert updated_data["impact"]["future_reminders_to_create"] == 0
+    assert updated_data["impact"]["schedule_change_messages_estimate"] == 0
+    assert (
+        client.post(f"/api/v1/admin/competition_revisions/{successor_id}/submit_review").status_code
+        == 200
+    )
+
+    login(client, reviewer_id)
+    approved = client.post(
+        f"/api/v1/admin/competition_revisions/{successor_id}/review",
+        json={"action": "approve", "comment": "Override evidence verified."},
+    )
+    assert approved.status_code == 200
+
+    with app.app_context():
+        revision = db.session.get(CompetitionRevision, successor_id)
+        assert revision is not None
+        current_deadline = next(
+            node for node in revision.time_nodes if node.logical_node_key == "registration-deadline"
+        )
+        assert current_deadline.id != original_snapshot_id
+        assert current_deadline.node_revision == original_node_revision
+        reminders = Reminder.query.filter_by(
+            user_id=student_id,
+            competition_id=edition_id,
+        ).all()
+        assert len(reminders) == 1
+        reminder = reminders[0]
+        assert reminder.id == 137
+        assert reminder.status == ReminderStatus.PENDING
+        assert reminder.cancel_reason is None
+        assert reminder.time_node_snapshot_id == current_deadline.id
+        assert reminder.time_node_revision == original_node_revision
+        assert stored_datetime_as_utc(reminder.due_at) == original_due_at
+        review = ReviewRecord.query.filter_by(target_id=successor_id).one()
+        assert review.impact["pending_reminders_to_supersede"] == 0
+        assert review.impact["future_reminders_to_create"] == 0
+        assert (
+            Message.query.filter_by(
+                competition_id=edition_id,
+                message_type="competition_time_changed",
+            ).count()
+            == 0
+        )
+
+
+def test_unchanged_node_moves_retryable_failed_snapshot_and_preserves_retry_evidence(
+    client, app
+) -> None:
+    with app.app_context():
+        editor_id = create_user(
+            134, UserRole.ADMIN, "failed-move-editor@example.edu", ["competition_editor"]
+        )
+        reviewer_id = create_user(
+            135,
+            UserRole.ADMIN,
+            "failed-move-reviewer@example.edu",
+            ["competition_reviewer"],
+        )
+        student_id = create_user(136, UserRole.STUDENT, "failed-move-student@example.edu")
+    login(client, editor_id)
+    created = create_edition(client, create_series(client))
+    edition_id = created["id"]
+    initial_revision_id = created["revision"]["id"]
+    assert (
+        client.post(
+            f"/api/v1/admin/competition_revisions/{initial_revision_id}/submit_review"
+        ).status_code
+        == 200
+    )
+    with app.app_context():
+        initial = db.session.get(CompetitionRevision, initial_revision_id)
+        deadline = next(
+            node for node in initial.time_nodes if node.logical_node_key == "registration-deadline"
+        )
+        original_snapshot_id = deadline.id
+        retry_at = datetime(2026, 8, 12, 16, tzinfo=UTC)
+        failed_at = datetime(2026, 8, 12, 15, 59, tzinfo=UTC)
+        db.session.add_all(
+            [
+                Subscription(
+                    id=136,
+                    user_id=student_id,
+                    competition_id=edition_id,
+                    status=SubscriptionStatus.ACTIVE,
+                    reminder_enabled=True,
+                    remind_days=3,
+                    node_types=["registration_deadline"],
+                    reminder_confirmed_at=datetime(2026, 7, 1, tzinfo=UTC),
+                ),
+                ReminderSetting(id=136, user_id=student_id, enabled=True),
+                Reminder(
+                    id=136,
+                    user_id=student_id,
+                    competition_id=edition_id,
+                    time_node_snapshot_id=deadline.id,
+                    logical_node_key=deadline.logical_node_key,
+                    time_node_revision=deadline.node_revision,
+                    node_type=deadline.node_type,
+                    due_at=retry_at,
+                    title="Original failed reminder",
+                    body="Original body",
+                    status=ReminderStatus.FAILED,
+                    attempt_count=1,
+                    next_attempt_at=retry_at,
+                    last_error_code="message_persistence_unavailable",
+                    failed_at=failed_at,
+                ),
+            ]
+        )
+        db.session.commit()
+
+    login(client, reviewer_id)
+    assert (
+        client.post(
+            f"/api/v1/admin/competition_revisions/{initial_revision_id}/review",
+            json={"action": "approve", "comment": "Initial facts verified."},
+        ).status_code
+        == 200
+    )
+    login(client, editor_id)
+    successor = client.post(
+        f"/api/v1/admin/competitions/{edition_id}/revisions",
+        json={"reason": "Clarify the competition title only."},
+    ).get_json()["data"]
+    successor_id = successor["id"]
+    assert (
+        client.patch(
+            f"/api/v1/admin/competition_revisions/{successor_id}",
+            json={"title": "National AI Innovation Challenge — clarified"},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(f"/api/v1/admin/competition_revisions/{successor_id}/submit_review").status_code
+        == 200
+    )
+    login(client, reviewer_id)
+    assert (
+        client.post(
+            f"/api/v1/admin/competition_revisions/{successor_id}/review",
+            json={"action": "approve", "comment": "Title clarification verified."},
+        ).status_code
+        == 200
+    )
+
+    with app.app_context():
+        successor_revision = db.session.get(CompetitionRevision, successor_id)
+        current_deadline = next(
+            node
+            for stage in successor_revision.stages
+            for node in stage.time_nodes
+            if node.logical_node_key == "registration-deadline"
+        )
+        reminder = db.session.get(Reminder, 136)
+        assert current_deadline.id != original_snapshot_id
+        assert reminder.status == ReminderStatus.FAILED
+        assert reminder.time_node_snapshot_id == current_deadline.id
+        assert reminder.attempt_count == 1
+        assert reminder.last_error_code == "message_persistence_unavailable"
+        assert reminder.failed_at is not None
+        assert reminder.next_attempt_at is not None
+        assert reminder.title == f"{successor_revision.title}: {current_deadline.node_type}"
+
+        assert requeue_failed_reminders(now=retry_at) == {"requeued": 1, "suppressed": 0}
+        assert dispatch_due_reminders(now=retry_at) == {
+            "dispatched": 1,
+            "cancelled": 0,
+            "failed": 0,
+        }
+        assert db.session.get(Reminder, 136).status == ReminderStatus.SENT
+        assert Message.query.filter_by(reminder_id=136).count() == 1
+
+
 def test_replacement_approval_is_atomic_when_reminder_setting_is_missing(client, app) -> None:
     with app.app_context():
         editor_id = create_user(
@@ -927,6 +1298,7 @@ def test_replacement_approval_is_atomic_when_reminder_setting_is_missing(client,
 
 
 def test_historical_lifecycle_detail_keeps_warning_while_offline_returns_404(client, app) -> None:
+    max_title = "L" * 255
     with app.app_context():
         editor_id = create_user(
             41,
@@ -942,6 +1314,13 @@ def test_historical_lifecycle_detail_keeps_warning_while_offline_returns_404(cli
     edition = create_edition(client, create_series(client))
     edition_id = edition["id"]
     revision_id = edition["revision"]["id"]
+    assert (
+        client.patch(
+            f"/api/v1/admin/competition_revisions/{revision_id}",
+            json={"title": max_title},
+        ).status_code
+        == 200
+    )
     assert (
         client.post(f"/api/v1/admin/competition_revisions/{revision_id}/submit_review").status_code
         == 200
@@ -1015,7 +1394,32 @@ def test_historical_lifecycle_detail_keeps_warning_while_offline_returns_404(cli
             message_type="competition_cancelled",
         ).all()
         assert len(messages) == 1
-        assert messages[0].user_id == student_id
+        message = messages[0]
+        competition = db.session.get(Competition, edition_id)
+        assert competition is not None
+        assert competition.lifecycle_changed_at is not None
+        assert message.user_id == student_id
+        assert message.reminder_id is None
+        assert message.idempotency_key == (
+            f"competition:{edition_id}:published_revision:{revision_id}:cancelled"
+        )
+        assert stored_datetime_as_utc(message.event_occurred_at) == (
+            stored_datetime_as_utc(competition.lifecycle_changed_at)
+        )
+        assert len(message.title_snapshot) == 255
+        assert message.title_snapshot.endswith(" is cancelled")
+        assert message.body_snapshot == "Organizer cancelled the 2026 edition."
+        assert message.target_snapshot == {
+            "competition_id": edition_id,
+            "competition_title": max_title,
+            "node_type": None,
+            "node_occurs_at": None,
+            "reason_summary": "Organizer cancelled the 2026 edition.",
+        }
+        assert (
+            stored_datetime_as_utc(message.retained_until)
+            - stored_datetime_as_utc(message.created_at)
+        ) == timedelta(days=365)
 
 
 def test_emergency_offline_cannot_flip_back_but_approved_successor_restores_publication(
@@ -1031,9 +1435,102 @@ def test_emergency_offline_cannot_flip_back_but_approved_successor_restores_publ
         reviewer_id = create_user(
             52, UserRole.ADMIN, "offline-reviewer@example.edu", ["competition_reviewer"]
         )
+        student_id = create_user(53, UserRole.STUDENT, "offline-student@example.edu")
     login(client, editor_id)
     edition = create_published_edition(client, editor_id, reviewer_id)
     edition_id = edition["id"]
+    initial_revision_id = edition["revision"]["id"]
+    with app.app_context():
+        initial_revision = db.session.get(CompetitionRevision, initial_revision_id)
+        assert initial_revision is not None
+        initial_deadline = next(
+            node
+            for node in initial_revision.time_nodes
+            if node.logical_node_key == "registration-deadline"
+        )
+        initial_open = next(
+            node
+            for node in initial_revision.time_nodes
+            if node.logical_node_key == "registration-open"
+        )
+        db.session.add_all(
+            [
+                StudentProfile(
+                    id=53,
+                    user_id=student_id,
+                    interest_tags=[],
+                    goal_preferences=[],
+                    blocked_tags=[],
+                ),
+                ReminderSetting(id=53, user_id=student_id, enabled=True),
+            ]
+        )
+        db.session.add(
+            Subscription(
+                id=53,
+                user_id=student_id,
+                competition_id=edition_id,
+                status=SubscriptionStatus.ACTIVE,
+                reminder_enabled=True,
+                remind_days=3,
+                node_types=["registration_deadline"],
+                reminder_confirmed_at=datetime.now(UTC),
+            )
+        )
+        db.session.add(
+            Reminder(
+                id=53,
+                user_id=student_id,
+                competition_id=edition_id,
+                time_node_snapshot_id=initial_deadline.id,
+                logical_node_key=initial_deadline.logical_node_key,
+                time_node_revision=initial_deadline.node_revision,
+                node_type=initial_deadline.node_type,
+                due_at=stored_datetime_as_utc(initial_deadline.occurs_at) - timedelta(days=3),
+                title="Offline-sensitive reminder",
+                status=ReminderStatus.PENDING,
+            )
+        )
+        db.session.add(
+            Reminder(
+                id=54,
+                user_id=student_id,
+                competition_id=edition_id,
+                time_node_snapshot_id=initial_open.id,
+                logical_node_key=initial_open.logical_node_key,
+                time_node_revision=initial_open.node_revision,
+                node_type=initial_open.node_type,
+                due_at=stored_datetime_as_utc(initial_open.occurs_at) - timedelta(days=3),
+                title="Requeued offline-sensitive reminder",
+                status=ReminderStatus.PENDING,
+                attempt_count=1,
+                failed_at=datetime.now(UTC) - timedelta(minutes=1),
+                last_error_code="message_persistence_unavailable",
+            )
+        )
+        db.session.commit()
+        initial_deadline_id = initial_deadline.id
+        initial_node_revision = initial_deadline.node_revision
+    login(client, student_id)
+    assert (
+        client.patch("/api/v1/me/preferences", json={"message_enabled": False}).status_code == 200
+    )
+    with app.app_context():
+        globally_cancelled = db.session.get(Reminder, 53)
+        assert globally_cancelled.status == ReminderStatus.CANCELLED
+        assert globally_cancelled.cancel_reason == "global_reminder_disabled"
+        requeued = db.session.get(Reminder, 54)
+        assert requeued.status == ReminderStatus.FAILED
+        assert requeued.attempt_count == 1
+        assert requeued.last_error_code == "message_persistence_unavailable"
+        assert requeued.cancel_reason == "global_reminder_disabled"
+        # Reproduce the retry worker's FAILED -> PENDING window before lifecycle
+        # authority changes. The retained failure fields distinguish this from a
+        # never-attempted pending plan.
+        requeued.status = ReminderStatus.PENDING
+        requeued.cancel_reason = None
+        db.session.commit()
+    login(client, editor_id)
     assert (
         client.patch(
             f"/api/v1/admin/competitions/{edition_id}/status",
@@ -1041,6 +1538,13 @@ def test_emergency_offline_cannot_flip_back_but_approved_successor_restores_publ
         ).status_code
         == 200
     )
+    with app.app_context():
+        first_offline_competition = db.session.get(Competition, edition_id)
+        assert first_offline_competition is not None
+        assert first_offline_competition.lifecycle_changed_at is not None
+        first_offline_changed_at = stored_datetime_as_utc(
+            first_offline_competition.lifecycle_changed_at
+        )
     assert client.get(f"/api/v1/competitions/{edition_id}").status_code == 404
     direct_restore = client.patch(
         f"/api/v1/admin/competitions/{edition_id}/status",
@@ -1048,10 +1552,12 @@ def test_emergency_offline_cannot_flip_back_but_approved_successor_restores_publ
     )
     assert direct_restore.status_code == 409
 
-    unchanged = client.post(
+    unchanged_response = client.post(
         f"/api/v1/admin/competitions/{edition_id}/revisions",
         json={"reason": "Recheck the withdrawn public facts."},
-    ).get_json()["data"]
+    )
+    assert unchanged_response.status_code == 201, unchanged_response.get_json()
+    unchanged = unchanged_response.get_json()["data"]
     unchanged_id = unchanged["id"]
     assert (
         client.post(f"/api/v1/admin/competition_revisions/{unchanged_id}/submit_review").status_code
@@ -1104,6 +1610,108 @@ def test_emergency_offline_cannot_flip_back_but_approved_successor_restores_publ
     assert restored.get_json()["data"]["revision_id"] == successor_id
     assert restored.get_json()["data"]["status"] == "published"
     assert restored.get_json()["data"]["official_url"] == "https://safe.example.org/ai-2026"
+
+    with app.app_context():
+        successor_revision = db.session.get(CompetitionRevision, successor_id)
+        successor_deadline = next(
+            node
+            for node in successor_revision.time_nodes
+            if node.logical_node_key == "registration-deadline"
+        )
+        assert successor_deadline.id != initial_deadline_id
+        assert successor_deadline.node_revision == initial_node_revision
+        terminal = db.session.get(Reminder, 53)
+        assert terminal.status == ReminderStatus.CANCELLED
+        assert terminal.cancel_reason == "competition_offline"
+        requeued = db.session.get(Reminder, 54)
+        assert requeued.status == ReminderStatus.FAILED
+        assert requeued.attempt_count == 1
+        assert requeued.failed_at is not None
+        assert requeued.last_error_code == "message_persistence_unavailable"
+        assert requeued.next_attempt_at is None
+        assert requeued.cancel_reason == "competition_offline"
+
+    login(client, student_id)
+    assert client.patch("/api/v1/me/preferences", json={"message_enabled": True}).status_code == 200
+    with app.app_context():
+        terminal = db.session.get(Reminder, 53)
+        assert terminal.status == ReminderStatus.CANCELLED
+        assert terminal.cancel_reason == "competition_offline"
+        requeued = db.session.get(Reminder, 54)
+        assert requeued.status == ReminderStatus.FAILED
+        assert requeued.cancel_reason == "competition_offline"
+        assert requeued.attempt_count == 1
+        assert requeued.last_error_code == "message_persistence_unavailable"
+        assert (
+            Reminder.query.filter_by(
+                user_id=student_id,
+                competition_id=edition_id,
+                status=ReminderStatus.PENDING,
+            ).count()
+            == 0
+        )
+
+    login(client, editor_id)
+    assert (
+        client.patch(
+            f"/api/v1/admin/competitions/{edition_id}/status",
+            json={"status": "offline", "reason": "Replacement link was also withdrawn."},
+        ).status_code
+        == 200
+    )
+    with app.app_context():
+        messages = (
+            Message.query.filter_by(
+                user_id=student_id,
+                competition_id=edition_id,
+                message_type="competition_offline",
+            )
+            .order_by(Message.id)
+            .all()
+        )
+        assert len(messages) == 2
+        assert [message.idempotency_key for message in messages] == [
+            f"competition:{edition_id}:published_revision:{initial_revision_id}:offline",
+            f"competition:{edition_id}:published_revision:{successor_id}:offline",
+        ]
+        competition = db.session.get(Competition, edition_id)
+        assert competition is not None
+        assert competition.lifecycle_changed_at is not None
+        assert [message.reminder_id for message in messages] == [None, None]
+        assert [stored_datetime_as_utc(message.event_occurred_at) for message in messages] == [
+            first_offline_changed_at,
+            stored_datetime_as_utc(competition.lifecycle_changed_at),
+        ]
+        assert [message.title_snapshot for message in messages] == [
+            "National AI Innovation Challenge is offline",
+            "National AI Innovation Challenge is offline",
+        ]
+        assert [message.body_snapshot for message in messages] == [
+            "Official link was hijacked.",
+            "Replacement link was also withdrawn.",
+        ]
+        assert [message.target_snapshot for message in messages] == [
+            {
+                "competition_id": edition_id,
+                "competition_title": "National AI Innovation Challenge",
+                "node_type": None,
+                "node_occurs_at": None,
+                "reason_summary": "Official link was hijacked.",
+            },
+            {
+                "competition_id": edition_id,
+                "competition_title": "National AI Innovation Challenge",
+                "node_type": None,
+                "node_occurs_at": None,
+                "reason_summary": "Replacement link was also withdrawn.",
+            },
+        ]
+        assert all(
+            stored_datetime_as_utc(message.retained_until)
+            - stored_datetime_as_utc(message.created_at)
+            == timedelta(days=365)
+            for message in messages
+        )
 
 
 def test_emergency_offline_rejects_candidate_submitted_before_withdrawal(client, app) -> None:

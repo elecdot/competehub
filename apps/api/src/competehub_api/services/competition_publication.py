@@ -134,11 +134,19 @@ def _apply_lifecycle_effects(
     now: datetime,
 ) -> dict:
     impact = lifecycle_impact(competition)
-    for reminder in engagement_repository.list_pending_reminders_for_competition(
-        competition.id, for_update=True
-    ):
-        reminder.status = ReminderStatus.CANCELLED
+    reminders = engagement_repository.list_reconcilable_reminders_for_competition_for_update(
+        competition.id,
+        cancelled_reasons=set(engagement_repository.RECLASSIFIABLE_CANCEL_REASONS),
+    )
+    cancelled_pending = 0
+    for reminder in reminders:
+        if reminder.status == ReminderStatus.PENDING:
+            cancelled_pending += 1
+            revoke_pending_reminder(reminder, f"competition_{status.value}")
+        elif reminder.status == ReminderStatus.FAILED:
+            reminder.next_attempt_at = None
         reminder.cancel_reason = f"competition_{status.value}"
+    impact["pending_reminders_to_cancel"] = cancelled_pending
 
     if status not in {CompetitionStatus.CANCELLED, CompetitionStatus.OFFLINE}:
         return impact
