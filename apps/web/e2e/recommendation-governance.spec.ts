@@ -133,6 +133,7 @@ test.describe('student governance access boundary', () => {
     const apiResponse = await actorPage.request.get('/api/v1/admin/recommendation_rule_sets')
     expect(apiResponse.status()).toBe(403)
     await actorPage.goto('/admin/recommendation-rule-sets')
-    await expect(actorPage.getByText('无权访问推荐规则治理', { exact: true })).toBeVisible()
+    await expect(actorPage).toHaveURL(/\/competitions$/)
+    await expect(actorPage.getByRole('heading', { name: '推荐规则治理' })).toHaveCount(0)
   })
 })
