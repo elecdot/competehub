@@ -1245,5 +1245,7 @@ Search can start with PostgreSQL filters and simple text matching. Add a dedicat
 - `seed-e2e --reset` provisions distinct student/editor/reviewer actors,
   recommendation governance, engagement lifecycle records, and published and
   historical public-detail fixtures with immutable revisions, staged nodes, and
-  controlled official-link evidence. It is isolated browser-test data, not a
-  production backfill.
+  controlled official-link evidence. A dedicated calendar-acceptance student
+  owns reminder-disabled active subscriptions to one same-day staged-node
+  fixture and one historical unavailable target. It is isolated browser-test
+  data, not a production backfill.

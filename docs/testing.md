@@ -105,9 +105,10 @@ just web-e2e
 The underlying project command, also used by CI, is
 `npm --prefix apps/web run test:e2e`. It rebuilds only the isolated
 `.cache/tmp/competehub-e2e.db` database and provisions distinct Day 1 student,
-editor, and reviewer accounts through controlled test setup. Actor fixtures use
-the real login endpoint and browser Cookie state; they do not inject privileged
-frontend state or imply that public registration bypasses verification.
+calendar-acceptance student, editor, and reviewer accounts through controlled
+test setup. Actor fixtures use the real login endpoint and browser Cookie state;
+they do not inject privileged frontend state or imply that public registration
+bypasses verification.
 
 The harness runs the same Chromium scenarios in desktop and mobile viewports
 and treats uncaught page errors and browser console errors as failures.
@@ -122,6 +123,14 @@ warnings and owned cancellation, direct official-link navigation when the
 best-effort tracking request fails, and list/detail loading, empty, and error
 states. They run in desktop and mobile projects against the deterministic E2E
 seed except for controlled state-response interception.
+
+The personal-calendar scenario uses a dedicated student with reminder-disabled
+active subscriptions to immutable published-revision nodes plus one historical
+unavailable target. In both desktop and mobile projects it proves viewport
+defaults, month/week/list switching, retained choice after reload, identical
+node facts across views, primary/current/nearest/pair/revision semantics,
+same-day overflow, unavailable-target behavior, responsive containment, and
+SPA detail navigation without intercepting the calendar API.
 
 The recommendation-governance acceptance path logs in through real Cookie
 sessions as the seeded editor, clones active v1, edits and previews against a
@@ -147,8 +156,8 @@ revision snapshots, cancelled/offline future suppression, unavailable detail
 targets, deterministic same-day ordering, and Owner-aligned current-stage
 derivation from all current-revision nodes including equal-time and all-elapsed
 cases. Browser view defaults, switching, retention, responsive layout, and
-same-day expansion remain Playwright evidence owned by Issue #41's later
-frontend slices.
+same-day expansion are covered by `apps/web/e2e/personal-calendar.spec.ts`
+against the deterministic seed in both Chromium projects.
 
 Migration tests always exercise fresh, empty-predecessor, and populated
 fail-closed paths on SQLite. The equivalent disposable PostgreSQL cases run only

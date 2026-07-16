@@ -45,7 +45,7 @@ def test_e2e_seed_rebuilds_the_expected_actor_set() -> None:
     result = runner.invoke(args=["seed-e2e", "--reset"])
 
     assert result.exit_code == 0
-    assert "Provisioned 6 deterministic E2E actors." in result.output
+    assert "Provisioned 7 deterministic E2E actors." in result.output
 
     with app.app_context():
         db.session.add(
@@ -128,12 +128,34 @@ def test_e2e_seed_rebuilds_the_expected_actor_set() -> None:
         offline_favorite = db.session.get(Favorite, 2002)
         unpublished_subscription = db.session.get(Subscription, 2003)
         historical_subscription = db.session.get(Subscription, 2004)
+        calendar_edition = db.session.get(Competition, 2005)
+        calendar_revision = db.session.get(CompetitionRevision, 2005)
+        calendar_subscription = db.session.get(Subscription, 2005)
+        offline_calendar_subscription = db.session.get(Subscription, 2006)
         assert offline_favorite.user_id == E2E_ACTORS[0].id
         assert offline_favorite.is_active is True
         assert unpublished_subscription.user_id == E2E_ACTORS[0].id
         assert unpublished_subscription.status == SubscriptionStatus.ACTIVE
         assert historical_subscription.user_id == E2E_ACTORS[0].id
         assert historical_subscription.status == SubscriptionStatus.ACTIVE
+        assert calendar_edition.published_revision_id == calendar_revision.id
+        assert [node.id for stage in calendar_revision.stages for node in stage.time_nodes] == [
+            2501,
+            2502,
+            2503,
+            2504,
+        ]
+        assert calendar_subscription.user_id == 1007
+        assert calendar_subscription.status == SubscriptionStatus.ACTIVE
+        assert calendar_subscription.reminder_enabled is False
+        assert calendar_subscription.node_types == [
+            "registration_deadline",
+            "submission_deadline",
+            "competition_start",
+        ]
+        assert offline_calendar_subscription.user_id == 1007
+        assert offline_calendar_subscription.status == SubscriptionStatus.ACTIVE
+        assert offline_calendar_subscription.reminder_enabled is False
 
     login_response = app.test_client().post(
         "/api/v1/auth/login",
