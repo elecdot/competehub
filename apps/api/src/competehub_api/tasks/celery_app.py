@@ -26,6 +26,18 @@ def make_celery() -> Celery:
             "task": "competehub.outbound_clicks.aggregate",
             "schedule": 3600.0,
         },
+        "dispatch-due-reminders": {
+            "task": "competehub.reminders.dispatch_due",
+            "schedule": float(flask_app.config["REMINDER_DISPATCH_INTERVAL_SECONDS"]),
+        },
+        "requeue-failed-reminders": {
+            "task": "competehub.reminders.requeue_failed",
+            "schedule": float(flask_app.config["REMINDER_REQUEUE_INTERVAL_SECONDS"]),
+        },
+        "purge-expired-messages": {
+            "task": "competehub.messages.purge_expired",
+            "schedule": float(flask_app.config["MESSAGE_RETENTION_INTERVAL_SECONDS"]),
+        },
     }
 
     class FlaskContextTask(celery.Task):
