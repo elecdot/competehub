@@ -64,15 +64,23 @@ test('opens advanced filters for deep links and recoverable deadline errors', as
 test.describe('filter option failure recovery', () => {
   test.use({ allowDiscoveryRequestErrors: true })
 
-  test('keeps keyword discovery usable when guided options fail', async ({ actorPage }) => {
+  test('keeps deep-link recovery and keyword discovery usable when guided options fail', async ({
+    actorPage,
+  }) => {
     await actorPage.route('**/api/v1/competitions/filter-options', async (route) => {
       await route.fulfill({ status: 503, contentType: 'application/json', body: '{}' })
     })
 
-    await actorPage.goto('/competitions')
+    await actorPage.goto('/competitions?category=innovation')
     await expect(actorPage.getByTestId('filter-options-error')).toContainText(
       '更多筛选选项暂时无法加载',
     )
+
+    const categoryFilter = actorPage.getByTestId('filter-category')
+    await expect(actorPage.getByTestId('advanced-filters')).toBeVisible()
+    await expect(categoryFilter).toContainText('innovation')
+    await categoryFilter.hover()
+    await categoryFilter.locator('.ant-select-clear').click()
 
     await actorPage.getByRole('searchbox', { name: '关键词' }).fill('Seeded University')
     await actorPage.locator('form[aria-label="赛事筛选"] button[type="submit"]').click()

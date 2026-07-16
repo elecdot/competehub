@@ -336,7 +336,6 @@ onMounted(() => {
             allow-clear
             show-search
             option-filter-prop="label"
-            :disabled="Boolean(filterOptionsError)"
             :loading="filterOptionsLoading"
             :options="categoryOptions"
             placeholder="选择类别"
@@ -351,7 +350,6 @@ onMounted(() => {
             allow-clear
             show-search
             option-filter-prop="label"
-            :disabled="Boolean(filterOptionsError)"
             :loading="filterOptionsLoading"
             :options="majorOptions"
             placeholder="选择专业"
@@ -366,7 +364,6 @@ onMounted(() => {
             allow-clear
             show-search
             option-filter-prop="label"
-            :disabled="Boolean(filterOptionsError)"
             :loading="filterOptionsLoading"
             :options="gradeOptions"
             placeholder="选择年级"
@@ -381,7 +378,6 @@ onMounted(() => {
             allow-clear
             show-search
             option-filter-prop="label"
-            :disabled="Boolean(filterOptionsError)"
             :loading="filterOptionsLoading"
             :options="tagOptions"
             placeholder="选择标签"

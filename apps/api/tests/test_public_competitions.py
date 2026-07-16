@@ -309,6 +309,10 @@ def test_public_competition_filter_options_are_deduplicated_and_visibility_scope
     client,
     app,
 ) -> None:
+    for competition_id, category in ((101, "beta"), (106, "Alpha"), (107, "alpha")):
+        competition = db.session.get(Competition, competition_id)
+        competition.published_revision.category = category
+
     hidden = db.session.get(Competition, 108)
     hidden.category = "Hidden category"
     hidden.suitable_majors = ["Hidden major"]
@@ -348,7 +352,7 @@ def test_public_competition_filter_options_are_deduplicated_and_visibility_scope
     assert anonymous_response.status_code == 200
     assert anonymous_response.get_json() == {
         "data": {
-            "categories": ["创新创业"],
+            "categories": ["Alpha", "alpha", "beta"],
             "majors": ["计算机科学与技术", "软件工程"],
             "grades": ["大一", "大三", "大二"],
             "tags": ["人工智能", "创新创业"],

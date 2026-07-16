@@ -103,7 +103,7 @@ def competition_tag_names(competition: Competition) -> list[str]:
 
 
 def _sorted_values(values: Iterable[str | None]) -> list[str]:
-    return sorted({value for value in values if value}, key=str.casefold)
+    return sorted({value for value in values if value})
 
 
 def registration_status(
