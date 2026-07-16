@@ -60,6 +60,8 @@ interface ActorFixtures {
   allowLoginUnauthorizedConsoleError: boolean
   allowOutboundTrackingConsoleError: boolean
   allowDiscoveryRequestErrors: boolean
+  allowMessageServiceUnavailableResponse: boolean
+  allowMessageUnauthorizedResponse: boolean
   allowProfileValidationConsoleError: boolean
 }
 
@@ -68,6 +70,8 @@ export const test = base.extend<ActorFixtures>({
   allowLoginUnauthorizedConsoleError: [false, { option: true }],
   allowOutboundTrackingConsoleError: [false, { option: true }],
   allowDiscoveryRequestErrors: [false, { option: true }],
+  allowMessageServiceUnavailableResponse: [false, { option: true }],
+  allowMessageUnauthorizedResponse: [false, { option: true }],
   allowProfileValidationConsoleError: [false, { option: true }],
   actor: async ({ actorName }, use) => {
     await use(actors[actorName])
@@ -78,6 +82,8 @@ export const test = base.extend<ActorFixtures>({
       allowLoginUnauthorizedConsoleError,
       allowOutboundTrackingConsoleError,
       allowDiscoveryRequestErrors,
+      allowMessageServiceUnavailableResponse,
+      allowMessageUnauthorizedResponse,
       allowProfileValidationConsoleError,
     },
     use,
@@ -88,6 +94,8 @@ export const test = base.extend<ActorFixtures>({
       allowLoginUnauthorizedConsoleError,
       allowOutboundTrackingConsoleError,
       allowDiscoveryRequestErrors,
+      allowMessageServiceUnavailableResponse,
+      allowMessageUnauthorizedResponse,
       allowProfileValidationConsoleError,
     )
   },
@@ -119,12 +127,24 @@ async function authenticateActorPage(
   expect(currentUser.data.role).toBe(actor.role)
 }
 
+export async function switchActor(page: Page, account: string, password: string) {
+  // Stop the previous actor's SPA before replacing its cookie. Otherwise background
+  // refreshes can cross the session boundary and observe an unrelated actor.
+  await page.goto('about:blank')
+  const loginResponse = await page.request.post('/api/v1/auth/login', {
+    data: { identity_type: 'email', identity: account, password },
+  })
+  expect(loginResponse).toBeOK()
+}
+
 async function usePageWithErrorGuard(
   page: Page,
   use: (page: Page) => Promise<void>,
   allowLoginUnauthorizedConsoleError: boolean,
   allowOutboundTrackingConsoleError: boolean,
   allowDiscoveryRequestErrors: boolean,
+  allowMessageServiceUnavailableResponse: boolean,
+  allowMessageUnauthorizedResponse: boolean,
   allowProfileValidationConsoleError: boolean,
 ) {
   const errors: string[] = []
@@ -141,6 +161,14 @@ async function usePageWithErrorGuard(
       response.status() === 401 &&
       request.method() === 'POST' &&
       pathname === '/api/v1/auth/login'
+    const isExpectedMessageUnauthorized =
+      allowMessageUnauthorizedResponse &&
+      response.status() === 401 &&
+      pathname.startsWith('/api/v1/me/messages')
+    const isExpectedMessageServiceUnavailable =
+      allowMessageServiceUnavailableResponse &&
+      response.status() === 503 &&
+      pathname.startsWith('/api/v1/me/messages')
     const isExpectedProfileValidation =
       allowProfileValidationConsoleError &&
       response.status() === 400 &&
@@ -161,10 +189,12 @@ async function usePageWithErrorGuard(
       isExpectedLoginFailure ||
       isExpectedOutboundTrackingFailure ||
       isExpectedDiscoveryFailure ||
+      isExpectedMessageUnauthorized ||
+      isExpectedMessageServiceUnavailable ||
       isExpectedProfileValidation
     ) {
       expectedHttpErrorResponses += 1
-    } else if (response.status() === 400 || response.status() === 401 || response.status() === 409) {
+    } else if ([400, 401, 409, 503].includes(response.status())) {
       errors.push(`response: unexpected ${response.status()} from ${request.method()} ${pathname}`)
     }
   })
@@ -176,7 +206,8 @@ async function usePageWithErrorGuard(
       message.text().includes('status of 401') ||
       message.text().includes('status of 400') ||
       (allowOutboundTrackingConsoleError && message.text().includes('status of 500')) ||
-      (allowDiscoveryRequestErrors && /status of 5\d\d/.test(message.text()))
+      (allowDiscoveryRequestErrors && /status of 5\d\d/.test(message.text())) ||
+      message.text().includes('status of 503')
     ) {
       httpConsoleErrors += 1
     } else {

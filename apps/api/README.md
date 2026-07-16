@@ -67,6 +67,9 @@ unowned rows stop before schema mutation and must be assigned an owner first.
 The Playwright harness uses `create_e2e_app` and the guarded `seed-e2e --reset`
 command to rebuild only `.cache/tmp/competehub-e2e.db`. That factory is test
 support for `just web-e2e`; it is not a development or production seed path.
+It alone tolerates a one-second future skew in signed Cookie timestamps so a
+small host-clock correction cannot invalidate a deterministic browser actor;
+development and production session validation are unchanged.
 
 ## Local Conventions
 
@@ -79,3 +82,14 @@ support for `just web-e2e`; it is not a development or production seed path.
 - Verification-email HTTP paths only commit transactional outbox rows. Run both
   `just api-worker` and `just api-worker-beat` when public registration is enabled;
   SMTP delivery belongs to the worker.
+- Reminder delivery also uses PostgreSQL as its source of truth. Beat dispatches
+  due `pending` rows, requeues eligible scheduled failures, and drains expired
+  in-app messages. Run both worker processes anywhere reminder delivery or the
+  message center is enabled; Redis is scheduling infrastructure, never the sole
+  reminder record.
+- Reminder dispatch/requeue intervals, batch sizes, retry attempts, and retry
+  base delay have bounded environment-backed defaults in `config.py`; all
+  operator-facing names and defaults are listed in the repository `.env.example`.
+  Message retention itself is not configurable: every message is retained for
+  exactly 365 days from `created_at`; only cleanup cadence and batch size are
+  tunable.

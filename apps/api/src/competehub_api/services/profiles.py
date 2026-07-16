@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from http import HTTPStatus
 
 from flask import current_app
@@ -9,7 +10,10 @@ from sqlalchemy import func, select
 from competehub_api.extensions import db
 from competehub_api.models import Reminder, ReminderSetting, StudentProfile, User
 from competehub_api.models.enums import ReminderStatus
+from competehub_api.repositories import engagement as engagement_repository
+from competehub_api.services.engagement import reconcile_global_reminders
 from competehub_api.services.errors import ServiceError
+from competehub_api.services.reminder_state import revoke_pending_reminder
 from competehub_api.subscription_node_types import (
     SUBSCRIPTION_NODE_TYPES,
     canonical_subscription_node_types,
@@ -86,8 +90,16 @@ def update_student_profile(user: User, updates: dict) -> StudentProfileView:
 def update_student_preferences(user: User, updates: dict) -> StudentProfileView:
     try:
         profile = db.session.scalar(select(StudentProfile).where(StudentProfile.user_id == user.id))
+        if "message_enabled" in updates:
+            # Competition transitions lock parent -> setting -> reminder. A global
+            # toggle spans competitions, so claim the same parents in stable order
+            # before the per-user setting and reminder rows.
+            engagement_repository.list_user_reminder_competitions_for_update(user.id)
         reminder_settings = db.session.scalar(
-            select(ReminderSetting).where(ReminderSetting.user_id == user.id).with_for_update()
+            select(ReminderSetting)
+            .where(ReminderSetting.user_id == user.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
         if profile is None or reminder_settings is None:
             raise ServiceError(
@@ -99,19 +111,14 @@ def update_student_preferences(user: User, updates: dict) -> StudentProfileView:
         disables_global_reminders = (
             updates.get("message_enabled") is False and reminder_settings.enabled is True
         )
-        pending_reminders = []
-        if disables_global_reminders:
-            pending_reminders = list(
-                db.session.scalars(
-                    select(Reminder)
-                    .where(
-                        Reminder.user_id == user.id,
-                        Reminder.status == ReminderStatus.PENDING,
-                    )
-                    .order_by(Reminder.id)
-                    .with_for_update()
-                )
-            )
+        enables_global_reminders = (
+            updates.get("message_enabled") is True and reminder_settings.enabled is False
+        )
+        subscriptions = []
+        reminders = []
+        if disables_global_reminders or enables_global_reminders:
+            subscriptions = engagement_repository.list_subscriptions_for_user_for_update(user.id)
+            reminders = engagement_repository.list_user_reminders_for_update(user.id)
 
         profile_updates = {
             field: value
@@ -125,7 +132,14 @@ def update_student_preferences(user: User, updates: dict) -> StudentProfileView:
         if "message_enabled" in updates:
             reminder_settings.enabled = updates["message_enabled"]
         if disables_global_reminders:
-            _cancel_pending_reminders(pending_reminders)
+            _cancel_pending_reminders(reminders)
+        elif enables_global_reminders:
+            reconcile_global_reminders(
+                reminder_settings,
+                subscriptions,
+                reminders,
+                datetime.now(UTC),
+            )
         if "default_remind_days" in updates:
             reminder_settings.default_remind_days = updates["default_remind_days"]
         if "default_reminder_node_types" in updates:
@@ -141,8 +155,11 @@ def update_student_preferences(user: User, updates: dict) -> StudentProfileView:
 
 def _cancel_pending_reminders(reminders: list[Reminder]) -> None:
     for reminder in reminders:
-        reminder.status = ReminderStatus.CANCELLED
-        reminder.cancel_reason = "global_reminder_disabled"
+        if reminder.status == ReminderStatus.PENDING:
+            revoke_pending_reminder(reminder, "global_reminder_disabled")
+        elif reminder.status == ReminderStatus.FAILED and reminder.next_attempt_at is not None:
+            reminder.next_attempt_at = None
+            reminder.cancel_reason = "global_reminder_disabled"
 
 
 def profile_status(profile: StudentProfile) -> str:

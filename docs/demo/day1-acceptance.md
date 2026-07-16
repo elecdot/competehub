@@ -40,16 +40,17 @@ seed data early. They should not block #22, #23, or #24.
 
 ## Current Executable Meaning
 
-The repository does not yet have a Day 1 seed CLI. Until one exists, the
-canonical example seed below is the executable contract:
+The isolated browser harness now runs `seed-e2e --reset` through
+`just web-e2e`. For the actors and records it provisions, that command is the
+canonical executable fixture. The broader symbolic catalog below remains the
+acceptance contract for records not yet materialized by that focused E2E seed:
 
-- API tests may build these logical records as fixtures.
-- Manual setup may create equivalent records through API calls, admin tools, or
-  direct local setup.
+- API tests may build the remaining logical records as fixtures.
+- Manual setup may create equivalent records through API calls or admin tools.
 - PR evidence should name which example records were used or where it deviated.
 
-Future seed CLI work should generate the same logical fixture set or document
-why it differs.
+Any future expansion of `seed-e2e --reset` should preserve these logical facts
+or document why the executable fixture intentionally differs.
 
 ## Acceptance Checklist
 
@@ -190,7 +191,7 @@ incremented node revision.
 
 | Snapshot symbolic ID | Logical node key | Revision / stage | Node revision | Node type | Occurs at | Prominence | Purpose |
 |---|---|---|---|---|---|---|---|
-| `node-snapshot.ai-registration-v1` | `registration-main-deadline` | `revision.ai-challenge-v1` / `stage.ai-registration` | `1` | `registration_deadline` | `2026-08-15T16:00:00Z` | `primary` | Public next node, calendar, and reminder creation. |
+| `node-snapshot.ai-registration-v1` | `registration-deadline` | `revision.ai-challenge-v1` / `stage.ai-registration` | `1` | `registration_deadline` | E2E reset clock + 27 days (UTC) | `primary` | Public next node, calendar, and reminder creation; the relative clock keeps the executable fixture future-safe. |
 | `node-snapshot.ai-submission-v1` | `submission-main-deadline` | `revision.ai-challenge-v1` / `stage.ai-submission` | `1` | `submission_deadline` | `2026-09-10T16:00:00Z` | `primary` | Subscription reminder generation. |
 | `node-snapshot.ai-competition-v1` | `competition-main-start` | `revision.ai-challenge-v1` / `stage.ai-competition` | `1` | `competition_start` | `2026-10-01T01:00:00Z` | `primary` | Calendar ordering. |
 | `node-snapshot.ai-2027-registration-v1` | `registration-main-deadline` | `revision.ai-challenge-2027-v1` / `stage.ai-2027-registration` | `1` | `registration_deadline` | `2027-08-15T16:00:00Z` | `primary` | Same key is valid because this is a different edition; complete pending candidate. |
@@ -231,8 +232,8 @@ change tags returned from the current `published_revision_id`.
 | Symbolic ID | Required state | Purpose |
 |---|---|---|
 | `favorite.student-ai-challenge` | User `student.day1@example.edu`; competition `competition.ai-challenge-published`; active true. | D1-08 收藏 evidence. |
-| `subscription.student-ai-challenge` | User `student.day1@example.edu`; competition `competition.ai-challenge-published`; active; reminder explicitly confirmed enabled; remind days 3; controlled node types registration/submission/start. | D1-09 and D1-10 subscription evidence. |
-| `reminder.ai-registration` | Pending reminder with FK to `node-snapshot.ai-registration-v1`, copied logical key `registration-main-deadline`, node revision 1, attempt count 0, and no retry/error time. | Exact scheduling basis, calendar/reminder generation, and retry-state evidence. |
+| `subscription.student-ai-challenge` | User `student.day1@example.edu`; competition `competition.ai-challenge-published`; historical cancelled relation after an explicitly confirmed 30-day reminder; current UI remains unsubscribed until D1-09 creates fresh consent. | D1-09 re-subscription and D1-10 historical lineage evidence. |
+| `reminder.ai-registration` | Sent reminder with FK to `node-snapshot.ai-registration-v1`, copied logical key `registration-deadline`, node revision 1, trigger at reset clock - 3 days, attempt count 1, and `sent_at` equal to the linked message creation time one minute later. | Exact scheduling basis and immutable dispatch lineage. |
 | `message.ai-registration-due` | Unread `reminder_due` message linked to the sent reminder, with immutable competition/node snapshots and a 365-day retention deadline. | Idempotent dispatch, unread badge, and message-center evidence. |
 | `message.ai-time-changed` | Read consolidated `competition_time_changed` message keyed by student and approved revision event; immutable summary of affected occurrence/selected-node semantic changes. | Historical read state, presentation-only no-message boundary, type filtering, and repeated-event idempotency. |
 

@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { computed, readonly, ref } from 'vue'
 
 import {
   fetchAuthCapabilities,
@@ -22,70 +23,135 @@ function mapCurrentUser(user: CurrentUserResponse): CurrentUser {
   }
 }
 
-export const useAuthStore = defineStore('auth', {
-  state: () => ({
-    currentUser: null as CurrentUser | null,
-    capabilities: {
-      public_email_registration_enabled: false,
-    } as AuthCapabilities,
-    capabilitiesLoaded: false,
-    loading: false,
-    errorMessage: '',
-  }),
-  getters: {
-    isAuthenticated: (state) => state.currentUser !== null,
-    isAdmin: (state) => state.currentUser?.role === 'admin',
-    publicEmailRegistrationEnabled: (state) =>
-      state.capabilities.public_email_registration_enabled,
-  },
-  actions: {
-    async loadAuthCapabilities() {
-      try {
-        this.capabilities = await fetchAuthCapabilities()
-      } catch {
-        this.capabilities = { public_email_registration_enabled: false }
-      } finally {
-        this.capabilitiesLoaded = true
+export const useAuthStore = defineStore('auth', () => {
+  const currentUser = ref<CurrentUser | null>(null)
+  const capabilities = ref<AuthCapabilities>({
+    public_email_registration_enabled: false,
+  })
+  const capabilitiesLoaded = ref(false)
+  const initialized = ref(false)
+  const loading = ref(false)
+  const errorMessage = ref('')
+  const isAuthenticated = computed(() => currentUser.value !== null)
+  const isAdmin = computed(() => currentUser.value?.role === 'admin')
+  const publicEmailRegistrationEnabled = computed(
+    () => capabilities.value.public_email_registration_enabled,
+  )
+
+  let currentUserRequest: Promise<CurrentUserResponse> | null = null
+  const sessionGeneration = ref(0)
+
+  function fetchCurrentUserOnce() {
+    currentUserRequest ??= fetchCurrentUser()
+    return currentUserRequest
+  }
+
+  function sessionIdentity(user: CurrentUser | null) {
+    return user === null ? '' : `${user.id}:${user.role}`
+  }
+
+  function acceptProbedCurrentUser(user: CurrentUser | null) {
+    if (sessionIdentity(currentUser.value) !== sessionIdentity(user)) {
+      sessionGeneration.value += 1
+    }
+    currentUser.value = user
+    return sessionGeneration.value
+  }
+
+  async function loadAuthCapabilities() {
+    try {
+      capabilities.value = await fetchAuthCapabilities()
+    } catch {
+      capabilities.value = { public_email_registration_enabled: false }
+    } finally {
+      capabilitiesLoaded.value = true
+    }
+  }
+
+  async function loadCurrentUser() {
+    let generation = sessionGeneration.value
+    const request = fetchCurrentUserOnce()
+    loading.value = true
+    errorMessage.value = ''
+    try {
+      const user = mapCurrentUser(await request)
+      if (generation === sessionGeneration.value) {
+        generation = acceptProbedCurrentUser(user)
       }
-    },
-    async loadCurrentUser() {
-      this.loading = true
-      this.errorMessage = ''
-      try {
-        this.currentUser = mapCurrentUser(await fetchCurrentUser())
-      } catch {
-        this.currentUser = null
-        this.errorMessage = 'unauthorized'
-      } finally {
-        this.loading = false
+    } catch {
+      if (generation === sessionGeneration.value) {
+        generation = acceptProbedCurrentUser(null)
+        errorMessage.value = 'unauthorized'
       }
-    },
-    async login(payload: LoginPayload) {
-      this.loading = true
-      this.errorMessage = ''
-      try {
-        this.currentUser = mapCurrentUser(await loginCurrentUser(payload))
-      } catch {
-        this.currentUser = null
-        this.errorMessage = 'unauthorized'
-        throw new Error('login_failed')
-      } finally {
-        this.loading = false
+    } finally {
+      if (currentUserRequest === request) currentUserRequest = null
+      if (generation === sessionGeneration.value) {
+        initialized.value = true
+        loading.value = false
       }
-    },
-    async logout() {
-      this.loading = true
-      this.errorMessage = ''
-      try {
-        await logoutCurrentUser()
-      } finally {
-        this.currentUser = null
-        this.loading = false
-      }
-    },
-    clearCurrentUser() {
-      this.currentUser = null
-      this.errorMessage = ''
-    },
-  },
+    }
+  }
+
+  async function ensureCurrentUser() {
+    if (!initialized.value) await loadCurrentUser()
+  }
+
+  async function login(payload: LoginPayload) {
+    sessionGeneration.value += 1
+    currentUserRequest = null
+    loading.value = true
+    errorMessage.value = ''
+    try {
+      currentUser.value = mapCurrentUser(await loginCurrentUser(payload))
+      initialized.value = true
+    } catch {
+      currentUser.value = null
+      errorMessage.value = 'unauthorized'
+      throw new Error('login_failed')
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function logout() {
+    sessionGeneration.value += 1
+    currentUserRequest = null
+    loading.value = true
+    errorMessage.value = ''
+    try {
+      await logoutCurrentUser()
+    } finally {
+      currentUser.value = null
+      initialized.value = true
+      loading.value = false
+    }
+  }
+
+  function clearCurrentUser() {
+    sessionGeneration.value += 1
+    currentUserRequest = null
+    currentUser.value = null
+    initialized.value = true
+    loading.value = false
+    errorMessage.value = ''
+  }
+
+  return {
+    currentUser,
+    capabilities,
+    capabilitiesLoaded,
+    initialized,
+    loading,
+    errorMessage,
+    isAuthenticated,
+    isAdmin,
+    publicEmailRegistrationEnabled,
+    sessionGeneration: readonly(sessionGeneration),
+    loadAuthCapabilities,
+    loadCurrentUser,
+    ensureCurrentUser,
+    login,
+    logout,
+    clearCurrentUser,
+  }
 })

@@ -9,3 +9,19 @@ def test_celery_app_loads_verification_delivery_task_and_schedule() -> None:
         "task": "competehub.auth.dispatch_verification_deliveries",
         "schedule": 1.0,
     }
+
+    assert "competehub.reminders.dispatch_due" in celery_app.tasks
+    assert "competehub.reminders.requeue_failed" in celery_app.tasks
+    assert "competehub.messages.purge_expired" in celery_app.tasks
+    assert celery_app.conf.beat_schedule["dispatch-due-reminders"] == {
+        "task": "competehub.reminders.dispatch_due",
+        "schedule": 15.0,
+    }
+    assert celery_app.conf.beat_schedule["requeue-failed-reminders"] == {
+        "task": "competehub.reminders.requeue_failed",
+        "schedule": 30.0,
+    }
+    assert celery_app.conf.beat_schedule["purge-expired-messages"] == {
+        "task": "competehub.messages.purge_expired",
+        "schedule": 86400.0,
+    }

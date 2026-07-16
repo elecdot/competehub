@@ -46,6 +46,11 @@ export const router = createRouter({
       component: CalendarPage,
     },
     {
+      path: '/me/messages',
+      name: 'messages',
+      component: () => import('@/pages/MessageCenterPage.vue'),
+    },
+    {
       path: '/admin',
       name: 'admin-home',
       component: AdminHomePage,

@@ -136,11 +136,15 @@ platform features.
   duplicate, but an administrator confirms it from source facts.
 - FR-013: A same-edition schedule correction preserves an edition-scoped
   `logical_node_key`, creates a new immutable time-node snapshot with an
-  incremented `node_revision` when behavior-bearing node facts change, records
-  old and new values plus a reason, and exposes both identifiers for reminder
-  reconciliation. An unchanged node copied to another content revision keeps
-  its node revision; a snapshot id refers only to its exact competition
-  revision and must not be reused as the cross-revision identity.
+  incremented `node_revision` when behavior-bearing node facts change or the key
+  is reintroduced after an approved removal, records old and new values plus a
+  reason, and exposes both identifiers for reminder reconciliation. An
+  unchanged node copied to another content revision keeps its node revision; a
+  snapshot id refers only to its exact competition revision and must not be
+  reused as the cross-revision identity. A logical key never present in
+  approved edition history starts at revision `1`; re-adding a previously
+  approved and removed key uses the approved historical maximum plus one, even
+  when its facts match an older snapshot.
 - FR-014: P1 accepts only the controlled赛事时间节点 types in the API contract.
   `other` requires a user-facing description and remains display-only; it does
   not satisfy the core-node publication gate or participate in default

@@ -1,6 +1,4 @@
-import type { Page } from '@playwright/test'
-
-import { expect, test } from './fixtures/actors'
+import { expect, switchActor, test } from './fixtures/actors'
 
 test.use({ actorName: 'editor' })
 
@@ -93,7 +91,7 @@ test('editor previews and submits, then a distinct reviewer activates the candid
     'reviewer.day1@example.edu',
     'silver orchard compass cloud 59',
   )
-  await actorPage.reload()
+  await actorPage.goto('/admin/recommendation-rule-sets')
   await actorPage.getByTestId('rule-set-v2').click()
   const evidence = actorPage.getByTestId('governance-evidence')
   await expect(evidence).toContainText('Day 1 Admin')
@@ -138,12 +136,3 @@ test.describe('student governance access boundary', () => {
     await expect(actorPage.getByText('无权访问推荐规则治理', { exact: true })).toBeVisible()
   })
 })
-
-async function switchActor(page: Page, account: string, password: string) {
-  const logoutResponse = await page.request.post('/api/v1/auth/logout')
-  expect(logoutResponse).toBeOK()
-  const loginResponse = await page.request.post('/api/v1/auth/login', {
-    data: { identity_type: 'email', identity: account, password },
-  })
-  expect(loginResponse).toBeOK()
-}
