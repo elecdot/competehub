@@ -555,6 +555,30 @@ to one while preserving filters.
 
 The list response uses the common list envelope with `items` and `pagination`.
 
+### `GET /competitions/filter-options`
+
+Return the exact values that a visitor can use with the public discovery
+`category`, `major`, `grade`, and `tag` filters. Authentication is not required.
+
+```json
+{
+  "data": {
+    "categories": ["创新创业"],
+    "majors": ["计算机科学与技术", "软件工程"],
+    "grades": ["大一", "大二"],
+    "tags": ["人工智能", "创新创业"]
+  },
+  "error": null
+}
+```
+
+Values are deduplicated and sorted. They are derived only from the revision
+selected by `published_revision_id` for editions eligible for the default public
+list. Draft, pending, rejected, offline, cancelled, and archived values are never
+exposed as filter options. Candidate revision values do not appear before approval
+switches the public revision pointer. An empty public catalogue returns four empty
+arrays.
+
 ### `GET /competitions/{id}`
 
 Return public competition detail. `published` competitions are available from

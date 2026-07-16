@@ -305,6 +305,80 @@ def test_public_competition_list_uses_envelope_and_hides_non_public_states(clien
     assert items[2]["next_node"] is None
 
 
+def test_public_competition_filter_options_are_deduplicated_and_visibility_scoped(
+    client,
+    app,
+) -> None:
+    hidden = db.session.get(Competition, 108)
+    hidden.category = "Hidden category"
+    hidden.suitable_majors = ["Hidden major"]
+    hidden.suitable_grades = ["Hidden grade"]
+    hidden_tag = CompetitionTag(id=9, code="hidden", name="Hidden tag", tag_type="topic")
+    hidden.tag_links = [CompetitionTagLink(id=309, tag=hidden_tag)]
+    attach_approved_revision(hidden, 900)
+
+    candidate_tag = CompetitionTag(
+        id=10,
+        code="candidate",
+        name="Candidate tag",
+        tag_type="topic",
+    )
+    candidate = CompetitionRevision(
+        competition_id=101,
+        revision_number=2,
+        revision_status=CompetitionRevisionStatus.DRAFT,
+        title="Candidate-only title",
+        category="Candidate category",
+        source_name="Candidate source",
+        source_url="https://example.edu/notices/candidate",
+        registration_applicability="applicable",
+        participant_forms=["individual"],
+        major_scope="selected",
+        grade_scope="selected",
+        suitable_majors=["Candidate major"],
+        suitable_grades=["Candidate grade"],
+        created_by_id=900,
+    )
+    candidate.tag_links = [CompetitionTagLink(id=310, tag=candidate_tag)]
+    db.session.add(candidate)
+    db.session.commit()
+
+    anonymous_response = client.get("/api/v1/competitions/filter-options")
+
+    assert anonymous_response.status_code == 200
+    assert anonymous_response.get_json() == {
+        "data": {
+            "categories": ["创新创业"],
+            "majors": ["计算机科学与技术", "软件工程"],
+            "grades": ["大一", "大三", "大二"],
+            "tags": ["人工智能", "创新创业"],
+        },
+        "error": None,
+    }
+
+    sign_in_as(client, app)
+    student_response = client.get("/api/v1/competitions/filter-options")
+
+    assert student_response.status_code == 200
+    assert student_response.get_json() == anonymous_response.get_json()
+
+
+def test_public_competition_filter_options_are_empty_without_public_revisions(client) -> None:
+    for competition in db.session.scalars(select(Competition)).all():
+        competition.status = CompetitionStatus.OFFLINE
+    db.session.commit()
+
+    response = client.get("/api/v1/competitions/filter-options")
+
+    assert response.status_code == 200
+    assert response.get_json()["data"] == {
+        "categories": [],
+        "majors": [],
+        "grades": [],
+        "tags": [],
+    }
+
+
 def test_public_competition_filters_preserve_visibility_contract(client) -> None:
     keyword_response = client.get("/api/v1/competitions?keyword=人工智能")
     keyword_items = keyword_response.get_json()["data"]["items"]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -8,6 +9,7 @@ from competehub_api.repositories.competitions import (
     PublicCompetitionPage,
     PublicCompetitionQuery,
     list_public_competition_candidates,
+    list_public_competitions_for_filter_options,
 )
 
 REGISTRATION_NODE_TYPES = frozenset({"registration_start", "registration_deadline"})
@@ -55,6 +57,27 @@ def search_public_competitions(query: PublicCompetitionQuery) -> PublicCompetiti
     )
 
 
+def public_competition_filter_options() -> dict[str, list[str]]:
+    competitions = list_public_competitions_for_filter_options()
+    revisions = [
+        competition.published_revision
+        for competition in competitions
+        if competition.published_revision is not None
+    ]
+    return {
+        "categories": _sorted_values(revision.category for revision in revisions),
+        "majors": _sorted_values(
+            major for revision in revisions for major in (revision.suitable_majors or [])
+        ),
+        "grades": _sorted_values(
+            grade for revision in revisions for grade in (revision.suitable_grades or [])
+        ),
+        "tags": _sorted_values(
+            tag for competition in competitions for tag in competition_tag_names(competition)
+        ),
+    }
+
+
 def sorted_time_nodes(competition: Competition) -> list[CompetitionTimeNode]:
     return sorted(_published_time_nodes(competition), key=_time_node_sort_key)
 
@@ -77,6 +100,10 @@ def competition_tag_names(competition: Competition) -> list[str]:
     if revision is None:
         return []
     return sorted({link.tag.name for link in revision.tag_links if link.tag is not None})
+
+
+def _sorted_values(values: Iterable[str | None]) -> list[str]:
+    return sorted({value for value in values if value}, key=str.casefold)
 
 
 def registration_status(

@@ -200,7 +200,9 @@ async function usePageWithErrorGuard(
       allowDiscoveryRequestErrors &&
       response.status() >= 500 &&
       request.method() === 'GET' &&
-      (pathname === '/api/v1/competitions' || /^\/api\/v1\/competitions\/\d+$/.test(pathname))
+      (pathname === '/api/v1/competitions' ||
+        pathname === '/api/v1/competitions/filter-options' ||
+        /^\/api\/v1\/competitions\/\d+$/.test(pathname))
     const isExpectedRecommendationFailure =
       allowRecommendationRequestErrors &&
       response.status() >= 500 &&

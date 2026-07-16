@@ -225,12 +225,20 @@ class PublicCompetitionPageSchema(Schema):
         }
 
 
+class PublicCompetitionFilterOptionsSchema(Schema):
+    categories = fields.List(fields.String(), required=True)
+    majors = fields.List(fields.String(), required=True)
+    grades = fields.List(fields.String(), required=True)
+    tags = fields.List(fields.String(), required=True)
+
+
 competition_list_query_schema = CompetitionListQuerySchema()
 outbound_click_schema = OutboundClickSchema()
 subscription_create_schema = SubscriptionCreateSchema()
 public_competition_time_node_schema = PublicCompetitionTimeNodeSchema()
 public_competition_detail_schema = PublicCompetitionDetailSchema()
 public_competition_page_schema = PublicCompetitionPageSchema()
+public_competition_filter_options_schema = PublicCompetitionFilterOptionsSchema()
 
 
 def _revision_value(competition, field_name: str, default=None):
