@@ -124,6 +124,17 @@ selected competition series. It does not implement Issue #40 reconciliation or
 message-center behavior, Issue #41 personal-calendar behavior, or broaden
 Issue #38 student-engagement scope.
 
+The personal-calendar API contract is covered through the authenticated
+`GET /me/calendar` seam. API tests prove required Shanghai date ranges and view
+values, student-only access, reminder-disabled active subscriptions, selected
+node types, favorite and cancelled-subscription exclusion, current public
+revision snapshots, cancelled/offline future suppression, unavailable detail
+targets, deterministic same-day ordering, and Owner-aligned current-stage
+derivation from all current-revision nodes including equal-time and all-elapsed
+cases. Browser view defaults, switching, retention, responsive layout, and
+same-day expansion remain Playwright evidence owned by Issue #41's later
+frontend slices.
+
 Migration tests always exercise fresh, empty-predecessor, and populated
 fail-closed paths on SQLite. The equivalent disposable PostgreSQL cases run only
 when the configured PostgreSQL test service is reachable; a missing URL/service

@@ -694,6 +694,18 @@ Rules:
 - Calendar grouping uses `Asia/Shanghai`; current stage, prominence, and pair
   metadata come from the current public revision rather than duplicated calendar
   rows.
+- Calendar items are not persisted as another table. The read projection joins
+  the owned active subscription to the edition's `published_revision_id`, its
+  immutable node snapshots, and their ordered stages, so Issue #41 requires no
+  schema migration.
+- Pair metadata is derived only from controlled node types within one stage:
+  registration start/deadline and competition start/end. Calendar clients must
+  not infer a pair from descriptions or labels.
+- Current stage is an edition-level read fact evaluated against the server
+  instant from every node in the current public revision. The nearest
+  non-elapsed node selects its stage, equal instants use stage order, and the
+  final ordered stage is current after all nodes elapse. Subscription node-type
+  selection and the requested calendar range do not change this fact.
 - A subscription targets one赛事届次 and never renews automatically for a later
   届次. Future赛事系列 following requires a separate relation.
 

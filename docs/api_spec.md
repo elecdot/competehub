@@ -795,8 +795,8 @@ disabled.
 
 Query parameters:
 
-- `from`
-- `to`
+- `from` (required)
+- `to` (required)
 - `view`: `month`, `week`, or `list`
 
 `from` and `to` are `Asia/Shanghai` product-calendar dates. All views resolve
@@ -805,6 +805,57 @@ different source of truth. Items include edition and stage identifiers, stage
 label/order, node snapshot id/logical key/revision/type/description,
 `occurs_at`, `prominence`, pair metadata, current-stage state, current lifecycle
 visibility, and a target-availability flag.
+
+Example response:
+
+```json
+{
+  "data": {
+    "range": {
+      "from": "2026-08-01",
+      "to": "2026-08-31",
+      "view": "month",
+      "time_zone": "Asia/Shanghai"
+    },
+    "items": [
+      {
+        "competition_id": 101,
+        "competition_title": "全国大学生人工智能创新挑战赛",
+        "detail_url": "/competitions/101",
+        "lifecycle_status": "published",
+        "target_available": true,
+        "stage_id": 301,
+        "stage_label": "报名阶段",
+        "stage_order": 1,
+        "stage_type": "registration",
+        "is_current_stage": true,
+        "node_snapshot_id": 401,
+        "logical_node_key": "registration-main-deadline",
+        "node_revision": 2,
+        "node_type": "registration_deadline",
+        "description": "报名截止",
+        "occurs_at": "2026-08-15T16:00:00+00:00",
+        "prominence": "primary",
+        "pair_kind": "registration",
+        "pair_role": "deadline"
+      }
+    ]
+  },
+  "error": null
+}
+```
+
+`pair_kind`/`pair_role` are derived from controlled types only:
+registration start/deadline and competition start/end. Other node types return
+both fields as `null`. `is_current_stage` is edition-level metadata derived from
+all nodes in the current public revision at the current server instant, not from
+the requested range or the subscription's selected node types. The nearest
+non-elapsed node determines the stage; equal instants use stage order, and after
+all nodes elapse the final ordered stage is current.
+
+Missing or malformed dates, an end before the start, an unsupported view, or an
+unknown query field returns `400 validation_error`. The error `details.field`
+identifies `from`, `to`, `view`, or the unknown field.
 
 Archived or expired editions retain past selected nodes when they fall inside
 the requested range, with their historical lifecycle status. Their transition

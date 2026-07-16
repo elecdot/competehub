@@ -5,7 +5,8 @@
 - Accepted
 - Roadmap phase: P1
 - Owner: Product owner / tech lead
-- Related issues: #22, #25, #26
+- Related issues: #22, #25, #26, #40, #41
+- Issue #41 mapping: user stories 12, 15, and 18; FR-014, FR-015, and FR-023
 
 ## Source Documents Checked
 
