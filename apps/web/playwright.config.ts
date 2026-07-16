@@ -1,18 +1,24 @@
 import { defineConfig, devices } from '@playwright/test'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
+const cacheRoot = resolve(repoRoot, '.cache')
+const agentSafeEnvironment = {
+  ...process.env,
+  AGENT_REPO_ROOT: repoRoot,
+  XDG_CACHE_HOME: resolve(cacheRoot, 'xdg-cache'),
+  TMPDIR: resolve(cacheRoot, 'tmp'),
+  UV_CACHE_DIR: resolve(cacheRoot, 'uv'),
+  PIP_CACHE_DIR: resolve(cacheRoot, 'pip'),
+  PRE_COMMIT_HOME: resolve(cacheRoot, 'pre-commit'),
+  RUFF_CACHE_DIR: resolve(cacheRoot, 'ruff'),
+  npm_config_cache: resolve(cacheRoot, 'npm'),
+}
 
 const apiServerCommand =
-  '../../scripts/agent-env.sh uv run --project ../api flask --app competehub_api.app:create_e2e_app run --no-reload --host 127.0.0.1 --port 5000'
-const reuseExistingServer = process.env.PLAYWRIGHT_REUSE_SERVERS === 'true'
-const useSystemChrome = process.env.PLAYWRIGHT_USE_SYSTEM_CHROME === 'true'
-
-function runWithBashOnWindows(command: string) {
-  if (process.platform !== 'win32') {
-    return command
-  }
-  const gitBash = process.env.GIT_BASH ?? 'C:\\Program Files\\Git\\usr\\bin\\bash.exe'
-  const escapedCommand = command.replaceAll("'", "'\\''")
-  return `"${gitBash}" -lc '${escapedCommand}'`
-}
+  'uv run --project ../api flask --app competehub_api.app:create_e2e_app run --host 127.0.0.1 --port 5000'
+const usesExternalServers = process.env.E2E_EXTERNAL_SERVERS === '1'
 
 export default defineConfig({
   testDir: './e2e',
@@ -32,25 +38,30 @@ export default defineConfig({
   },
   projects: [
     {
-      name: 'chromium',
-      use: {
-        ...devices['Desktop Chrome'],
-        ...(useSystemChrome ? { channel: 'chrome' } : {}),
-      },
-    },
-  ],
-  webServer: [
-    {
-      command: runWithBashOnWindows(apiServerCommand),
-      url: 'http://127.0.0.1:5000/api/v1/health',
-      reuseExistingServer,
-      timeout: 120_000,
+      name: 'desktop-chromium',
+      use: { ...devices['Desktop Chrome'] },
     },
     {
-      command: 'npm run dev -- --host 127.0.0.1 --port 5173',
-      url: 'http://127.0.0.1:5173',
-      reuseExistingServer,
-      timeout: 120_000,
+      name: 'mobile-chromium',
+      use: { ...devices['Pixel 5'] },
     },
   ],
+  webServer: usesExternalServers
+    ? undefined
+    : [
+        {
+          command: apiServerCommand,
+          env: agentSafeEnvironment,
+          url: 'http://127.0.0.1:5000/api/v1/health',
+          reuseExistingServer: false,
+          timeout: 120_000,
+        },
+        {
+          command: 'npm run dev -- --host 127.0.0.1 --port 5173',
+          env: agentSafeEnvironment,
+          url: 'http://127.0.0.1:5173',
+          reuseExistingServer: false,
+          timeout: 120_000,
+        },
+      ],
 })

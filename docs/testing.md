@@ -57,6 +57,13 @@ concurrency suite. The latter is not interchangeable with SQLite: run
 `apps/api/tests/test_issue38_postgresql_concurrency.py` against a real
 PostgreSQL environment before claiming the slice or issue complete.
 
+Issue #39 adds API evidence for the outbound `429 rate_limited` contract and
+the exact 90-day event-time cutoff, plus a PostgreSQL-only simultaneous worker
+test in `apps/api/tests/test_issue39_postgresql_concurrency.py`. Its Playwright
+suite covers loading, empty, list error, and detail error states in both desktop
+and mobile projects, in addition to historical-action and direct-link behavior.
+Run the PostgreSQL test and `just web-e2e` before claiming the slice complete.
+
 ## TDD Usage
 
 Use TDD when the change affects observable behavior and a reasonable automated
@@ -102,11 +109,19 @@ editor, and reviewer accounts through controlled test setup. Actor fixtures use
 the real login endpoint and browser Cookie state; they do not inject privileged
 frontend state or imply that public registration bypasses verification.
 
-The harness currently runs Chromium and treats uncaught page errors and browser
-console errors as failures. Screenshots are captured on failure, while traces
-and video are retained on failure. Reports and test results stay under
+The harness runs the same Chromium scenarios in desktop and mobile viewports
+and treats uncaught page errors and browser console errors as failures.
+Screenshots are captured on failure, while traces and video are retained on
+failure. Reports and test results stay under
 `.cache/playwright`, are ignored by Git, and are uploaded by CI only when the
 browser job fails.
+
+Public discovery scenarios cover actionable registration filtering and sorting,
+the current public revision's staged milestone display, historical-detail
+warnings and owned cancellation, direct official-link navigation when the
+best-effort tracking request fails, and list/detail loading, empty, and error
+states. They run in desktop and mobile projects against the deterministic E2E
+seed except for controlled state-response interception.
 
 The recommendation-governance acceptance path logs in through real Cookie
 sessions as the seeded editor, clones active v1, edits and previews against a

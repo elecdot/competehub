@@ -4,7 +4,9 @@ The committed chain starts with `c5e0e7e0560d`, adds the verification-delivery
 outbox in `61f2c8e4a9bd`, immutable publication persistence in `13eb10903bd7`,
 governed recommendation rule sets in `be7dfc45f976`, Issue #38 engagement and
 reminder integrity in `7f3c2a91d8e4`, and canonical subscription node-type
-ordering in the current head `4d8b6e1a3f20`.
+ordering in `4d8b6e1a3f20`. Issue #37 revision/lifecycle evidence follows in
+`8b4d2f7a1c90`, and privacy-minimized outbound click analytics are added in
+the current head `a64f1b9d2c7e`.
 
 Fresh databases apply the complete chain. A database at the known
 `13eb10903bd7` predecessor can upgrade to the governed recommendation schema
@@ -81,6 +83,27 @@ Recommendation-governance data and schema remain intact at that predecessor.
 the upgrade and reports row IDs for malformed JSON, non-list/non-string,
 duplicate, or unknown values. Its downgrade is intentionally a no-op: ordering
 normalization is lossless because prior request order was never contractual.
+
+## Issue #37 revision and lifecycle evidence
+
+`8b4d2f7a1c90` follows `4d8b6e1a3f20`. It adds source-backed replacement
+reasons and lifecycle warning context, plus idempotent competition-event
+message dimensions used by approved revision reconciliation. Its downgrade
+removes those evidence columns and constraints, so export any retained
+lifecycle or schedule-change message evidence before a shared-database
+rollback.
+
+`a64f1b9d2c7e` follows `8b4d2f7a1c90`. It adds raw outbound activation
+events tied to the selected published revision, including a nullable
+`aggregated_at` marker, plus durable daily aggregate dimensions keyed by
+competition, target type, source surface, and anonymous/authenticated actor
+kind. The periodic service serializes PostgreSQL workers with a transaction
+advisory lock, marks newly counted rows in the same transaction, and deletes
+only rows older than the exact `now - 90 days` event-time boundary.
+Neither table stores a user, session, or device identifier. The recorded
+`legacy_create_all` path remains unchanged. Downgrading drops both analytics
+tables and their retained counts, so export any required metrics before a
+shared-database rollback.
 
 `seed-e2e --reset` rebuilds only the isolated browser-test database. It is not a
 reset, migration, or recovery path for a development, shared, or production

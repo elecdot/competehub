@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 
-from sqlalchemy import and_, case, cast, exists, false, func, or_, select
+from sqlalchemy import and_, cast, exists, func, or_, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import selectinload
 
@@ -40,10 +40,11 @@ class PublicCompetitionQuery:
     major: str | None = None
     grade: str | None = None
     tag: str | None = None
-    status: str | None = None
+    registration_status: str | None = None
     participant_form: str | None = None
     deadline_from: date | None = None
     deadline_to: date | None = None
+    sort: str = "actionable"
 
 
 @dataclass(frozen=True)
@@ -203,24 +204,10 @@ def public_competitions_statement():
     )
 
 
-def search_public_competitions(query: PublicCompetitionQuery) -> PublicCompetitionPage:
+def list_public_competition_candidates(query: PublicCompetitionQuery) -> list[Competition]:
     conditions = _public_competition_conditions(query)
-    total = db.session.scalar(select(func.count(Competition.id)).where(*conditions)) or 0
-    now = datetime.now(UTC)
-    statement = (
-        select(Competition)
-        .where(*conditions)
-        .order_by(*_public_competition_order(now))
-        .offset((query.page - 1) * query.page_size)
-        .limit(query.page_size)
-        .options(*_public_relation_options())
-    )
-    return PublicCompetitionPage(
-        items=list(db.session.scalars(statement).unique()),
-        page=query.page,
-        page_size=query.page_size,
-        total=total,
-    )
+    statement = select(Competition).where(*conditions).options(*_public_relation_options())
+    return list(db.session.scalars(statement).unique())
 
 
 def get_public_competition(competition_id: int) -> Competition | None:
@@ -267,42 +254,50 @@ def _public_competition_conditions(query: PublicCompetitionQuery) -> list:
         Competition.status.in_(PUBLIC_COMPETITION_STATUSES),
         Competition.published_revision_id.is_not(None),
     ]
-    if query.status is not None and query.status != CompetitionStatus.PUBLISHED.value:
-        conditions.append(false())
     if query.keyword is not None:
         pattern = f"%{_escape_like(query.keyword)}%"
         conditions.append(
-            or_(
-                Competition.title.ilike(pattern, escape="\\"),
-                Competition.short_title.ilike(pattern, escape="\\"),
-                Competition.organizer.ilike(pattern, escape="\\"),
-                Competition.category.ilike(pattern, escape="\\"),
-                Competition.summary.ilike(pattern, escape="\\"),
+            Competition.published_revision.has(
+                or_(
+                    CompetitionRevision.title.ilike(pattern, escape="\\"),
+                    CompetitionRevision.short_title.ilike(pattern, escape="\\"),
+                    CompetitionRevision.organizer.ilike(pattern, escape="\\"),
+                    CompetitionRevision.category.ilike(pattern, escape="\\"),
+                    CompetitionRevision.summary.ilike(pattern, escape="\\"),
+                )
             )
         )
     if query.category is not None:
-        conditions.append(Competition.category == query.category)
+        conditions.append(
+            Competition.published_revision.has(CompetitionRevision.category == query.category)
+        )
     if query.participant_form is not None:
         conditions.append(
-            _json_array_contains(Competition.participant_forms, query.participant_form)
+            Competition.published_revision.has(
+                _json_array_contains(CompetitionRevision.participant_forms, query.participant_form)
+            )
         )
     if query.major is not None:
         conditions.append(
-            or_(
-                Competition.major_scope == "all",
-                and_(
-                    Competition.major_scope == "selected",
-                    _json_array_contains(Competition.suitable_majors, query.major),
+            Competition.published_revision.has(
+                or_(
+                    CompetitionRevision.major_scope == "all",
+                    and_(
+                        CompetitionRevision.major_scope == "selected",
+                        _json_array_contains(CompetitionRevision.suitable_majors, query.major),
+                    ),
                 ),
             )
         )
     if query.grade is not None:
         conditions.append(
-            or_(
-                Competition.grade_scope == "all",
-                and_(
-                    Competition.grade_scope == "selected",
-                    _json_array_contains(Competition.suitable_grades, query.grade),
+            Competition.published_revision.has(
+                or_(
+                    CompetitionRevision.grade_scope == "all",
+                    and_(
+                        CompetitionRevision.grade_scope == "selected",
+                        _json_array_contains(CompetitionRevision.suitable_grades, query.grade),
+                    ),
                 ),
             )
         )
@@ -345,24 +340,6 @@ def _deadline_condition(query: PublicCompetitionQuery):
         exclusive_end = query.deadline_to + timedelta(days=1)
         conditions.append(CompetitionTimeNode.occurs_at < product_date_start_utc(exclusive_end))
     return and_(*conditions)
-
-
-def _public_competition_order(now: datetime) -> tuple:
-    next_at = (
-        select(func.min(CompetitionTimeNode.occurs_at))
-        .where(
-            CompetitionTimeNode.competition_revision_id == Competition.published_revision_id,
-            CompetitionTimeNode.occurs_at >= now,
-        )
-        .correlate(Competition)
-        .scalar_subquery()
-    )
-    return (
-        case((next_at.is_(None), 1), else_=0),
-        next_at,
-        Competition.title,
-        Competition.id,
-    )
 
 
 def _escape_like(value: str) -> str:

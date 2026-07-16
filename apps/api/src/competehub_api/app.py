@@ -46,5 +46,6 @@ def create_e2e_app() -> Flask:
             "E2E_TESTING": True,
             "SQLALCHEMY_DATABASE_URI": f"sqlite:///{database_path}",
             "AUTH_RATE_LIMIT_ENABLED": False,
+            "OUTBOUND_RATE_LIMIT_ENABLED": False,
         }
     )

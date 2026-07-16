@@ -17,6 +17,7 @@ def app():
         {
             "TESTING": True,
             "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:",
+            "OUTBOUND_RATE_LIMIT_ENABLED": False,
         }
     )
 

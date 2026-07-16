@@ -3,15 +3,20 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from sqlalchemy import select
 
+from competehub_api import create_app
 from competehub_api.extensions import db
 from competehub_api.models import (
     Competition,
     CompetitionRevision,
+    CompetitionStage,
     CompetitionTag,
     CompetitionTagLink,
     CompetitionTimeNode,
     Favorite,
+    OutboundClickDailyStat,
+    OutboundClickEvent,
     Reminder,
     ReminderSetting,
     Subscription,
@@ -24,8 +29,20 @@ from competehub_api.models.enums import (
     SubscriptionStatus,
     UserRole,
 )
+from competehub_api.services.auth import start_session
+from competehub_api.services.outbound_clicks import aggregate_outbound_clicks
 from competehub_api.services.profiles import provision_student_owned_rows
 from competehub_api.timezones import stored_datetime_as_utc
+
+
+class FakeRedisRateLimitStore:
+    def __init__(self) -> None:
+        self.values: dict[str, int] = {}
+
+    def eval(self, _script: str, num_keys: int, key: str, _window_seconds: int) -> int:
+        assert num_keys == 1
+        self.values[key] = self.values.get(key, 0) + 1
+        return self.values[key]
 
 
 @pytest.fixture(autouse=True)
@@ -299,8 +316,9 @@ def test_public_competition_filters_preserve_visibility_contract(client) -> None
     assert major_items[0]["suitable_majors"] == ["软件工程", "计算机科学与技术"]
     assert major_items[0]["next_node"]["node_type"] == "registration_deadline"
 
-    hidden_status_response = client.get("/api/v1/competitions?status=draft")
-    assert hidden_status_response.get_json()["data"]["items"] == []
+    lifecycle_status_response = client.get("/api/v1/competitions?status=published")
+    assert lifecycle_status_response.status_code == 400
+    assert lifecycle_status_response.get_json()["error"]["code"] == "validation_error"
 
     hidden_category_response = client.get("/api/v1/competitions?category=数学建模")
     assert hidden_category_response.get_json()["data"]["items"] == []
@@ -385,6 +403,8 @@ def test_public_competition_detail_returns_stable_summary_and_detail_contract(cl
     assert data["source_url"] == "https://example.edu/notices/ai-challenge-2026"
     assert data["official_url"] == "https://example.org/ai-challenge"
     assert data["attachment_url"] == "https://example.edu/notices/ai-challenge-2026.pdf"
+    assert data["edition_label"] is None
+    assert data["current_revision"] == {"id": 1, "revision_number": 1}
     assert data["tags"] == ["人工智能", "创新创业"]
     assert data["suitable_majors"] == ["软件工程", "计算机科学与技术"]
     assert data["suitable_grades"] == ["大二", "大三"]
@@ -490,6 +510,312 @@ def test_public_competition_requires_published_revision_pointer(client) -> None:
 
     assert response.status_code == 404
     assert response.get_json()["error"]["code"] == "not_found"
+
+
+def test_public_list_derives_registration_status_and_actionable_order(client) -> None:
+    now = datetime.now(UTC)
+    open_edition = _add_public_edition(
+        competition_id=140,
+        node_definitions=[
+            ("registration_deadline", now + timedelta(days=10)),
+        ],
+    )
+    upcoming_edition = _add_public_edition(
+        competition_id=141,
+        node_definitions=[
+            ("registration_start", now + timedelta(days=2)),
+            ("registration_deadline", now + timedelta(days=20)),
+        ],
+    )
+    closed_edition = _add_public_edition(
+        competition_id=142,
+        node_definitions=[
+            ("registration_deadline", now - timedelta(days=2)),
+        ],
+    )
+    unknown_edition = _add_public_edition(competition_id=143, node_definitions=[])
+    not_applicable_edition = _add_public_edition(
+        competition_id=144,
+        node_definitions=[],
+        registration_applicability="not_applicable",
+    )
+    db.session.commit()
+
+    response = client.get("/api/v1/competitions")
+
+    assert response.status_code == 200
+    items = response.get_json()["data"]["items"]
+    item_by_id = {item["id"]: item for item in items}
+    assert item_by_id[open_edition.id]["registration_status"] == "open"
+    assert item_by_id[upcoming_edition.id]["registration_status"] == "upcoming"
+    assert item_by_id[closed_edition.id]["registration_status"] == "closed"
+    assert item_by_id[unknown_edition.id]["registration_status"] == "unknown"
+    assert item_by_id[not_applicable_edition.id]["registration_status"] == "not_applicable"
+    assert item_by_id[open_edition.id]["registration_status_basis"]["node_type"] == (
+        "registration_deadline"
+    )
+    assert item_by_id[upcoming_edition.id]["registration_status_basis"]["node_type"] == (
+        "registration_start"
+    )
+
+    ids = [item["id"] for item in items]
+    assert ids.index(open_edition.id) < ids.index(upcoming_edition.id)
+    assert ids.index(upcoming_edition.id) < ids.index(unknown_edition.id)
+    assert ids.index(unknown_edition.id) < ids.index(not_applicable_edition.id)
+    assert ids.index(not_applicable_edition.id) < ids.index(closed_edition.id)
+
+    upcoming_response = client.get("/api/v1/competitions?registration_status=upcoming")
+    assert [item["id"] for item in upcoming_response.get_json()["data"]["items"]] == [
+        upcoming_edition.id
+    ]
+
+    actionable_response = client.get(
+        "/api/v1/competitions?keyword=Registration%20fixture&sort=actionable"
+    )
+    assert [item["id"] for item in actionable_response.get_json()["data"]["items"]] == [
+        open_edition.id,
+        upcoming_edition.id,
+        unknown_edition.id,
+        not_applicable_edition.id,
+        closed_edition.id,
+    ]
+
+    deadline_sort_response = client.get(
+        "/api/v1/competitions?keyword=Registration%20fixture&sort=registration_deadline"
+    )
+    assert [item["id"] for item in deadline_sort_response.get_json()["data"]["items"]][:2] == [
+        open_edition.id,
+        upcoming_edition.id,
+    ]
+
+    published_sort_response = client.get(
+        "/api/v1/competitions?keyword=Registration%20fixture&sort=published_at"
+    )
+    assert [item["id"] for item in published_sort_response.get_json()["data"]["items"]] == [
+        not_applicable_edition.id,
+        unknown_edition.id,
+        closed_edition.id,
+        upcoming_edition.id,
+        open_edition.id,
+    ]
+
+
+def test_public_detail_keeps_historical_editions_viewable_with_status(client) -> None:
+    archived = Competition(
+        id=150,
+        title="Historical Archive",
+        source_name="Example University Notice",
+        source_url="https://example.edu/notices/historical-archive",
+        status=CompetitionStatus.ARCHIVED,
+        lifecycle_reason="Official archive notice",
+        lifecycle_changed_at=datetime(2026, 7, 15, 9, 0, tzinfo=UTC),
+    )
+    db.session.add(archived)
+    db.session.flush()
+    attach_approved_revision(archived, 900)
+    db.session.commit()
+
+    response = client.get("/api/v1/competitions/150")
+
+    assert response.status_code == 200
+    data = response.get_json()["data"]
+    assert data["id"] == 150
+    assert data["status"] == "archived"
+    assert data["content_updated_at"] is not None
+    assert data["lifecycle_warning"] == {
+        "status": "archived",
+        "reason": "Official archive notice",
+        "changed_at": "2026-07-15T09:00:00+00:00",
+    }
+
+
+def test_outbound_click_records_controlled_current_public_link(client) -> None:
+    response = client.post(
+        "/api/v1/competitions/101/outbound_clicks",
+        json={"target_type": "official_url", "source_surface": "competition_detail"},
+    )
+
+    assert response.status_code == 202
+    assert response.get_json()["data"] == {"accepted": True}
+    event = db.session.scalar(select(OutboundClickEvent))
+    assert event is not None
+    assert event.competition_id == 101
+    assert event.competition_revision_id == 1
+    assert event.target_type == "official_url"
+    assert event.source_surface == "competition_detail"
+    assert event.actor_kind == "anonymous"
+    assert not hasattr(event, "user_id")
+    assert not hasattr(event, "ip_address")
+    assert not hasattr(event, "user_agent")
+
+    invalid_target = client.post(
+        "/api/v1/competitions/101/outbound_clicks",
+        json={"target_type": "https://attacker.invalid", "source_surface": "competition_detail"},
+    )
+    assert invalid_target.status_code == 400
+
+    missing_target = client.post(
+        "/api/v1/competitions/106/outbound_clicks",
+        json={"target_type": "attachment_url", "source_surface": "competition_detail"},
+    )
+    assert missing_target.status_code == 404
+
+
+def test_outbound_click_records_authenticated_kind_without_personal_identity(client) -> None:
+    student = User(
+        id=901,
+        email="fixture-student@example.edu",
+        password_hash="not-used",
+        display_name="Fixture Student",
+        role=UserRole.STUDENT,
+    )
+    db.session.add(student)
+    db.session.commit()
+    with client.session_transaction() as session_data:
+        start_session(session_data, student)
+
+    response = client.post(
+        "/api/v1/competitions/101/outbound_clicks",
+        json={"target_type": "source_url", "source_surface": "competition_detail"},
+    )
+
+    assert response.status_code == 202
+    event = db.session.scalar(select(OutboundClickEvent))
+    assert event is not None
+    assert event.actor_kind == "authenticated"
+    assert not hasattr(event, "user_id")
+
+
+def test_outbound_click_rate_limit_returns_429_without_recording_an_extra_event() -> None:
+    rate_limited_app = create_app(
+        {
+            "TESTING": True,
+            "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:",
+            "OUTBOUND_RATE_LIMIT_ENABLED": True,
+            "OUTBOUND_RATE_LIMIT_MAX_ATTEMPTS": 1,
+            "OUTBOUND_RATE_LIMIT_STORE": FakeRedisRateLimitStore(),
+        }
+    )
+    with rate_limited_app.app_context():
+        db.create_all()
+        seed_day1_competitions()
+        rate_limited_client = rate_limited_app.test_client()
+        payload = {"target_type": "official_url", "source_surface": "competition_detail"}
+
+        accepted = rate_limited_client.post(
+            "/api/v1/competitions/101/outbound_clicks",
+            json=payload,
+            environ_base={"REMOTE_ADDR": "198.51.100.10"},
+        )
+        limited = rate_limited_client.post(
+            "/api/v1/competitions/101/outbound_clicks",
+            json=payload,
+            environ_base={"REMOTE_ADDR": "198.51.100.10"},
+        )
+
+        assert accepted.status_code == 202
+        assert limited.status_code == 429
+        assert limited.get_json()["error"]["code"] == "rate_limited"
+        assert db.session.query(OutboundClickEvent).count() == 1
+        db.session.remove()
+        db.drop_all()
+
+
+def test_outbound_click_aggregation_is_idempotent_at_exact_retention_boundary() -> None:
+    now = datetime(2026, 7, 16, 12, 0, tzinfo=UTC)
+    retention_cutoff = now - timedelta(days=90)
+    expired_at = retention_cutoff - timedelta(microseconds=1)
+    db.session.add_all(
+        [
+            OutboundClickEvent(
+                competition_id=101,
+                competition_revision_id=1,
+                target_type="official_url",
+                source_surface="competition_detail",
+                actor_kind="anonymous",
+                occurred_at=expired_at,
+            ),
+            OutboundClickEvent(
+                competition_id=101,
+                competition_revision_id=1,
+                target_type="official_url",
+                source_surface="competition_detail",
+                actor_kind="anonymous",
+                occurred_at=retention_cutoff,
+            ),
+            OutboundClickEvent(
+                competition_id=101,
+                competition_revision_id=1,
+                target_type="official_url",
+                source_surface="competition_detail",
+                actor_kind="anonymous",
+                occurred_at=retention_cutoff + timedelta(hours=1),
+            ),
+        ]
+    )
+    db.session.commit()
+
+    aggregate_outbound_clicks(now=now)
+    aggregate_outbound_clicks(now=now)
+
+    stat = db.session.scalar(select(OutboundClickDailyStat))
+    assert stat is not None
+    assert stat.competition_id == 101
+    assert stat.target_type == "official_url"
+    assert stat.source_surface == "competition_detail"
+    assert stat.actor_kind == "anonymous"
+    assert stat.click_count == 3
+    retained_events = list(
+        db.session.scalars(select(OutboundClickEvent).order_by(OutboundClickEvent.occurred_at))
+    )
+    assert [stored_datetime_as_utc(event.occurred_at) for event in retained_events] == [
+        retention_cutoff,
+        retention_cutoff + timedelta(hours=1),
+    ]
+    assert all(event.aggregated_at is not None for event in retained_events)
+
+
+def _add_public_edition(
+    *,
+    competition_id: int,
+    node_definitions: list[tuple[str, datetime]],
+    registration_applicability: str = "applicable",
+) -> Competition:
+    competition = Competition(
+        id=competition_id,
+        title=f"Registration fixture {competition_id}",
+        source_name="Example University Notice",
+        source_url=f"https://example.edu/notices/registration-{competition_id}",
+        registration_applicability=registration_applicability,
+        status=CompetitionStatus.PUBLISHED,
+    )
+    competition.time_nodes = [
+        CompetitionTimeNode(
+            id=competition_id * 10 + index,
+            node_type=node_type,
+            occurs_at=occurs_at,
+            description=node_type,
+            prominence="primary",
+        )
+        for index, (node_type, occurs_at) in enumerate(node_definitions, start=1)
+    ]
+    db.session.add(competition)
+    db.session.flush()
+    revision = attach_approved_revision(competition, 900)
+    revision.registration_applicability = registration_applicability
+    if competition.time_nodes:
+        stage = CompetitionStage(
+            id=competition_id,
+            revision=revision,
+            stage_key="registration",
+            stage_type="registration",
+            label="Registration",
+            stage_order=1,
+        )
+        for node in competition.time_nodes:
+            node.stage = stage
+        db.session.add(stage)
+    return competition
 
 
 def test_favorite_post_creates_reactivates_and_is_owner_scoped(client, app) -> None:
