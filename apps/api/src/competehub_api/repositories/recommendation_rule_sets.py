@@ -5,6 +5,16 @@ from sqlalchemy.orm import selectinload
 
 from competehub_api.extensions import db
 from competehub_api.models import RecommendationRuleSet, ReviewRecord, User
+from competehub_api.models.enums import RecommendationRuleSetStatus
+
+
+def get_active_recommendation_rule_set() -> RecommendationRuleSet | None:
+    statement = (
+        select(RecommendationRuleSet)
+        .where(RecommendationRuleSet.status == RecommendationRuleSetStatus.ACTIVE)
+        .options(selectinload(RecommendationRuleSet.rules))
+    )
+    return db.session.scalars(statement).unique().one_or_none()
 
 
 def list_recommendation_rule_sets() -> list[RecommendationRuleSet]:

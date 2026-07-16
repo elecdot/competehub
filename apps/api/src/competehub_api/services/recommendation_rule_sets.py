@@ -11,7 +11,6 @@ from sqlalchemy import func
 from competehub_api.extensions import db
 from competehub_api.models import (
     AuditLog,
-    Competition,
     RecommendationRule,
     RecommendationRuleSet,
     ReviewRecord,
@@ -29,25 +28,17 @@ from competehub_api.repositories.competitions import (
 from competehub_api.schemas.recommendation_rule_sets import recommendation_rule_input_schema
 from competehub_api.services.errors import ServiceError
 from competehub_api.services.profiles import validate_controlled_profile_fields
-from competehub_api.timezones import PRODUCT_TIMEZONE, stored_datetime_as_utc
+from competehub_api.services.recommendation_engine import (
+    PERSONALIZED_RULE_CODES,
+    RecommendationMode,
+    rank_recommendation_candidates,
+    rule_code_sort_key,
+)
 
 CLONEABLE_RULE_SET_STATUSES = {
     RecommendationRuleSetStatus.ACTIVE,
     RecommendationRuleSetStatus.REJECTED,
     RecommendationRuleSetStatus.RETURNED,
-}
-PERSONALIZED_RULE_CODES = {
-    "major_match",
-    "grade_match",
-    "interest_match",
-    "deadline_urgency",
-}
-RULE_CODE_ORDER = {
-    "major_match": 0,
-    "grade_match": 1,
-    "interest_match": 2,
-    "deadline_urgency": 3,
-    "general_fallback": 4,
 }
 REVIEW_ACTIONS = {
     "approve": (RecommendationRuleSetStatus.ACTIVE, ReviewStatus.APPROVED),
@@ -380,39 +371,30 @@ def preview_recommendation_rule_set(
     profile = payload.get("synthetic_profile")
     if scenario == "personalized":
         validate_controlled_profile_fields(profile, require_complete=True)
-    scored = []
-    for competition in sorted(competitions, key=lambda item: item.id):
-        matches = _matching_preview_rules(
-            rules_by_code,
-            scenario,
-            profile,
-            competition,
-            evaluated_at,
-        )
-        if not matches:
-            continue
-        ordered_matches = sorted(matches, key=lambda match: _rule_code_sort_key(match[0].code))
-        scored.append(
-            (
-                -sum(rule.weight for rule, _ in ordered_matches),
-                competition.id,
-                {
-                    "competition_id": competition.id,
-                    "competition": {
-                        "id": competition.id,
-                        "title": competition.published_revision.title,
-                        "edition_label": competition.edition_label,
-                    },
-                    "matched_rule_codes": [rule.code for rule, _ in ordered_matches],
-                    "reason_codes": [rule.code for rule, _ in ordered_matches],
-                    "reasons": [reason for _, reason in ordered_matches],
-                },
-            )
-        )
-    scored.sort(key=lambda item: (item[0], item[1]))
-    results = []
-    for position, (_, _, item) in enumerate(scored, start=1):
-        results.append({"position": position, **item})
+    ranked = rank_recommendation_candidates(
+        candidates=competitions,
+        rules=tuple(rules_by_code.values()),
+        mode=RecommendationMode(scenario),
+        profile=profile,
+        evaluation_time=evaluated_at,
+        rule_set_version=rule_set.version,
+        max_returned_reasons=None,
+    )
+    results = [
+        {
+            "position": item.position,
+            "competition_id": item.competition.id,
+            "competition": {
+                "id": item.competition.id,
+                "title": item.competition.published_revision.title,
+                "edition_label": item.competition.edition_label,
+            },
+            "matched_rule_codes": list(item.reason_codes),
+            "reason_codes": list(item.reason_codes),
+            "reasons": list(item.reasons),
+        }
+        for item in ranked
+    ]
     return {
         "rule_set_id": rule_set.id,
         "version": rule_set.version,
@@ -576,7 +558,7 @@ def _rule_snapshot(rule: RecommendationRule) -> dict:
 
 
 def _rule_code_sort_key(code: str) -> tuple[int, str]:
-    return (RULE_CODE_ORDER.get(code, len(RULE_CODE_ORDER)), code)
+    return rule_code_sort_key(code)
 
 
 def _incomplete_preview_error() -> ServiceError:
@@ -586,96 +568,6 @@ def _incomplete_preview_error() -> ServiceError:
         "recommendation rule set is incomplete for the preview scenario",
         {"code": "incomplete_preview_rule_set"},
     )
-
-
-def _matching_preview_rules(
-    rules_by_code: dict[str, RecommendationRule],
-    scenario: str,
-    profile: dict | None,
-    competition: Competition,
-    evaluation_time: datetime,
-) -> list[tuple[RecommendationRule, str]]:
-    if scenario == "general":
-        fallback = rules_by_code.get("general_fallback")
-        return [(fallback, fallback.reason_template)] if fallback is not None else []
-
-    revision = competition.published_revision
-    if revision is None:
-        return []
-    matches = []
-    major_rule = rules_by_code.get("major_match")
-    if major_rule is not None and _scope_matches(
-        revision.major_scope, revision.suitable_majors, profile["major"]
-    ):
-        matches.append((major_rule, _render_reason(major_rule, {"major": profile["major"]})))
-    grade_rule = rules_by_code.get("grade_match")
-    if grade_rule is not None and _scope_matches(
-        revision.grade_scope, revision.suitable_grades, profile["grade"]
-    ):
-        matches.append((grade_rule, _render_reason(grade_rule, {"grade": profile["grade"]})))
-    interest_rule = rules_by_code.get("interest_match")
-    matched_interests = sorted(
-        set(profile["interest_tags"])
-        & {link.tag.name for link in revision.tag_links if link.tag is not None}
-    )
-    if interest_rule is not None and matched_interests:
-        matches.append(
-            (
-                interest_rule,
-                _render_reason(interest_rule, {"interest_tag": matched_interests[0]}),
-            )
-        )
-    deadline_rule = rules_by_code.get("deadline_urgency")
-    deadline_match = _deadline_match(deadline_rule, revision.time_nodes, evaluation_time)
-    if deadline_match is not None:
-        matches.append((deadline_rule, deadline_match))
-    return matches
-
-
-def _deadline_match(
-    rule: RecommendationRule | None,
-    time_nodes: list,
-    evaluation_time: datetime,
-) -> str | None:
-    if rule is None:
-        return None
-    evaluation_date = stored_datetime_as_utc(evaluation_time).astimezone(PRODUCT_TIMEZONE).date()
-    deadlines = sorted(
-        stored_datetime_as_utc(node.occurs_at).astimezone(PRODUCT_TIMEZONE)
-        for node in time_nodes
-        if node.node_type == "registration_deadline" and node.occurs_at is not None
-    )
-    for deadline in deadlines:
-        days_remaining = (deadline.date() - evaluation_date).days
-        if 0 <= days_remaining <= rule.conditions["max_days"]:
-            return _render_reason(
-                rule,
-                {
-                    "deadline_date": deadline.date().isoformat(),
-                    "days_remaining": str(days_remaining),
-                },
-            )
-    return None
-
-
-def _scope_matches(scope: str | None, values: list | None, profile_value: str) -> bool:
-    if scope == "all":
-        return True
-    return scope == "selected" and profile_value in (values or [])
-
-
-def _render_reason(rule: RecommendationRule, values: dict[str, str]) -> str:
-    rendered = rule.reason_template
-    for key, value in values.items():
-        rendered = rendered.replace(f"{{{key}}}", value)
-    if "{" in rendered or "}" in rendered:
-        raise ServiceError(
-            HTTPStatus.INTERNAL_SERVER_ERROR,
-            "rule_configuration_error",
-            "recommendation reason template could not be rendered",
-            {"rule_code": rule.code},
-        )
-    return rendered
 
 
 def _validate_review_comment(comment: str) -> str:
