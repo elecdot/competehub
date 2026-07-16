@@ -394,8 +394,13 @@ combined preference API returns them with recommendation preferences. Defaults
 are enabled, three days, and the listed core node types, but they only prefill a
 subscription confirmation. Disabling `message_enabled` cancels all pending
 plans while preserving subscriptions and calendar nodes. Re-enabling changes
-only the global setting in #38. Its false-to-true restoration behavior remains
-Issue #40 scope.
+only the global setting in #38. In Issue #40, the false-to-true coordinator may
+return the exact unattempted `global_reminder_disabled` ordinary plan to
+`pending` only when its active subscription, confirmed reminder choice, current
+published node revision, and recalculated trigger are still eligible and future.
+It creates a current-revision plan when none exists, but does not backfill or
+restore attempted, sent, failed, elapsed, prior-revision, lifecycle-cancelled,
+or otherwise terminal work.
 
 `reminder_settings` is authoritative when a row exists; the combined API shape
 remains stable across its storage migration. Persistence invariants are owned by
@@ -784,8 +789,9 @@ plan only when its reason is `subscription_cancelled`, `reminder_disabled`,
 cancellation evidence. Sent, failed, elapsed, prior-revision, offline, deletion,
 lifecycle, supersession, global-setting, and other system-owned evidence, plus
 delivered messages, are terminal: they are never restored, rewritten, or
-replayed. Global `message_enabled` false-to-true restoration remains Issue #40
-scope.
+replayed by re-subscription or semantic PATCH. The separate Issue #40 global
+false-to-true coordinator is the sole exception for an exact unattempted
+`global_reminder_disabled` row whose current trigger remains future.
 
 ### `PATCH /competitions/{id}/subscription`
 
@@ -858,11 +864,43 @@ Query parameters:
 - `message_type`: `reminder_due`, `competition_time_changed`,
   `competition_cancelled`, or `competition_offline`
 
-Response items contain immutable `title_snapshot`, `body_snapshot`,
-`event_occurred_at`, `created_at`, `retained_until`, `message_type`, mutable
-`is_read` and `read_at`, and a competition target snapshot. If the current
-target is unavailable, `target_available` is false and no public target URL is
-returned; the historical message remains readable.
+The response uses the common list envelope. Each item has this stable shape:
+
+```json
+{
+  "id": 123,
+  "message_type": "reminder_due",
+  "title_snapshot": "报名截止提醒",
+  "body_snapshot": "示例赛事即将截止报名。",
+  "target_snapshot": {
+    "competition_id": 42,
+    "competition_title": "示例赛事",
+    "node_type": "registration_deadline",
+    "node_occurs_at": "2026-08-20T08:00:00Z",
+    "reason_summary": null
+  },
+  "event_occurred_at": "2026-08-17T08:00:00Z",
+  "created_at": "2026-08-17T08:00:01Z",
+  "retained_until": "2027-08-17T08:00:01Z",
+  "is_read": false,
+  "read_at": null,
+  "target_available": true,
+  "target_url": "/competitions/42"
+}
+```
+
+`title_snapshot`, `body_snapshot`, `target_snapshot`, `event_occurred_at`,
+`created_at`, `retained_until`, and `message_type` are immutable. Within
+`target_snapshot`, `node_type`, `node_occurs_at`, and `reason_summary` are
+nullable: ordinary due reminders snapshot their one node, while consolidated
+or lifecycle events may instead carry a reason summary without inventing a
+single node. For `reminder_due`, `event_occurred_at` equals the reminder's
+`due_at`; for the other message types it is the domain-event time.
+
+`is_read` and `read_at` are mutable. `target_available` and `target_url` are
+derived from current visibility rather than stored in the immutable snapshot.
+If the target is unavailable, `target_available` is false and `target_url` is
+null; the historical message remains readable.
 
 An approved replacement revision emits at most one consolidated
 `competition_time_changed` message per affected active subscriber. It is
@@ -872,27 +910,59 @@ other presentation-only changes update calendar data and current pending
 reminder snapshots without emitting this message. Idempotency is scoped to user
 and approved revision event, not to every changed node row.
 
-Requires authentication.
+Requires `student`; list results contain only that student's retained messages.
 
 ### `GET /me/messages/unread_count`
 
-Return the current user's retained unread count for the global navigation badge.
+Return the current user's retained unread count for the global navigation badge:
 
-Requires authentication.
+```json
+{
+  "data": {"unread_count": 3},
+  "error": null
+}
+```
+
+Requires `student`.
 
 ### `POST /me/messages/{id}/read`
 
-Mark one message as read.
+Mark one retained message as read.
 
-Requires authentication and message ownership.
+Requires `student` and message ownership. A missing, expired, or other user's
+message returns the same `404 not_found` response and does not reveal whether a
+row exists.
 
 The operation is idempotent. It changes only `is_read` and `read_at`; message
-content and event snapshots remain immutable.
+content and event snapshots remain immutable. It returns the updated message in
+the same item shape as the list plus the current retained unread count:
+
+```json
+{
+  "data": {
+    "message": {},
+    "unread_count": 2
+  },
+  "error": null
+}
+```
 
 ### `POST /me/messages/read_all`
 
 Idempotently mark all retained messages owned by the current user as read and
-return the updated unread count.
+return both the number changed by this operation and the resulting unread count:
+
+```json
+{
+  "data": {
+    "updated_count": 3,
+    "unread_count": 0
+  },
+  "error": null
+}
+```
+
+Requires `student`.
 
 P1 exposes no message delete endpoint. Messages expire 365 days after creation
 and are removed by the retention task or with account data deletion.
@@ -1545,18 +1615,30 @@ Internal Celery task names:
 
 - `competehub.reminders.dispatch_due`
 - `competehub.reminders.requeue_failed`
+- `competehub.messages.purge_expired`
 
 Task behavior:
 
-- Query due `pending` reminders.
+- Query due `pending` reminders and revalidate their current delivery
+  eligibility before message creation.
 - Create messages idempotently.
-- Mark successful reminders as `sent` and ineligible reminders as `cancelled`.
+- Mark successful reminders as `sent`. An ineligible never-attempted `pending`
+  plan becomes `cancelled`; a temporarily requeued attempted plan returns to
+  `failed`, preserving `attempt_count`, `last_error_code`, and `failed_at`, and
+  records the controlled retry-stop reason.
 - On every attempted delivery, increment `attempt_count`. A transient failure
   sets `failed`, a sanitized controlled `last_error_code`, `failed_at`, and
   `next_attempt_at` from bounded retry configuration; permanent or exhausted
   failures set `next_attempt_at` to `null`.
-- `requeue_failed` selects due retryable `failed` rows and moves them back to
-  `pending` while clearing `next_attempt_at`; `dispatch_due` never sends
-  directly from `failed`.
+- `requeue_failed` selects only due retryable `failed` rows with a non-null
+  `next_attempt_at`, revalidates current delivery eligibility, and moves an
+  eligible row back to `pending` while clearing `next_attempt_at` and any prior
+  retry-stop reason. When eligibility has been revoked, the row remains
+  `failed`; `attempt_count`, `last_error_code`, and `failed_at` remain intact,
+  `next_attempt_at` is cleared, and `cancel_reason` records the controlled
+  eligibility reason that stopped retry.
+- Preference enablement and re-subscription never restore an attempted
+  `failed` row. `dispatch_due` revalidates eligibility immediately before its
+  idempotent message write and never sends directly from `failed`.
 
 These are not public HTTP APIs.

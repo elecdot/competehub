@@ -738,8 +738,12 @@ Rules:
   `registration_deadline`, `submission_deadline`, `competition_start`; invalid,
   duplicate, or unknown values are not accepted.
 - Disabling global reminders cancels pending plans with a global-disabled
-  reason while preserving subscriptions and calendar nodes. Global
-  `message_enabled` false-to-true restoration remains Issue #40 scope.
+  reason while preserving subscriptions and calendar nodes. The Issue #40
+  false-to-true coordinator may restore the exact unattempted
+  `global_reminder_disabled` ordinary plan in place only when its active
+  subscription, confirmed reminder choice, current published node revision, and
+  recalculated trigger remain eligible and future. It creates a plan for a
+  missing current-revision identity but never backfills elapsed work.
 
 ### `reminders`
 
@@ -782,13 +786,29 @@ Rules:
   re-subscription or semantic PATCH, with newly confirmed consent and current
   eligible future nodes, when the plan is unsent. Sent, failed, elapsed,
   prior-revision, offline, deletion, lifecycle, supersession, global-setting,
-  and other system-owned evidence is terminal; it and the delivered message are
-  never restored, rewritten, or replayed. Global `message_enabled` false-to-true
-  restoration remains Issue #40 scope.
+  and other system-owned evidence is terminal to re-subscription and semantic
+  PATCH; it and the delivered message are never restored, rewritten, or
+  replayed by those user actions. The sole global-setting exception is Issue
+  #40's false-to-true coordinator: it may return an exact unattempted
+  `global_reminder_disabled` row to `pending` when the same current node revision
+  still has a future eligible trigger. Attempted, failed, elapsed, prior-revision,
+  lifecycle-cancelled, and other terminal rows remain ineligible.
 - Initial plan creation requires both the subscription's confirmed reminder
   switch and the current global reminder switch.
 - Worker tasks must be idempotent.
-- Competition cancellation, offline status, or time node deletion should cancel pending reminders.
+- A retryable `failed` row whose current delivery eligibility is revoked stays
+  `failed`. The coordinator preserves `attempt_count`, `last_error_code`, and
+  `failed_at`, clears `next_attempt_at`, and stores the controlled eligibility
+  reason in `cancel_reason` as retry-stop evidence. A non-null `cancel_reason`
+  therefore does not by itself imply `status = cancelled`.
+- Competition cancellation, offline status, time node deletion, subscription
+  changes, and preference changes revoke pending work. A never-attempted plan
+  becomes `cancelled`; a requeued attempted plan returns to `failed` with its
+  attempt/error evidence intact and `next_attempt_at = null`.
+- A controlled unattempted cancellation handed across competition cancellation
+  or offline lifecycle remains terminal while its `cancel_reason` changes to the
+  lifecycle authority. An unchanged-node successor and later global enablement
+  must not restore that plan.
 - When a changed node receives a new `node_revision`, reconciliation cancels
   its prior pending plan as superseded and creates only a still-future plan from
   the new snapshot. If a node is copied unchanged and keeps its node revision,
@@ -828,11 +848,34 @@ Rules:
   handlers cannot create duplicate messages.
 - Message type and content snapshots are immutable after creation. Only
   `is_read` and `read_at` change through one-message or read-all actions.
+- `target_snapshot` contains `competition_id`, `competition_title`, and nullable
+  `node_type`, `node_occurs_at`, and `reason_summary`. A due reminder snapshots
+  its one node; consolidated or lifecycle messages may use a reason summary
+  without claiming one representative node.
+- `reminder_due.event_occurred_at` is the reminder's `due_at`; the other message
+  types use their domain-event occurrence time. Message insertion time remains
+  separately available as `created_at`.
 - A target snapshot remains readable if the current competition is unavailable;
-  APIs must not expose a public target URL when access is no longer allowed.
+  `target_available` and the nullable `target_url` are response-time derivations,
+  not mutable snapshot columns. APIs return `target_url = null` when current
+  access is no longer allowed.
 - Messages are retained for 365 days regardless of read state. P1 has no
   per-message deletion; an expiry task purges records after `retained_until`,
   and account deletion follows the account-data cleanup policy.
+- The Issue #40 upgrade preserves each legacy row's id, user, nullable reminder
+  relation, read state, and timestamps. It renames `title`/`body` to their
+  snapshot fields; derives competition from the existing message or its
+  reminder; derives a missing reminder-backed type as `reminder_due`; chooses
+  `event_occurred_at` from the existing value, reminder `due_at`, then
+  `created_at`; sets `retained_until` to 365 days after `created_at`; and fills a
+  missing idempotency key as `legacy-message:{id}`.
+- A legacy `target_snapshot` uses the recoverable competition title and any
+  reminder node facts as they exist at upgrade time. The migration does not
+  claim to reconstruct unavailable earlier content, purge expired rows, delete
+  invalid rows, or manufacture a competition identity. If a required user,
+  competition, message type, or conditionally required reminder fact cannot be
+  derived, preflight aborts before destructive schema mutation with diagnostic
+  evidence; retention cleanup remains a separate idempotent task.
 - User-triggered unsubscription or reminder disablement does not create a
   message. Competition cancellation or emergency offline creates one idempotent
   event message for each active subscriber before future plans are stopped.
@@ -1084,10 +1127,11 @@ Transition rules:
   relations. Past subscribed nodes remain available to calendar ranges, while
   no future calendar node or new reminder can exist under the transition
   precondition.
-- The status transaction cancels any stale `pending` reminder with
-  `competition_archived` or `competition_expired`. It creates no subscriber
-  message; those routine historical states are distinct from cancellation and
-  emergency offline.
+- The status transaction revokes any stale `pending` reminder with
+  `competition_archived` or `competition_expired`. Never-attempted work becomes
+  `cancelled`; temporarily requeued attempted work remains `failed` with its
+  delivery evidence. It creates no subscriber message; those routine historical
+  states are distinct from cancellation and emergency offline.
 
 Public visibility policy:
 
@@ -1132,8 +1176,14 @@ Rules:
 - Every dispatch attempt increments `attempt_count`. A transient failure sets
   `status = failed`, a sanitized controlled `last_error_code`, `failed_at`, and
   a future `next_attempt_at`; a retry scheduler moves a due retryable row back
-  to `pending` before dispatch. Permanent or exhausted failures remain
-  `failed` with `next_attempt_at = null`.
+  to `pending` before dispatch only after revalidating current delivery
+  eligibility. If eligibility was revoked, the row remains `failed`, its
+  attempt/error evidence is preserved, `next_attempt_at` becomes null, and a
+  controlled `cancel_reason` explains why retry stopped. Permanent or exhausted
+  failures likewise remain `failed` with `next_attempt_at = null`.
+- Dispatch revalidates current delivery eligibility before creating a message.
+  Preference enablement and re-subscription never return an attempted `failed`
+  row to `pending`.
 - `sent` is terminal and points to the immutable delivered message; read state
   does not belong to the reminder.
 
