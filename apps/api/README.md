@@ -67,6 +67,9 @@ unowned rows stop before schema mutation and must be assigned an owner first.
 The Playwright harness uses `create_e2e_app` and the guarded `seed-e2e --reset`
 command to rebuild only `.cache/tmp/competehub-e2e.db`. That factory is test
 support for `just web-e2e`; it is not a development or production seed path.
+It alone tolerates a one-second future skew in signed Cookie timestamps so a
+small host-clock correction cannot invalidate a deterministic browser actor;
+development and production session validation are unchanged.
 
 ## Local Conventions
 

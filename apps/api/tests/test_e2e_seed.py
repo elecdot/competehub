@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
+from itsdangerous import SignatureExpired, TimestampSigner
+
 from competehub_api import create_app
 from competehub_api.e2e_seed import E2E_ACTORS, SEEDED_E2E_ACTORS
 from competehub_api.extensions import db
@@ -35,6 +38,33 @@ def test_e2e_seed_refuses_a_normal_application(app) -> None:
 
     assert result.exit_code != 0
     assert "requires the isolated E2E app factory" in result.output
+
+
+def test_e2e_session_tolerates_a_one_second_clock_reversal(monkeypatch) -> None:
+    app = create_app(
+        {
+            "TESTING": True,
+            "E2E_TESTING": True,
+            "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:",
+        }
+    )
+    serializer = app.session_interface.get_signing_serializer(app)
+    assert serializer is not None
+
+    current_timestamp = [1_800_000_000]
+    monkeypatch.setattr(
+        TimestampSigner,
+        "get_timestamp",
+        lambda _signer: current_timestamp[0],
+    )
+    cookie = serializer.dumps({"user_id": 1001})
+
+    current_timestamp[0] -= 1
+    assert serializer.loads(cookie, max_age=60) == {"user_id": 1001}
+
+    current_timestamp[0] -= 1
+    with pytest.raises(SignatureExpired):
+        serializer.loads(cookie, max_age=60)
 
 
 def test_e2e_seed_rebuilds_the_expected_actor_set() -> None:

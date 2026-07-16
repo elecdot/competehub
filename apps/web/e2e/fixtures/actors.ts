@@ -127,6 +127,16 @@ async function authenticateActorPage(
   expect(currentUser.data.role).toBe(actor.role)
 }
 
+export async function switchActor(page: Page, account: string, password: string) {
+  // Stop the previous actor's SPA before replacing its cookie. Otherwise background
+  // refreshes can cross the session boundary and observe an unrelated actor.
+  await page.goto('about:blank')
+  const loginResponse = await page.request.post('/api/v1/auth/login', {
+    data: { identity_type: 'email', identity: account, password },
+  })
+  expect(loginResponse).toBeOK()
+}
+
 async function usePageWithErrorGuard(
   page: Page,
   use: (page: Page) => Promise<void>,
