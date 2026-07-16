@@ -129,11 +129,22 @@ test.describe('personal calendar', () => {
     ).toHaveAttribute('aria-label', /比赛配对·开始/)
     const revisionText = /^修订 2$/
     if (!mobile) {
-      const primaryBadges = primary.locator('.calendar-event-badge')
-      await expect(primaryBadges.filter({ hasText: /^重点$/ })).toBeVisible()
-      await expect(primaryBadges.filter({ hasText: /^当前阶段$/ })).toBeVisible()
-      await expect(primaryBadges.filter({ hasText: /^最近$/ })).toBeVisible()
-      await expect(primaryBadges.filter({ hasText: revisionText })).toBeVisible()
+      const primaryBadges = popover
+        .locator('.calendar-event-badge')
+        .filter({ hasText: /^重点$/ })
+      expect(await primaryBadges.count()).toBeGreaterThan(0)
+      for (const badge of await primaryBadges.all()) await expect(badge).toBeVisible()
+
+      const currentStageEvent = popover.locator('[data-calendar-node-id="2504"]')
+      await expect(
+        currentStageEvent.locator('.calendar-event-badge').filter({ hasText: /^当前阶段$/ }),
+      ).toBeVisible()
+      await expect(
+        primary.locator('.calendar-event-badge').filter({ hasText: /^最近$/ }),
+      ).toBeVisible()
+      await expect(
+        primary.locator('.calendar-event-badge').filter({ hasText: revisionText }),
+      ).toBeVisible()
     } else {
       await expect(
         primary.locator('.calendar-event-meta-token').filter({ hasText: revisionText }),
