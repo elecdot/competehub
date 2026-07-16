@@ -127,11 +127,17 @@ test.describe('personal calendar', () => {
     await expect(
       popover.locator(`[data-calendar-node-id="${CALENDAR_NODE_IDS[3]}"]`),
     ).toHaveAttribute('aria-label', /比赛配对·开始/)
+    const revisionText = /^修订 2$/
     if (!mobile) {
-      await expect(popover.getByText('重点', { exact: true }).first()).toBeVisible()
-      await expect(popover.getByText('当前阶段', { exact: true })).toBeVisible()
-      await expect(popover.getByText('最近', { exact: true })).toBeVisible()
-      await expect(popover.getByText('修订 2', { exact: true })).toBeVisible()
+      const primaryBadges = primary.locator('.calendar-event-badge')
+      await expect(primaryBadges.filter({ hasText: /^重点$/ })).toBeVisible()
+      await expect(primaryBadges.filter({ hasText: /^当前阶段$/ })).toBeVisible()
+      await expect(primaryBadges.filter({ hasText: /^最近$/ })).toBeVisible()
+      await expect(primaryBadges.filter({ hasText: revisionText })).toBeVisible()
+    } else {
+      await expect(
+        primary.locator('.calendar-event-meta-token').filter({ hasText: revisionText }),
+      ).toBeVisible()
     }
 
     const unavailable = actorPage.locator(`[data-calendar-node-id="${OFFLINE_NODE_ID}"]`)
