@@ -303,13 +303,19 @@ def _create_challenge_and_delivery(
 
 
 def _require_registration_sender() -> None:
-    sender = current_app.config.get("EMAIL_VERIFICATION_SENDER")
-    if not current_app.config.get("PUBLIC_EMAIL_REGISTRATION_ENABLED") or sender is None:
+    if not public_email_registration_available():
         raise ServiceError(
             HTTPStatus.SERVICE_UNAVAILABLE,
             "registration_unavailable",
             "public registration is unavailable",
         )
+
+
+def public_email_registration_available() -> bool:
+    return bool(
+        current_app.config.get("PUBLIC_EMAIL_REGISTRATION_ENABLED")
+        and current_app.config.get("EMAIL_VERIFICATION_SENDER") is not None
+    )
 
 
 def _find_identity_for_update(identity_type: str, normalized_value: str) -> UserIdentity | None:

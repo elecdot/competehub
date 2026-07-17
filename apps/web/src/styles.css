@@ -92,9 +92,46 @@ a:focus-visible {
   border: 1px solid #d1d5db;
   border-radius: 6px;
   display: inline-flex;
+  gap: 8px;
   font-weight: 700;
   justify-content: center;
   padding: 6px 12px;
+}
+
+.account-user-link {
+  border-color: transparent !important;
+  max-width: min(260px, 46vw);
+  min-width: 0;
+  padding: 2px 0;
+  transition: none;
+}
+
+.account-nav .account-user-link:hover,
+.account-nav .account-user-link:active {
+  box-shadow: none;
+  text-decoration: none;
+  transform: none;
+}
+
+.account-avatar {
+  align-items: center;
+  background: #0897cf;
+  border-radius: 50%;
+  color: #ffffff;
+  display: inline-flex;
+  flex: 0 0 32px;
+  font-size: 14px;
+  font-weight: 800;
+  height: 32px;
+  justify-content: center;
+  width: 32px;
+}
+
+.account-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .message-nav-link .ant-badge {
@@ -116,6 +153,12 @@ a:focus-visible {
 .account-nav a.router-link-active {
   background: #edf7f2;
   border-color: #176b4d;
+}
+
+.account-nav .account-user-link.router-link-active {
+  background: transparent;
+  border-color: transparent;
+  color: #1f2937;
 }
 
 .main-content {
@@ -416,19 +459,223 @@ a:focus-visible {
   gap: 20px;
 }
 
-.status-layout {
+.auth-page {
+  align-items: center;
+  background:
+    linear-gradient(135deg, #e6f6ff 0%, #f5f8ff 45%, #e7fbfb 100%);
+  border: 1px solid #d8e4ef;
+  border-radius: 8px;
+  display: grid;
+  min-height: calc(100vh - 116px);
+  padding: clamp(18px, 4vw, 56px);
+}
+
+.auth-card {
+  background: #ffffff;
+  border: 1px solid #dbe5f0;
+  border-radius: 8px;
+  box-shadow: 0 18px 42px rgb(31 41 55 / 16%);
+  display: grid;
+  grid-template-columns: minmax(280px, 0.9fr) minmax(320px, 1.1fr);
+  margin: 0 auto;
+  max-width: 1120px;
+  min-height: 620px;
+  overflow: hidden;
+  width: min(100%, 1120px);
+}
+
+.auth-brand-panel {
+  align-content: center;
+  background: linear-gradient(180deg, #28b7ef 0%, #0897cf 100%);
+  color: #ffffff;
+  display: grid;
+  gap: 32px;
+  justify-items: center;
+  padding: clamp(32px, 5vw, 72px);
+  text-align: center;
+}
+
+.auth-brand-icon {
+  align-items: center;
+  border: 1px solid rgb(255 255 255 / 38%);
+  border-radius: 8px;
+  display: inline-flex;
+  font-size: 34px;
+  height: 72px;
+  justify-content: center;
+  width: 72px;
+}
+
+.auth-eyebrow {
+  color: rgb(255 255 255 / 78%);
+  font-size: 14px;
+  font-weight: 800;
+  margin: 0 0 10px;
+}
+
+.auth-brand-panel h1 {
+  color: #ffffff;
+  font-size: clamp(30px, 4vw, 42px);
+  line-height: 1.2;
+  margin: 0;
+}
+
+.auth-brand-panel p {
+  color: rgb(255 255 255 / 82%);
+  font-size: 17px;
+  line-height: 1.7;
+  margin: 12px 0 0;
+}
+
+.auth-feature-list {
+  display: grid;
+  gap: 16px;
+  list-style: none;
+  margin: 0;
+  max-width: 380px;
+  padding: 0;
+  text-align: left;
+  width: 100%;
+}
+
+.auth-feature-list li {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 24px minmax(0, 1fr);
+}
+
+.auth-feature-list .anticon {
+  color: rgb(255 255 255 / 90%);
+  font-size: 20px;
+}
+
+.auth-form-panel {
+  align-content: center;
+  display: grid;
+  gap: 22px;
+  padding: clamp(28px, 5vw, 72px);
+}
+
+.auth-heading h2 {
+  color: #1f2a44;
+  font-size: clamp(26px, 3vw, 34px);
+  line-height: 1.25;
+  margin: 0 0 6px;
+}
+
+.auth-heading p {
+  color: #6b7890;
+  font-size: 15px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.auth-tabs {
+  background: #f3f6fc;
+  border: 1px solid #dbe5f0;
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 6px;
+}
+
+.auth-tabs a {
+  align-items: center;
+  border-radius: 8px;
+  color: #64748b;
+  display: inline-flex;
+  font-weight: 800;
+  justify-content: center;
+  min-height: 42px;
+}
+
+.auth-tabs a.active,
+.auth-tabs a.router-link-active {
+  background: #ffffff;
+  box-shadow: 0 6px 18px rgb(31 41 55 / 10%);
+  color: #0897cf;
+}
+
+.auth-form {
+  display: grid;
+  gap: 2px;
+}
+
+.auth-form .ant-form-item-label > label {
+  color: #596780;
+  font-weight: 800;
+}
+
+.auth-form .ant-input,
+.auth-form .ant-input-affix-wrapper {
+  border-color: #cbd8ea;
+  border-radius: 8px;
+  font-size: 16px;
+  min-height: 48px;
+}
+
+.auth-submit.ant-btn {
+  border-radius: 8px;
+  box-shadow: 0 10px 18px rgb(8 151 207 / 24%);
+  font-size: 16px;
+  font-weight: 800;
+  min-height: 48px;
+  width: 100%;
+}
+
+.auth-submit.ant-btn-primary {
+  background: #0897cf;
+  border-color: #0897cf;
+}
+
+.auth-submit.ant-btn-primary:not(:disabled):hover,
+.auth-submit.ant-btn-primary:not(:disabled):focus-visible {
+  background: #077fb0;
+  border-color: #077fb0;
+}
+
+.auth-steps {
+  margin: 2px 0 0;
+}
+
+.auth-switch-line {
+  color: #6b7890;
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0;
+  text-align: center;
+}
+
+.auth-switch-line a {
+  align-items: center;
+  color: #0897cf;
+  display: inline-flex;
+  font-weight: 800;
+  gap: 6px;
+  margin-left: 4px;
+}
+
+.account-page {
+  width: 100%;
+}
+
+.status-layout {
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
 }
 
 .status-layout.single {
   align-items: start;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .status-section {
+  align-content: start;
   background: #ffffff;
   border: 1px solid #dde2e7;
   border-radius: 8px;
-  padding: 18px;
+  padding: clamp(16px, 1.5vw, 24px);
 }
 
 .section-title-row {
@@ -446,6 +693,90 @@ a:focus-visible {
   margin: 0;
 }
 
+.personal-layout {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.personal-hero {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #dde2e7;
+  border-radius: 8px;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: auto minmax(0, 1fr) minmax(min-content, auto);
+  padding: clamp(18px, 1.8vw, 28px);
+}
+
+.field-label {
+  color: #6b7280;
+  display: block;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.avatar-mark {
+  align-items: center;
+  background: #e8f4ef;
+  border: 1px solid #b8d8cb;
+  border-radius: 999px;
+  color: #176b4d;
+  display: inline-grid;
+  font-size: 22px;
+  font-weight: 800;
+  height: 52px;
+  justify-content: center;
+  width: 52px;
+}
+
+.personal-hero-main h2 {
+  color: #111827;
+  font-size: 24px;
+  line-height: 1.45;
+  margin: 0 0 4px;
+  overflow-wrap: anywhere;
+}
+
+.personal-actions,
+.profile-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.personal-hero .ant-alert {
+  grid-column: 1 / -1;
+}
+
+.profile-panel {
+  padding: clamp(18px, 1.8vw, 28px);
+}
+
+.profile-panel-heading {
+  align-items: start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.panel-description {
+  color: #6b7280;
+  line-height: 1.7;
+  margin: 6px 0 0;
+}
+
+.profile-status-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+  min-width: min(220px, 100%);
+}
+
 .inline-tags {
   display: inline-flex;
   flex-wrap: wrap;
@@ -456,8 +787,76 @@ a:focus-visible {
   margin-inline-end: 0;
 }
 
-.profile-form {
-  margin-top: 18px;
+.account-page .profile-form {
+  display: grid;
+  gap: 0 16px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin-top: 20px;
+}
+
+.account-page .profile-form .span-three,
+.profile-actions {
+  grid-column: 1 / -1;
+}
+
+.profile-required-marker {
+  color: #ff4d4f;
+  margin-inline-end: 4px;
+}
+
+.secondary-action-link {
+  align-items: center;
+  color: #176b4d;
+  display: inline-flex;
+  font-weight: 700;
+  gap: 7px;
+  margin-left: 12px;
+  min-height: 32px;
+}
+
+.secondary-action-link:hover {
+  color: #12583f;
+  text-decoration: underline;
+}
+
+.form-actions .secondary-action-link {
+  margin-left: 0;
+}
+
+.centered-actions {
+  justify-content: center;
+}
+
+.textarea-control {
+  background: #ffffff;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  box-sizing: border-box;
+  color: #1f2937;
+  font: inherit;
+  line-height: 1.6;
+  min-height: 96px;
+  padding: 7px 11px;
+  resize: vertical;
+  width: 100%;
+}
+
+.textarea-control:focus {
+  border-color: #176b4d;
+  box-shadow: 0 0 0 2px rgb(23 107 77 / 12%);
+  outline: 0;
+}
+
+.login-panel,
+.register-panel {
+  width: 100%;
+}
+
+.form-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .competition-pagination {
@@ -1010,12 +1409,21 @@ a:focus-visible {
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
   }
+
 }
 
 @media (max-width: 920px) {
   .filter-bar,
   .detail-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .auth-card {
+    grid-template-columns: 1fr;
+  }
+
+  .auth-brand-panel {
+    min-height: 320px;
   }
 
   .detail-grid .detail-section:last-child {
@@ -1046,9 +1454,62 @@ a:focus-visible {
 }
 
 @media (max-width: 640px) {
+  .auth-page {
+    border-left: 0;
+    border-right: 0;
+    border-radius: 0;
+    min-height: calc(100vh - 56px);
+    padding: 14px;
+  }
+
+  .auth-card {
+    min-height: 0;
+  }
+
+  .auth-brand-panel {
+    gap: 18px;
+    min-height: 260px;
+    padding: 28px 20px;
+  }
+
+  .auth-brand-icon {
+    height: 56px;
+    width: 56px;
+  }
+
+  .auth-feature-list {
+    gap: 10px;
+  }
+
+  .auth-form-panel {
+    padding: 24px 18px;
+  }
+
   .topbar-inner {
     gap: 14px;
     padding: 0 16px;
+  }
+
+  .account-nav {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .account-nav a {
+    box-sizing: border-box;
+    min-width: 0;
+    text-align: center;
+  }
+
+  .account-nav .account-user-link {
+    grid-column: 1 / -1;
+    max-width: none;
+  }
+
+  .account-name {
+    max-width: 100%;
   }
 
   .nav-links {
@@ -1068,6 +1529,8 @@ a:focus-visible {
   .filter-bar,
   .competition-card,
   .detail-grid,
+  .personal-hero,
+  .account-page .profile-form,
   .status-layout,
   .time-node-list li {
     grid-template-columns: 1fr;
@@ -1093,6 +1556,11 @@ a:focus-visible {
   .filter-actions {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .secondary-action-link {
+    margin-left: 0;
+    margin-top: 10px;
   }
 
   .card-side {
@@ -1148,16 +1616,9 @@ a:focus-visible {
     width: 100%;
   }
 
-  .account-nav {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    margin-left: 0;
-    width: 100%;
-  }
-
   .account-nav a {
     box-sizing: border-box;
+    flex: 1;
     text-align: center;
-    width: 100%;
   }
 }

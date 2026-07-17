@@ -1,47 +1,48 @@
 <script setup lang="ts">
-import { LoginOutlined, ReloadOutlined, SaveOutlined, UserOutlined } from '@ant-design/icons-vue'
+import {
+  LoginOutlined,
+  LogoutOutlined,
+  ReloadOutlined,
+  SaveOutlined,
+  UserAddOutlined,
+  UserOutlined,
+} from '@ant-design/icons-vue'
 import {
   Alert as AAlert,
   Button as AButton,
-  Descriptions as ADescriptions,
-  DescriptionsItem as ADescriptionsItem,
   Form as AForm,
   FormItem as AFormItem,
-  Input as AInput,
   Result as AResult,
   Select as ASelect,
   Skeleton as ASkeleton,
   Tag as ATag,
+  Textarea as ATextarea,
 } from 'ant-design-vue'
-import { computed, onMounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { isAxiosError } from 'axios'
+import { computed, nextTick, onMounted, ref } from 'vue'
 
 import { fetchCurrentProfile, fetchProfileOptions, updateCurrentProfile } from '@/api/client'
 import { useAuthStore } from '@/stores/auth_store'
-import type { IdentityType, LoginPayload, ProfileOptions, StudentProfile } from '@/types/auth'
+import type { ProfileOptions, StudentProfile } from '@/types/auth'
 
 const auth = useAuthStore()
-const route = useRoute()
-const router = useRouter()
 const profile = ref<StudentProfile | null>(null)
 const profileOptions = ref<ProfileOptions | null>(null)
 const profileLoading = ref(false)
 const profileSaving = ref(false)
 const profileLoadError = ref('')
 const profileSaveError = ref('')
-const loginError = ref('')
-const defaultReturnPath = '/competitions'
+const profileSaveSuccess = ref('')
+const invalidProfileField = ref('')
+const logoutError = ref('')
 
-const loginForm = ref<LoginPayload>({
-  identity_type: 'email',
-  identifier: '',
-  password: '',
-})
 const profileForm = ref({
   college: undefined as string | undefined,
   major: undefined as string | undefined,
   grade: undefined as string | undefined,
   interest_tags: [] as string[],
+  competition_experience: '',
+  goal_preferences: [] as string[],
 })
 
 const missingFieldLabels: Record<string, string> = {
@@ -51,16 +52,62 @@ const missingFieldLabels: Record<string, string> = {
   interest_tags: '兴趣标签',
 }
 
-const identityTypeOptions = [
-  { value: 'email', label: '邮箱' },
-  { value: 'phone', label: '手机号' },
-  { value: 'student_no', label: '学号' },
-] satisfies Array<{ value: IdentityType; label: string }>
+const goalPreferenceOptions = toSelectOptions([
+  '保研',
+  '就业',
+  '科研',
+  '创业',
+  '提升技术能力',
+  '积累项目经历',
+  '获奖加分',
+])
 
 const displayName = computed(() => auth.currentUser?.displayName || `用户 ${auth.currentUser?.id}`)
-const capabilities = computed(() => auth.currentUser?.capabilities ?? [])
+const userInitial = computed(() => displayName.value.trim().slice(0, 1).toUpperCase() || 'U')
+const identityLabel = computed(() => {
+  switch (auth.currentUser?.role) {
+    case 'student':
+      return '学生'
+    case 'admin':
+      return '管理员'
+    case 'teacher':
+      return '教师'
+    case 'organizer':
+      return '组织者'
+    default:
+      return '未登录'
+  }
+})
+// UX-only preview required by #59; the backend still validates every persisted value.
+const currentMissingFieldKeys = computed(() => {
+  const options = profileOptions.value
+  if (!options) {
+    return profile.value?.missing_fields ?? []
+  }
+
+  const missing: string[] = []
+  if (!isAllowedCollege(options, profileForm.value.college)) {
+    missing.push('college')
+  }
+  if (!isAllowedMajor(options, profileForm.value.college, profileForm.value.major)) {
+    missing.push('major')
+  }
+  if (!isAllowedGrade(options, profileForm.value.grade)) {
+    missing.push('grade')
+  }
+  if (!hasRecommendationReadyInterestTags(options, profileForm.value.interest_tags)) {
+    missing.push('interest_tags')
+  }
+  return missing
+})
 const missingFields = computed(() =>
-  (profile.value?.missing_fields ?? []).map((field) => missingFieldLabels[field] ?? field),
+  currentMissingFieldKeys.value.map((field) => missingFieldLabels[field] ?? field),
+)
+const isProfileRecommendationReady = computed(
+  () => profile.value !== null && currentMissingFieldKeys.value.length === 0,
+)
+const profileStatusText = computed(() =>
+  isProfileRecommendationReady.value ? '推荐资料已完善' : '资料待完善',
 )
 const collegeOptions = computed(() => toSelectOptions(profileOptions.value?.colleges ?? []))
 const gradeOptions = computed(() => toSelectOptions(profileOptions.value?.grades ?? []))
@@ -76,49 +123,6 @@ const majorOptions = computed(() => {
   return toSelectOptions([...new Set(Object.values(options.majors_by_college).flat())])
 })
 
-async function submitLogin() {
-  loginError.value = ''
-  try {
-    await auth.login(loginForm.value)
-    await loadProfile()
-    await router.replace(getSafeReturnPath(route.query.return_to))
-  } catch {
-    loginError.value = '登录失败'
-  }
-}
-
-function getSafeReturnPath(value: unknown) {
-  if (typeof value !== 'string' || !value) return defaultReturnPath
-
-  let decoded: string
-  try {
-    decoded = decodeURIComponent(value)
-  } catch {
-    return defaultReturnPath
-  }
-
-  if (!decoded.startsWith('/') || decoded.startsWith('//') || decoded.includes('\\')) {
-    return defaultReturnPath
-  }
-
-  const origin = 'https://competehub.invalid'
-  let target: URL
-  try {
-    target = new URL(decoded, origin)
-  } catch {
-    return defaultReturnPath
-  }
-  if (
-    target.origin !== origin ||
-    !target.pathname.startsWith('/') ||
-    target.pathname.startsWith('//')
-  ) {
-    return defaultReturnPath
-  }
-
-  return value
-}
-
 async function loadProfile() {
   if (auth.currentUser?.role !== 'student') {
     profile.value = null
@@ -127,6 +131,8 @@ async function loadProfile() {
   profileLoading.value = true
   profileLoadError.value = ''
   profileSaveError.value = ''
+  profileSaveSuccess.value = ''
+  invalidProfileField.value = ''
   try {
     const [options, currentProfile] = await Promise.all([
       fetchProfileOptions(),
@@ -146,24 +152,44 @@ async function loadProfile() {
 async function saveProfile() {
   profileSaving.value = true
   profileSaveError.value = ''
+  profileSaveSuccess.value = ''
+  invalidProfileField.value = ''
   try {
     profile.value = await updateCurrentProfile({
       college: profileForm.value.college ?? null,
       major: profileForm.value.major ?? null,
       grade: profileForm.value.grade ?? null,
       interest_tags: profileForm.value.interest_tags,
+      competition_experience: profileForm.value.competition_experience.trim() || null,
+      goal_preferences: profileForm.value.goal_preferences,
     })
     syncProfileForm(profile.value)
-  } catch {
-    profileSaveError.value = 'profile_save_failed'
+    profileSaveSuccess.value = '画像已保存'
+  } catch (error) {
+    const field = profileValidationField(error)
+    invalidProfileField.value = field
+    profileSaveError.value = profileValidationMessage(field)
+    await focusProfileField(field)
   } finally {
     profileSaving.value = false
   }
 }
 
 async function reload() {
+  logoutError.value = ''
   await auth.loadCurrentUser()
   await loadProfile()
+}
+
+async function logout() {
+  logoutError.value = ''
+  try {
+    await auth.logout()
+    profile.value = null
+    profileOptions.value = null
+  } catch {
+    logoutError.value = '退出登录失败，请稍后重试'
+  }
 }
 
 function syncProfileForm(currentProfile: StudentProfile) {
@@ -172,11 +198,86 @@ function syncProfileForm(currentProfile: StudentProfile) {
     major: currentProfile.major ?? undefined,
     grade: currentProfile.grade ?? undefined,
     interest_tags: [...currentProfile.interest_tags],
+    competition_experience: currentProfile.competition_experience ?? '',
+    goal_preferences: [...currentProfile.goal_preferences],
   }
+}
+
+function isAllowedCollege(options: ProfileOptions, value: string | undefined) {
+  return value !== undefined && options.colleges.includes(value)
+}
+
+function isAllowedMajor(
+  options: ProfileOptions,
+  college: string | undefined,
+  major: string | undefined,
+) {
+  if (!major) {
+    return false
+  }
+  if (college) {
+    return options.majors_by_college[college]?.includes(major) ?? false
+  }
+  return Object.values(options.majors_by_college).some((majors) => majors.includes(major))
+}
+
+function isAllowedGrade(options: ProfileOptions, value: string | undefined) {
+  return value !== undefined && options.grades.includes(value)
+}
+
+function hasRecommendationReadyInterestTags(options: ProfileOptions, tags: string[]) {
+  return (
+    tags.length > 0 &&
+    tags.length <= 10 &&
+    new Set(tags).size === tags.length &&
+    tags.every((tag) => options.interest_tags.includes(tag))
+  )
 }
 
 function toSelectOptions(values: string[]) {
   return values.map((value) => ({ value, label: value }))
+}
+
+function profileValidationField(error: unknown) {
+  if (!isAxiosError(error)) {
+    return ''
+  }
+  const field = error.response?.data?.error?.details?.field
+  return typeof field === 'string' ? field : ''
+}
+
+function profileValidationMessage(field: string) {
+  switch (field) {
+    case 'college':
+      return '请选择受控字典中的学院。'
+    case 'major':
+      return '请选择当前学院下的受控专业。'
+    case 'grade':
+      return '请选择受控字典中的年级。'
+    case 'interest_tags':
+      return '请选择 1 到 10 个不重复的受控兴趣标签。'
+    default:
+      return '画像保存失败，请检查后重试。'
+  }
+}
+
+function profileFieldStatus(field: string) {
+  return invalidProfileField.value === field ? 'error' : undefined
+}
+
+function profileFieldHelp(field: string) {
+  return invalidProfileField.value === field ? profileValidationMessage(field) : undefined
+}
+
+async function focusProfileField(field: string) {
+  if (!field) return
+  await nextTick()
+  const fieldRoot = document.querySelector<HTMLElement>(`[data-profile-field="${field}"]`)
+  fieldRoot?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  const control = fieldRoot?.matches('.ant-select-selector, textarea, input')
+    ? fieldRoot
+    : fieldRoot?.querySelector<HTMLElement>('.ant-select-selector, textarea, input')
+  control?.focus()
 }
 
 onMounted(reload)
@@ -186,13 +287,9 @@ onMounted(reload)
   <section class="account-page">
     <div class="page-heading">
       <div>
-        <h1 class="page-title">账号状态</h1>
-        <p class="page-description">当前会话、角色权限和学生画像就绪状态。</p>
+        <h1 class="page-title">个人信息</h1>
+        <p class="page-description">查看用户名、身份信息和学生画像。</p>
       </div>
-      <AButton :loading="auth.loading || profileLoading" @click="reload">
-        <template #icon><ReloadOutlined /></template>
-        刷新
-      </AButton>
     </div>
 
     <ASkeleton v-if="auth.loading && !auth.currentUser" active />
@@ -201,76 +298,81 @@ onMounted(reload)
       <AResult
         class="state-panel"
         status="403"
-        title="未登录"
-        sub-title="当前浏览器没有有效会话。"
-      />
-      <section class="status-section" aria-labelledby="login-heading">
-        <div class="section-title-row">
-          <LoginOutlined />
-          <h2 id="login-heading">登录</h2>
-        </div>
-        <AAlert
-          v-if="loginError"
-          data-testid="login-error"
-          type="error"
-          :message="loginError"
-          show-icon
-        />
-        <AForm
-          data-testid="login-form"
-          layout="vertical"
-          :model="loginForm"
-          @finish="submitLogin"
-        >
-          <AFormItem label="身份类型" name="identity_type">
-            <ASelect v-model:value="loginForm.identity_type" :options="identityTypeOptions" />
-          </AFormItem>
-          <AFormItem label="身份标识" name="identifier">
-            <AInput v-model:value="loginForm.identifier" autocomplete="username" />
-          </AFormItem>
-          <AFormItem label="密码" name="password">
-            <AInput
-              v-model:value="loginForm.password"
-              type="password"
-              autocomplete="current-password"
-            />
-          </AFormItem>
-          <AButton type="primary" html-type="submit" :loading="auth.loading">
-            <template #icon><LoginOutlined /></template>
-            登录
-          </AButton>
-        </AForm>
-      </section>
+        title="请先登录"
+        sub-title="登录后可以查看用户名、身份信息和学生画像。"
+      >
+        <template #extra>
+          <div class="form-actions centered-actions">
+            <RouterLink class="detail-link" to="/login">
+              <LoginOutlined />
+              去登录
+            </RouterLink>
+            <RouterLink
+              v-if="auth.publicEmailRegistrationEnabled"
+              class="secondary-action-link"
+              to="/register"
+            >
+              <UserAddOutlined />
+              注册
+            </RouterLink>
+          </div>
+        </template>
+      </AResult>
     </div>
 
-    <div v-else class="status-layout">
-      <section class="status-section" aria-labelledby="account-heading">
-        <div class="section-title-row">
-          <UserOutlined />
-          <h2 id="account-heading">当前用户</h2>
+    <div v-else class="personal-layout">
+      <section class="personal-hero" aria-labelledby="account-heading">
+        <div class="avatar-mark" aria-hidden="true">{{ userInitial }}</div>
+        <div class="personal-hero-main">
+          <span class="field-label">用户名</span>
+          <h2 id="account-heading">{{ displayName }}</h2>
+          <div class="inline-tags">
+            <ATag color="green">{{ identityLabel }}</ATag>
+          </div>
         </div>
-        <ADescriptions bordered :column="1" size="small">
-          <ADescriptionsItem label="显示名">{{ displayName }}</ADescriptionsItem>
-          <ADescriptionsItem label="角色">
-            <ATag color="green">{{ auth.currentUser.role }}</ATag>
-          </ADescriptionsItem>
-          <ADescriptionsItem label="Capabilities">
-            <span v-if="capabilities.length" class="inline-tags">
-              <ATag v-for="capability in capabilities" :key="capability" color="blue">
-                {{ capability }}
-              </ATag>
-            </span>
-            <span v-else>[]</span>
-          </ADescriptionsItem>
-        </ADescriptions>
+        <div class="personal-actions">
+          <AButton :loading="auth.loading || profileLoading" @click="reload">
+            <template #icon><ReloadOutlined /></template>
+            刷新
+          </AButton>
+          <AButton data-testid="logout-button" danger :loading="auth.loading" @click="logout">
+            <template #icon><LogoutOutlined /></template>
+            退出登录
+          </AButton>
+        </div>
+        <AAlert
+          v-if="logoutError"
+          data-testid="logout-error"
+          type="error"
+          :message="logoutError"
+          show-icon
+        />
       </section>
 
       <section
         v-if="auth.currentUser.role === 'student'"
-        class="status-section"
+        class="status-section profile-panel"
         aria-labelledby="profile-heading"
       >
-        <h2 id="profile-heading">学生画像</h2>
+        <div class="profile-panel-heading">
+          <div>
+            <h2 id="profile-heading">学生画像</h2>
+            <p class="panel-description">完善基础资料后，系统会优先展示更适合你的赛事。</p>
+          </div>
+          <div v-if="profile" class="profile-status-line">
+            <ATag
+              data-testid="profile-status"
+              :color="isProfileRecommendationReady ? 'green' : 'orange'"
+            >
+              {{ profileStatusText }}
+            </ATag>
+            <template v-if="missingFields.length">
+              <ATag v-for="field in missingFields" :key="field" color="orange">
+                缺少{{ field }}
+              </ATag>
+            </template>
+          </div>
+        </div>
         <ASkeleton v-if="profileLoading" active />
         <AAlert
           v-else-if="profileLoadError"
@@ -283,63 +385,114 @@ onMounted(reload)
             v-if="profileSaveError"
             data-testid="profile-save-error"
             type="error"
-            message="画像保存失败，请检查后重试"
+            :message="profileSaveError"
             show-icon
           />
-          <ADescriptions bordered :column="1" size="small">
-            <ADescriptionsItem label="状态">
-              <ATag
-                data-testid="profile-status"
-                :color="profile.profile_status === 'recommendation_ready' ? 'green' : 'orange'"
-              >
-                {{ profile.profile_status }}
-              </ATag>
-            </ADescriptionsItem>
-            <ADescriptionsItem label="缺少字段">
-              <span v-if="missingFields.length" class="inline-tags">
-                <ATag v-for="field in missingFields" :key="field" color="orange">
-                  {{ field }}
-                </ATag>
-              </span>
-              <span v-else>[]</span>
-            </ADescriptionsItem>
-          </ADescriptions>
+          <AAlert
+            v-if="profileSaveSuccess"
+            data-testid="profile-save-success"
+            type="success"
+            :message="profileSaveSuccess"
+            show-icon
+          />
 
           <AForm class="profile-form" layout="vertical" :model="profileForm" @finish="saveProfile">
-            <AFormItem label="学院" name="college">
+            <AFormItem
+              name="college"
+              :validate-status="profileFieldStatus('college')"
+              :help="profileFieldHelp('college')"
+            >
+              <template #label>
+                <span><span class="profile-required-marker" aria-hidden="true">*</span> 学院</span>
+              </template>
               <ASelect
                 v-model:value="profileForm.college"
+                data-profile-field="college"
                 allow-clear
                 :options="collegeOptions"
+                placeholder="请选择学院"
               />
             </AFormItem>
-            <AFormItem label="专业" name="major">
+            <AFormItem
+              name="major"
+              :validate-status="profileFieldStatus('major')"
+              :help="profileFieldHelp('major')"
+            >
+              <template #label>
+                <span><span class="profile-required-marker" aria-hidden="true">*</span> 专业</span>
+              </template>
               <ASelect
                 v-model:value="profileForm.major"
+                data-profile-field="major"
                 allow-clear
                 :options="majorOptions"
+                placeholder="请选择专业"
               />
             </AFormItem>
-            <AFormItem label="年级" name="grade">
-              <ASelect v-model:value="profileForm.grade" allow-clear :options="gradeOptions" />
+            <AFormItem
+              name="grade"
+              :validate-status="profileFieldStatus('grade')"
+              :help="profileFieldHelp('grade')"
+            >
+              <template #label>
+                <span><span class="profile-required-marker" aria-hidden="true">*</span> 年级</span>
+              </template>
+              <ASelect
+                v-model:value="profileForm.grade"
+                data-profile-field="grade"
+                allow-clear
+                :options="gradeOptions"
+                placeholder="请选择年级"
+              />
             </AFormItem>
-            <AFormItem label="兴趣标签" name="interest_tags">
+            <AFormItem
+              class="span-three"
+              name="interest_tags"
+              :validate-status="profileFieldStatus('interest_tags')"
+              :help="profileFieldHelp('interest_tags')"
+            >
+              <template #label>
+                <span
+                  ><span class="profile-required-marker" aria-hidden="true">*</span> 兴趣标签</span
+                >
+              </template>
               <ASelect
                 v-model:value="profileForm.interest_tags"
+                data-profile-field="interest_tags"
                 mode="multiple"
-                :max-tag-count="3"
                 :options="interestTagOptions"
+                placeholder="请选择兴趣标签，可多选"
               />
             </AFormItem>
-            <AButton
-              data-testid="profile-save"
-              type="primary"
-              html-type="submit"
-              :loading="profileSaving"
-            >
-              <template #icon><SaveOutlined /></template>
-              保存
-            </AButton>
+            <AFormItem class="span-three" label="竞赛经历" name="competition_experience">
+              <ATextarea
+                v-model:value="profileForm.competition_experience"
+                class="textarea-control"
+                data-testid="competition-experience"
+                :rows="4"
+                placeholder="可填写参加过的竞赛、项目或相关经历"
+              />
+            </AFormItem>
+            <AFormItem class="span-three" label="目标偏好" name="goal_preferences">
+              <ASelect
+                v-model:value="profileForm.goal_preferences"
+                data-testid="goal-preferences"
+                mode="multiple"
+                :options="goalPreferenceOptions"
+                placeholder="请选择目标偏好，可多选"
+              />
+            </AFormItem>
+            <div class="profile-actions">
+              <AButton
+                data-testid="profile-save"
+                type="primary"
+                html-type="submit"
+                :loading="profileSaving"
+              >
+                <template #icon><SaveOutlined /></template>
+                保存
+              </AButton>
+            </div>
           </AForm>
         </template>
       </section>

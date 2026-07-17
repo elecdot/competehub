@@ -17,6 +17,10 @@ const messageLinkLabel = computed(() =>
     ? `消息，${notifications.unreadCount} 条未读`
     : '消息，暂无未读',
 )
+const accountName = computed(() =>
+  auth.currentUser?.displayName?.trim() || `用户 ${auth.currentUser?.id ?? ''}`.trim(),
+)
+const accountInitial = computed(() => accountName.value.slice(0, 1).toUpperCase() || 'U')
 
 const theme = {
   token: {
@@ -57,6 +61,7 @@ watch(
 
 onMounted(() => {
   window.addEventListener('focus', refreshUnreadOutsideMessageCenter)
+  void auth.loadAuthCapabilities()
   void auth.ensureCurrentUser()
 })
 onUnmounted(() => window.removeEventListener('focus', refreshUnreadOutsideMessageCenter))
@@ -77,7 +82,7 @@ onUnmounted(() => window.removeEventListener('focus', refreshUnreadOutsideMessag
               后台
             </RouterLink>
           </nav>
-          <nav class="account-nav" aria-label="账号导航">
+          <nav class="account-nav" aria-label="用户导航">
             <RouterLink
               v-if="showMessageLink"
               data-testid="message-center-link"
@@ -93,9 +98,19 @@ onUnmounted(() => window.removeEventListener('focus', refreshUnreadOutsideMessag
             <span v-if="showMessageLink" class="sr-only" aria-live="polite">
               {{ messageLinkLabel }}
             </span>
-            <RouterLink to="/me" active-class="" exact-active-class="router-link-active">
-              账号
-            </RouterLink>
+            <template v-if="auth.isAuthenticated">
+              <RouterLink class="account-user-link" to="/me" aria-label="当前用户">
+                <span class="account-avatar" aria-hidden="true">{{ accountInitial }}</span>
+                <span class="account-name">{{ accountName }}</span>
+              </RouterLink>
+              <RouterLink to="/me">个人信息</RouterLink>
+            </template>
+            <template v-else>
+              <RouterLink to="/login">登录</RouterLink>
+              <RouterLink v-if="auth.publicEmailRegistrationEnabled" to="/register">
+                注册
+              </RouterLink>
+            </template>
           </nav>
         </div>
       </header>

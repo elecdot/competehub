@@ -110,7 +110,7 @@ async function redirectIfSessionEnded(returnTo: string) {
   accessDenied.value = false
   if (route.name === 'messages') {
     await router.replace({
-      name: 'account-status',
+      name: 'personal-info',
       query: { return_to: returnTo },
     })
   }

@@ -138,6 +138,12 @@ fixtures use the real login endpoint and browser Cookie state; they do not
 inject privileged frontend state or imply that public registration bypasses
 verification.
 
+`E2E_API_PORT` is the single source for the harness-managed Flask port. The
+E2E runner derives Vite's `VITE_API_PROXY_TARGET` from it when an explicit proxy
+target is not supplied, so setting `E2E_API_PORT=5050` starts, probes, and
+proxies the same API instance. Use `VITE_API_PROXY_TARGET` only when deliberately
+pointing the browser at a separately managed API.
+
 The harness runs the same Chromium scenarios in desktop and mobile viewports
 and treats uncaught page errors and browser console errors as failures.
 Screenshots are captured on failure, while traces and video are retained on

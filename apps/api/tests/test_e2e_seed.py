@@ -99,7 +99,11 @@ def test_e2e_seed_rebuilds_the_expected_actor_set() -> None:
 
     with app.app_context():
         users = db.session.query(User).order_by(User.id).all()
-        identities = db.session.query(UserIdentity).order_by(UserIdentity.user_id).all()
+        identities = (
+            db.session.query(UserIdentity)
+            .order_by(UserIdentity.user_id, UserIdentity.id)
+            .all()
+        )
         profiles = db.session.query(StudentProfile).all()
         reminder_settings = db.session.query(ReminderSetting).all()
 
@@ -121,11 +125,15 @@ def test_e2e_seed_rebuilds_the_expected_actor_set() -> None:
         submitter = next(user for user in users if user.email == "admin.day1@example.edu")
         assert "recommendation_editor" in submitter.capabilities
         assert "recommendation_reviewer" in submitter.capabilities
-        assert [identity.display_value for identity in identities] == [
-            actor.email for actor in expected_actors
+        assert [(identity.identity_type, identity.display_value) for identity in identities] == [
+            identity
+            for actor in expected_actors
+            for identity in (("email", actor.email), *actor.extra_identities)
         ]
         assert [identity.verification_status for identity in identities] == [
-            actor.verification_status for actor in expected_actors
+            actor.verification_status
+            for actor in expected_actors
+            for _identity in (("email", actor.email), *actor.extra_identities)
         ]
         assert sorted(profile.user_id for profile in profiles) == sorted(
             actor.id for actor in SEEDED_E2E_ACTORS if actor.role == UserRole.STUDENT

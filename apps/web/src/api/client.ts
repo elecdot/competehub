@@ -20,11 +20,15 @@ import type {
   RevisionDraftUpdate,
 } from '@/types/admin'
 import type {
+  AuthCapabilities,
   CurrentUserResponse,
   LoginPayload,
   ProfileOptions,
+  RegisterPayload,
+  ResendVerificationPayload,
   StudentProfile,
   StudentProfileUpdate,
+  VerifyPayload,
 } from '@/types/auth'
 import type { CalendarPayload, CalendarQuery } from '@/types/calendar'
 import type { RecommendationFeed } from '@/types/recommendation'
@@ -237,6 +241,11 @@ export async function fetchCurrentUser() {
   return response.data.data
 }
 
+export async function fetchAuthCapabilities() {
+  const response = await apiClient.get<ApiEnvelope<AuthCapabilities>>('/auth/capabilities')
+  return response.data.data
+}
+
 export async function fetchCurrentProfile() {
   const response = await apiClient.get<ApiEnvelope<StudentProfile>>('/me/profile')
   return response.data.data
@@ -249,6 +258,32 @@ export async function fetchProfileOptions() {
 
 export async function loginCurrentUser(payload: LoginPayload) {
   const response = await apiClient.post<ApiEnvelope<CurrentUserResponse>>('/auth/login', payload)
+  return response.data.data
+}
+
+export async function logoutCurrentUser() {
+  const response = await apiClient.post<ApiEnvelope<{ success: boolean }>>('/auth/logout')
+  return response.data.data
+}
+
+export async function registerCurrentUser(payload: RegisterPayload) {
+  const response = await apiClient.post<ApiEnvelope<{ accepted: boolean }>>(
+    '/auth/register',
+    payload,
+  )
+  return response.data.data
+}
+
+export async function verifyCurrentUser(payload: VerifyPayload) {
+  const response = await apiClient.post<ApiEnvelope<{ verified: boolean }>>('/auth/verify', payload)
+  return response.data.data
+}
+
+export async function resendCurrentUserVerification(payload: ResendVerificationPayload) {
+  const response = await apiClient.post<ApiEnvelope<{ accepted: boolean }>>(
+    '/auth/verification/resend',
+    payload,
+  )
   return response.data.data
 }
 

@@ -57,8 +57,13 @@ class UserSchema(Schema):
         return list(user.capabilities or [])
 
 
+class AuthCapabilitiesSchema(Schema):
+    public_email_registration_enabled = fields.Boolean(required=True)
+
+
 register_schema = RegisterSchema()
 verify_schema = VerifySchema()
 resend_verification_schema = ResendVerificationSchema()
 login_schema = LoginSchema()
 user_schema = UserSchema()
+auth_capabilities_schema = AuthCapabilitiesSchema()

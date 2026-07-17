@@ -193,7 +193,10 @@ Run the frontend app:
 just web-dev
 ```
 
-By default, the frontend proxies `/api` requests to the Flask API on `localhost:5000`.
+By default, the frontend proxies `/api` requests to the Flask API on
+`127.0.0.1:5000`. Browser E2E uses `E2E_API_PORT` as the single API port source
+and derives `VITE_API_PROXY_TARGET` from it. Override `VITE_API_PROXY_TARGET`
+only when you intentionally proxy to a separately managed API process.
 
 ## Verify The Workspace
 

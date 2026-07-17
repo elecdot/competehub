@@ -8,6 +8,7 @@ from marshmallow import ValidationError
 from competehub_api.blueprints.responses import success_response, validation_error_response
 from competehub_api.errors import error_response
 from competehub_api.schemas.auth import (
+    auth_capabilities_schema,
     login_schema,
     register_schema,
     resend_verification_schema,
@@ -17,6 +18,7 @@ from competehub_api.schemas.auth import (
 from competehub_api.schemas.common import load_payload
 from competehub_api.services.auth import (
     authenticate_user,
+    public_email_registration_available,
     register_student,
     resend_verification,
     start_session,
@@ -25,6 +27,15 @@ from competehub_api.services.auth import (
 from competehub_api.services.errors import ServiceError
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
+
+
+@auth_bp.get("/capabilities")
+def capabilities():
+    return success_response(
+        auth_capabilities_schema.dump(
+            {"public_email_registration_enabled": public_email_registration_available()}
+        )
+    )
 
 
 @auth_bp.post("/register")

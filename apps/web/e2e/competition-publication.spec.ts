@@ -28,6 +28,7 @@ test('editor submits, distinct reviewer publishes, and student sees the edition'
   await actorPage.getByTestId('create-series').click()
   const createdSeries = await (await seriesResponsePromise).json()
   const seriesId = createdSeries.data.id as number
+  await expect(actorPage.getByTestId('series-select')).toContainText(seriesName)
 
   await actorPage.getByTestId('new-edition').click()
   await expect(actorPage.getByTestId('edition-label')).toHaveValue('')

@@ -158,7 +158,8 @@ test.describe.serial('message center journey', () => {
 
       const logoutResponse = await actorPage.request.post('/api/v1/auth/logout')
       expect(logoutResponse).toBeOK()
-      await actorPage.getByRole('link', { name: '账号', exact: true }).click()
+      await actorPage.getByRole('link', { name: '个人信息', exact: true }).click()
+      await actorPage.getByRole('link', { name: '去登录' }).click()
       await expect(actorPage.locator('input[autocomplete="username"]')).toBeVisible()
 
       await actorPage
@@ -168,7 +169,7 @@ test.describe.serial('message center journey', () => {
         .locator('input[autocomplete="current-password"]')
         .fill('violet harbor lantern orbit 47')
       await actorPage.getByRole('button', { name: '登录' }).click()
-      await expect(actorPage).toHaveURL(/\/competitions$/)
+      await expect(actorPage).toHaveURL(/\/me$/)
 
       releaseStaleRequest.resolve()
       await staleResponseFulfilled.promise
@@ -233,21 +234,21 @@ test.describe.serial('message center journey', () => {
           new URL(response.url()).pathname === '/api/v1/me' &&
           response.status() === 200,
       )
-      await actorPage.getByRole('link', { name: '账号', exact: true }).click()
+      await actorPage.getByRole('link', { name: '个人信息', exact: true }).click()
       const currentUserResponse = await currentUserProbe
       const currentUserPayload = (await currentUserResponse.json()) as {
         data: { id: number }
       }
       expect(currentUserPayload.data.id).toBe(1004)
       await expect(
-        actorPage.getByText('Profile Ready Student', { exact: true }),
+        actorPage.getByRole('heading', { name: 'Profile Ready Student' }),
       ).toBeVisible()
 
       releaseStaleRequest.resolve()
       await staleResponseFulfilled.promise
 
       await expect(
-        actorPage.getByText('Profile Ready Student', { exact: true }),
+        actorPage.getByRole('heading', { name: 'Profile Ready Student' }),
       ).toBeVisible()
       await expect(actorPage.getByTestId('message-center-link')).toHaveAttribute(
         'aria-label',
@@ -359,8 +360,8 @@ test.describe.serial('message center journey', () => {
     await expect(messageLink).toBeVisible()
     await expect(
       actorPage
-        .getByRole('navigation', { name: '账号导航' })
-        .getByRole('link', { name: '账号', exact: true }),
+        .getByRole('navigation', { name: '用户导航' })
+        .getByRole('link', { name: '个人信息', exact: true }),
     ).toBeVisible()
     await expectNoHorizontalOverflow(actorPage)
 

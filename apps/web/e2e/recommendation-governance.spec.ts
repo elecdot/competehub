@@ -5,12 +5,16 @@ test.use({ actorName: 'editor' })
 test('editor previews and submits, then a distinct reviewer activates the candidate', async ({
   actorPage,
 }) => {
+  test.setTimeout(90_000)
+
   await actorPage.goto('/admin/recommendation-rule-sets')
   await expect(actorPage.getByRole('heading', { name: '推荐规则治理' })).toBeVisible()
   await expect(actorPage.getByTestId('rule-set-v1')).toContainText('当前生效')
 
   await actorPage.getByTestId('clone-rule-set').click()
   await expect(actorPage.getByTestId('rule-set-v2')).toContainText('草稿')
+  await actorPage.getByTestId('rule-set-v2').click()
+  await expect(actorPage.getByText('候选基线：v1')).toBeVisible()
 
   const deadlineWeight = actorPage.getByTestId('rule-weight-deadline_urgency')
   await deadlineWeight.fill('26')

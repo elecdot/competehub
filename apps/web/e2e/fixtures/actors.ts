@@ -217,7 +217,7 @@ async function usePageWithErrorGuard(
       isExpectedRecommendationFailure
     ) {
       expectedHttpErrorResponses += 1
-    } else if ([400, 401, 503].includes(response.status())) {
+    } else if ([400, 401, 409, 503].includes(response.status())) {
       errors.push(`response: unexpected ${response.status()} from ${request.method()} ${pathname}`)
     }
   })

@@ -186,6 +186,26 @@ Competition filters:
 
 ## Auth APIs
 
+### `GET /auth/capabilities`
+
+Return public authentication capabilities that the frontend may use before a
+browser session exists.
+
+Response:
+
+```json
+{
+  "data": {
+    "public_email_registration_enabled": true
+  },
+  "error": null
+}
+```
+
+`public_email_registration_enabled` is true only when public registration is
+enabled and a real email verification sender is configured. The frontend must
+hide public registration entry points when this value is false.
+
 ### `POST /auth/register`
 
 Request creation of a student account. P1 accepts only `email`, and only when a
@@ -216,10 +236,12 @@ Response:
 }
 ```
 
-The successful response is `202 Accepted`, is intentionally the same whether a
-new delivery was queued or the typed identity already existed, and does not
-create a session. SMTP delivery is asynchronous through a transactional outbox;
-the HTTP request never contacts SMTP, and acceptance does not claim delivery.
+The successful response is `202 Accepted` and does not create a session. If the
+typed email identity is already pending activation or is already verified on an
+`active` account, the response remains generic and no additional account,
+challenge, or delivery outbox row is created. SMTP delivery is asynchronous
+through a transactional outbox; the HTTP request never contacts SMTP, and
+acceptance does not claim delivery.
 When public registration is disabled, the endpoint returns
 `registration_unavailable`; the frontend must not show the registration entry.
 

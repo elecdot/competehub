@@ -166,7 +166,7 @@ async function loadCompetition() {
 }
 
 function loginForEngagement() {
-  void router.push({ name: 'account-status', query: { return_to: route.fullPath } })
+  void router.push({ name: 'login', query: { return_to: route.fullPath } })
 }
 
 async function toggleFavorite() {
