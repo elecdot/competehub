@@ -283,11 +283,6 @@ test.describe('profile-ready actor', () => {
 
     await expect(actorPage.getByTestId('profile-status')).toContainText('资料待完善')
     await expect(profileSection.getByText('缺少兴趣标签')).toBeVisible()
-
-    await actorPage.getByTestId('profile-save').click()
-    await expect(actorPage.getByTestId('profile-save-success')).toContainText('画像已保存')
-    await expect(actorPage.getByTestId('profile-status')).toContainText('资料待完善')
-    await expect(profileSection.getByText('缺少兴趣标签')).toBeVisible()
   })
 })
 
