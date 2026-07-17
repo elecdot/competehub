@@ -24,7 +24,10 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 
 import { fetchCompetitionFilterOptions, fetchCompetitions } from '@/api/client'
-import { useCompetitionFilterStore } from '@/stores/competition_filter_store'
+import {
+  COMPETITION_FILTER_MAX_LENGTHS,
+  useCompetitionFilterStore,
+} from '@/stores/competition_filter_store'
 import type {
   CompetitionFilterOptions,
   CompetitionSummary,
@@ -53,6 +56,12 @@ const sortOptions = [
   { label: '按报名截止', value: 'registration_deadline' },
   { label: '按发布时间', value: 'published_at' },
 ]
+const guidedFilterDefinitions = [
+  { filterKey: 'category', optionsKey: 'categories', label: '类别' },
+  { filterKey: 'major', optionsKey: 'majors', label: '专业' },
+  { filterKey: 'grade', optionsKey: 'grades', label: '年级' },
+  { filterKey: 'tag', optionsKey: 'tags', label: '标签' },
+] as const
 type DatePickerRef = { $el: HTMLElement; focus: () => void }
 
 const competitions = ref<CompetitionSummary[]>([])
@@ -67,6 +76,9 @@ const filterOptions = ref<CompetitionFilterOptions>({
 })
 const filterOptionsLoading = ref(false)
 const filterOptionsError = ref('')
+const filterOptionsLoaded = ref(false)
+const invalidFilterNotice = ref('')
+const invalidFilterNoticeRoute = ref('')
 const advancedFiltersOpen = ref(false)
 const deadlineFromPicker = ref<DatePickerRef | null>(null)
 const deadlineToPicker = ref<DatePickerRef | null>(null)
@@ -107,12 +119,45 @@ async function loadFilterOptions() {
   filterOptionsError.value = ''
   try {
     filterOptions.value = await fetchCompetitionFilterOptions()
+    filterOptionsLoaded.value = true
+    const removedLabels = clearUnavailableGuidedFilters()
+    if (removedLabels.length > 0) {
+      filters.page = 1
+      showInvalidFilterNotice(removedLabels)
+      await applyFiltersToRoute(true)
+    }
   } catch {
     filterOptions.value = { categories: [], majors: [], grades: [], tags: [] }
+    filterOptionsLoaded.value = false
     filterOptionsError.value = '更多筛选选项暂时无法加载，关键词和常用筛选仍可使用。'
   } finally {
     filterOptionsLoading.value = false
   }
+}
+
+function clearUnavailableGuidedFilters(): string[] {
+  const removedLabels: string[] = []
+  for (const definition of guidedFilterDefinitions) {
+    const value = filters[definition.filterKey]
+    if (value && !filterOptions.value[definition.optionsKey].includes(value)) {
+      filters[definition.filterKey] = ''
+      removedLabels.push(definition.label)
+    }
+  }
+  return removedLabels
+}
+
+function showInvalidFilterNotice(removedLabels: string[]) {
+  invalidFilterNotice.value = `已移除失效的筛选条件：${removedLabels.join('、')}。`
+  invalidFilterNoticeRoute.value = router.resolve({
+    name: 'competitions',
+    query: filters.toRouteQuery(),
+  }).fullPath
+}
+
+function dismissInvalidFilterNotice() {
+  invalidFilterNotice.value = ''
+  invalidFilterNoticeRoute.value = ''
 }
 
 function syncDeadlineAccessibility() {
@@ -165,6 +210,7 @@ function submitFilters() {
 
 function clearFilters() {
   filters.reset()
+  dismissInvalidFilterNotice()
   advancedFiltersOpen.value = false
   void applyFiltersToRoute()
 }
@@ -193,14 +239,18 @@ function registrationStatusColor(status: RegistrationStatus) {
   }[status]
 }
 
-async function applyFiltersToRoute() {
+async function applyFiltersToRoute(replace = false) {
   const query = filters.toRouteQuery()
   const target = router.resolve({ name: 'competitions', query })
   if (target.fullPath === route.fullPath) {
     await loadCompetitions()
     return
   }
-  await router.push({ name: 'competitions', query })
+  if (replace) {
+    await router.replace({ name: 'competitions', query })
+  } else {
+    await router.push({ name: 'competitions', query })
+  }
 }
 
 watch(deadlineError, () => {
@@ -211,8 +261,21 @@ watch(
   () => route.query,
   (query) => {
     filters.replaceFromRouteQuery(query)
+    if (invalidFilterNotice.value && invalidFilterNoticeRoute.value !== route.fullPath) {
+      dismissInvalidFilterNotice()
+    }
     if (activeAdvancedFilterCount.value > 0 || deadlineError.value) {
       advancedFiltersOpen.value = true
+    }
+
+    if (filterOptionsLoaded.value) {
+      const removedLabels = clearUnavailableGuidedFilters()
+      if (removedLabels.length > 0) {
+        filters.page = 1
+        showInvalidFilterNotice(removedLabels)
+        void applyFiltersToRoute(true)
+        return
+      }
     }
 
     const canonicalQuery = filters.toRouteQuery()
@@ -255,6 +318,7 @@ onMounted(() => {
             v-model:value="filters.keyword"
             allow-clear
             autocomplete="off"
+            :maxlength="COMPETITION_FILTER_MAX_LENGTHS.keyword"
             name="keyword"
             placeholder="输入名称、主办方或类别…"
             type="search"
@@ -320,6 +384,17 @@ onMounted(() => {
           </AButton>
         </template>
       </AAlert>
+
+      <AAlert
+        v-if="invalidFilterNotice"
+        data-testid="invalid-filter-notice"
+        class="filter-options-alert"
+        type="info"
+        :message="invalidFilterNotice"
+        show-icon
+        closable
+        @close="dismissInvalidFilterNotice"
+      />
 
       <div
         v-show="advancedFiltersOpen"

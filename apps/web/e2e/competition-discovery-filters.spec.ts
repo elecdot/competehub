@@ -61,14 +61,47 @@ test('opens advanced filters for deep links and recoverable deadline errors', as
   await expect(advancedFilters).toBeHidden()
 })
 
+test('removes unavailable guided deep links and bounds keyword input', async ({ actorPage }) => {
+  const overlongKeyword = 'x'.repeat(256)
+  const unavailableGrade = '<img src=x onerror=alert(1)>'
+  await actorPage.goto(
+    `/competitions?keyword=${overlongKeyword}&category=innovation&grade=${encodeURIComponent(unavailableGrade)}`,
+  )
+
+  await expect(actorPage).toHaveURL('/competitions?category=innovation')
+  await expect(actorPage.getByTestId('invalid-filter-notice')).toContainText(
+    '已移除失效的筛选条件：年级',
+  )
+  await expect(actorPage.getByTestId('filter-category')).toContainText('innovation')
+  await expect(actorPage.getByTestId('filter-grade')).not.toContainText(unavailableGrade)
+  await expect(actorPage.locator('img[src="x"]')).toHaveCount(0)
+
+  const keyword = actorPage.getByRole('searchbox', { name: '关键词' })
+  await expect(keyword).toHaveValue('')
+  await keyword.pressSequentially('x'.repeat(256))
+  await expect(keyword).toHaveValue('x'.repeat(255))
+
+  await keyword.fill('Seeded University')
+  await actorPage.locator('form[aria-label="赛事筛选"] button[type="submit"]').click()
+  await expect(actorPage).toHaveURL(
+    '/competitions?keyword=Seeded+University&category=innovation',
+  )
+  await expect(actorPage.getByTestId('invalid-filter-notice')).toHaveCount(0)
+})
+
 test.describe('filter option failure recovery', () => {
   test.use({ allowDiscoveryRequestErrors: true })
 
   test('keeps deep-link recovery and keyword discovery usable when guided options fail', async ({
     actorPage,
   }) => {
+    let optionRequestShouldFail = true
     await actorPage.route('**/api/v1/competitions/filter-options', async (route) => {
-      await route.fulfill({ status: 503, contentType: 'application/json', body: '{}' })
+      if (optionRequestShouldFail) {
+        await route.fulfill({ status: 503, contentType: 'application/json', body: '{}' })
+        return
+      }
+      await route.fallback()
     })
 
     await actorPage.goto('/competitions?category=innovation')
@@ -81,6 +114,18 @@ test.describe('filter option failure recovery', () => {
     await expect(categoryFilter).toContainText('innovation')
     await categoryFilter.hover()
     await categoryFilter.locator('.ant-select-clear').click()
+
+    optionRequestShouldFail = false
+    await actorPage.getByTestId('filter-options-error').getByRole('button').click()
+    await expect(actorPage.getByTestId('filter-options-error')).toHaveCount(0)
+    await expect(actorPage.getByTestId('advanced-filters')).toBeVisible()
+    await categoryFilter.click()
+    await expect(
+      actorPage
+        .locator('.ant-select-dropdown:visible .ant-select-item-option-content')
+        .filter({ hasText: 'innovation' }),
+    ).toBeVisible()
+    await actorPage.keyboard.press('Escape')
 
     await actorPage.getByRole('searchbox', { name: '关键词' }).fill('Seeded University')
     await actorPage.locator('form[aria-label="赛事筛选"] button[type="submit"]').click()

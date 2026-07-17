@@ -4,6 +4,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from flask import current_app
+
 from competehub_api.models import Competition, CompetitionTimeNode
 from competehub_api.repositories.competitions import (
     PublicCompetitionPage,
@@ -69,7 +71,7 @@ def public_competition_filter_options() -> dict[str, list[str]]:
         "majors": _sorted_values(
             major for revision in revisions for major in (revision.suitable_majors or [])
         ),
-        "grades": _sorted_values(
+        "grades": _sorted_grade_values(
             grade for revision in revisions for grade in (revision.suitable_grades or [])
         ),
         "tags": _sorted_values(
@@ -104,6 +106,17 @@ def competition_tag_names(competition: Competition) -> list[str]:
 
 def _sorted_values(values: Iterable[str | None]) -> list[str]:
     return sorted({value for value in values if value})
+
+
+def _sorted_grade_values(values: Iterable[str | None]) -> list[str]:
+    grade_order = {
+        grade: index for index, grade in enumerate(current_app.config["PROFILE_ALLOWED_GRADES"])
+    }
+    unknown_rank = len(grade_order)
+    return sorted(
+        {value for value in values if value},
+        key=lambda value: (grade_order.get(value, unknown_rank), value),
+    )
 
 
 def registration_status(

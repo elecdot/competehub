@@ -241,11 +241,7 @@ def list_public_competition_candidates(query: PublicCompetitionQuery) -> list[Co
 
 def list_public_competitions_for_filter_options() -> list[Competition]:
     statement = (
-        select(Competition)
-        .where(
-            Competition.status.in_(PUBLIC_COMPETITION_STATUSES),
-            Competition.published_revision_id.is_not(None),
-        )
+        public_competitions_statement()
         .options(
             selectinload(Competition.published_revision)
             .selectinload(CompetitionRevision.tag_links)

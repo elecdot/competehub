@@ -27,11 +27,31 @@ class OptionalQueryText(NonBlankString):
 class CompetitionListQuerySchema(Schema):
     page = fields.Integer(load_default=1, validate=validate.Range(min=1))
     page_size = fields.Integer(load_default=20, validate=validate.Range(min=1, max=100))
-    keyword = OptionalQueryText(load_default=None, allow_none=True)
-    category = OptionalQueryText(load_default=None, allow_none=True)
-    major = OptionalQueryText(load_default=None, allow_none=True)
-    grade = OptionalQueryText(load_default=None, allow_none=True)
-    tag = OptionalQueryText(load_default=None, allow_none=True)
+    keyword = OptionalQueryText(
+        load_default=None,
+        allow_none=True,
+        validate=validate.Length(max=255),
+    )
+    category = OptionalQueryText(
+        load_default=None,
+        allow_none=True,
+        validate=validate.Length(max=120),
+    )
+    major = OptionalQueryText(
+        load_default=None,
+        allow_none=True,
+        validate=validate.Length(max=120),
+    )
+    grade = OptionalQueryText(
+        load_default=None,
+        allow_none=True,
+        validate=validate.Length(max=40),
+    )
+    tag = OptionalQueryText(
+        load_default=None,
+        allow_none=True,
+        validate=validate.Length(max=120),
+    )
     registration_status = OptionalQueryText(
         load_default=None,
         allow_none=True,
