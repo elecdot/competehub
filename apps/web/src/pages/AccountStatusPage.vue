@@ -16,8 +16,10 @@ import {
   Select as ASelect,
   Skeleton as ASkeleton,
   Tag as ATag,
+  Textarea as ATextarea,
 } from 'ant-design-vue'
-import { computed, onMounted, ref } from 'vue'
+import { isAxiosError } from 'axios'
+import { computed, nextTick, onMounted, ref } from 'vue'
 
 import { fetchCurrentProfile, fetchProfileOptions, updateCurrentProfile } from '@/api/client'
 import { useAuthStore } from '@/stores/auth_store'
@@ -31,6 +33,7 @@ const profileSaving = ref(false)
 const profileLoadError = ref('')
 const profileSaveError = ref('')
 const profileSaveSuccess = ref('')
+const invalidProfileField = ref('')
 const logoutError = ref('')
 
 const profileForm = ref({
@@ -75,32 +78,11 @@ const identityLabel = computed(() => {
       return '未登录'
   }
 })
-const currentMissingFieldKeys = computed(() => {
-  const options = profileOptions.value
-  if (!options) {
-    return profile.value?.missing_fields ?? []
-  }
-
-  const missing: string[] = []
-  if (!isAllowedCollege(options, profileForm.value.college)) {
-    missing.push('college')
-  }
-  if (!isAllowedMajor(options, profileForm.value.college, profileForm.value.major)) {
-    missing.push('major')
-  }
-  if (!isAllowedGrade(options, profileForm.value.grade)) {
-    missing.push('grade')
-  }
-  if (!hasRecommendationReadyInterestTags(options, profileForm.value.interest_tags)) {
-    missing.push('interest_tags')
-  }
-  return missing
-})
 const missingFields = computed(() =>
-  currentMissingFieldKeys.value.map((field) => missingFieldLabels[field] ?? field),
+  (profile.value?.missing_fields ?? []).map((field) => missingFieldLabels[field] ?? field),
 )
 const isProfileRecommendationReady = computed(
-  () => profile.value !== null && currentMissingFieldKeys.value.length === 0,
+  () => profile.value?.profile_status === 'recommendation_ready',
 )
 const profileStatusText = computed(() =>
   isProfileRecommendationReady.value ? '推荐资料已完善' : '资料待完善',
@@ -128,6 +110,7 @@ async function loadProfile() {
   profileLoadError.value = ''
   profileSaveError.value = ''
   profileSaveSuccess.value = ''
+  invalidProfileField.value = ''
   try {
     const [options, currentProfile] = await Promise.all([
       fetchProfileOptions(),
@@ -148,6 +131,7 @@ async function saveProfile() {
   profileSaving.value = true
   profileSaveError.value = ''
   profileSaveSuccess.value = ''
+  invalidProfileField.value = ''
   try {
     profile.value = await updateCurrentProfile({
       college: profileForm.value.college ?? null,
@@ -159,8 +143,11 @@ async function saveProfile() {
     })
     syncProfileForm(profile.value)
     profileSaveSuccess.value = '画像已保存'
-  } catch {
-    profileSaveError.value = '画像保存失败，请检查后重试'
+  } catch (error) {
+    const field = profileValidationField(error)
+    invalidProfileField.value = field
+    profileSaveError.value = profileValidationMessage(field)
+    await focusProfileField(field)
   } finally {
     profileSaving.value = false
   }
@@ -194,39 +181,50 @@ function syncProfileForm(currentProfile: StudentProfile) {
   }
 }
 
-function isAllowedCollege(options: ProfileOptions, value: string | undefined) {
-  return value !== undefined && options.colleges.includes(value)
-}
-
-function isAllowedMajor(
-  options: ProfileOptions,
-  college: string | undefined,
-  major: string | undefined,
-) {
-  if (!major) {
-    return false
-  }
-  if (college) {
-    return options.majors_by_college[college]?.includes(major) ?? false
-  }
-  return Object.values(options.majors_by_college).some((majors) => majors.includes(major))
-}
-
-function isAllowedGrade(options: ProfileOptions, value: string | undefined) {
-  return value !== undefined && options.grades.includes(value)
-}
-
-function hasRecommendationReadyInterestTags(options: ProfileOptions, tags: string[]) {
-  return (
-    tags.length > 0 &&
-    tags.length <= 10 &&
-    new Set(tags).size === tags.length &&
-    tags.every((tag) => options.interest_tags.includes(tag))
-  )
-}
-
 function toSelectOptions(values: string[]) {
   return values.map((value) => ({ value, label: value }))
+}
+
+function profileValidationField(error: unknown) {
+  if (!isAxiosError(error)) {
+    return ''
+  }
+  const field = error.response?.data?.error?.details?.field
+  return typeof field === 'string' ? field : ''
+}
+
+function profileValidationMessage(field: string) {
+  switch (field) {
+    case 'college':
+      return '请选择受控字典中的学院。'
+    case 'major':
+      return '请选择当前学院下的受控专业。'
+    case 'grade':
+      return '请选择受控字典中的年级。'
+    case 'interest_tags':
+      return '请选择 1 到 10 个不重复的受控兴趣标签。'
+    default:
+      return '画像保存失败，请检查后重试。'
+  }
+}
+
+function profileFieldStatus(field: string) {
+  return invalidProfileField.value === field ? 'error' : undefined
+}
+
+function profileFieldHelp(field: string) {
+  return invalidProfileField.value === field ? profileValidationMessage(field) : undefined
+}
+
+async function focusProfileField(field: string) {
+  if (!field) return
+  await nextTick()
+  const fieldRoot = document.querySelector<HTMLElement>(`[data-profile-field="${field}"]`)
+  fieldRoot?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  const control = fieldRoot?.matches('.ant-select-selector, textarea, input')
+    ? fieldRoot
+    : fieldRoot?.querySelector<HTMLElement>('.ant-select-selector, textarea, input')
+  control?.focus()
 }
 
 onMounted(reload)
@@ -346,44 +344,69 @@ onMounted(reload)
           />
 
           <AForm class="profile-form" layout="vertical" :model="profileForm" @finish="saveProfile">
-            <AFormItem label="学院" name="college" required>
+            <AFormItem
+              label="学院"
+              name="college"
+              :validate-status="profileFieldStatus('college')"
+              :help="profileFieldHelp('college')"
+            >
               <ASelect
                 v-model:value="profileForm.college"
+                data-profile-field="college"
                 allow-clear
                 :options="collegeOptions"
                 placeholder="请选择学院"
               />
             </AFormItem>
-            <AFormItem label="专业" name="major" required>
+            <AFormItem
+              label="专业"
+              name="major"
+              :validate-status="profileFieldStatus('major')"
+              :help="profileFieldHelp('major')"
+            >
               <ASelect
                 v-model:value="profileForm.major"
+                data-profile-field="major"
                 allow-clear
                 :options="majorOptions"
                 placeholder="请选择专业"
               />
             </AFormItem>
-            <AFormItem label="年级" name="grade" required>
+            <AFormItem
+              label="年级"
+              name="grade"
+              :validate-status="profileFieldStatus('grade')"
+              :help="profileFieldHelp('grade')"
+            >
               <ASelect
                 v-model:value="profileForm.grade"
+                data-profile-field="grade"
                 allow-clear
                 :options="gradeOptions"
                 placeholder="请选择年级"
               />
             </AFormItem>
-            <AFormItem class="span-three" label="兴趣标签" name="interest_tags" required>
+            <AFormItem
+              class="span-three"
+              label="兴趣标签"
+              name="interest_tags"
+              :validate-status="profileFieldStatus('interest_tags')"
+              :help="profileFieldHelp('interest_tags')"
+            >
               <ASelect
                 v-model:value="profileForm.interest_tags"
+                data-profile-field="interest_tags"
                 mode="multiple"
                 :options="interestTagOptions"
                 placeholder="请选择兴趣标签，可多选"
               />
             </AFormItem>
             <AFormItem class="span-three" label="竞赛经历" name="competition_experience">
-              <textarea
-                v-model="profileForm.competition_experience"
+              <ATextarea
+                v-model:value="profileForm.competition_experience"
                 class="textarea-control"
                 data-testid="competition-experience"
-                rows="4"
+                :rows="4"
                 placeholder="可填写参加过的竞赛、项目或相关经历"
               />
             </AFormItem>

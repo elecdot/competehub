@@ -33,6 +33,12 @@ const theme = {
 }
 
 async function refreshUnreadCount() {
+  if (auth.currentUser?.role !== 'student') {
+    notifications.clear()
+    return
+  }
+
+  await auth.revalidateCurrentUser()
   if (auth.currentUser?.role === 'student') {
     await notifications.loadUnreadCount()
   } else {

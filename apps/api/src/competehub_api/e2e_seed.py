@@ -51,6 +51,7 @@ class E2EActor:
     status: UserStatus = UserStatus.ACTIVE
     verification_status: IdentityVerificationStatus = IdentityVerificationStatus.VERIFIED
     profile: dict[str, object] | None = None
+    extra_identities: tuple[tuple[str, str], ...] = ()
 
 
 # These are public test credentials for the isolated browser-test database, not
@@ -63,6 +64,7 @@ E2E_ACTORS = (
         display_name="Day 1 Student",
         role=UserRole.STUDENT,
         profile={},
+        extra_identities=(("student_no", "20260001"), ("phone", "+8613800000000")),
     ),
     E2EActor(
         id=1004,
@@ -161,30 +163,45 @@ def register_e2e_commands(app: Flask) -> None:
         db.session.remove()
         db.drop_all()
         db.create_all()
-        users = [
-            User(
-                id=actor.id,
-                email=actor.email,
-                password_hash=hash_password(actor.password, identity=actor.email),
-                display_name=actor.display_name,
-                role=actor.role,
-                status=actor.status,
-                capabilities=list(actor.capabilities),
-                identities=[
-                    UserIdentity(
-                        identity_type="email",
-                        normalized_value=normalize_identity("email", actor.email),
-                        display_value=actor.email,
-                        verification_status=actor.verification_status,
-                        verification_method="e2e_seed",
-                        verified_at=datetime.now(UTC)
-                        if actor.verification_status == IdentityVerificationStatus.VERIFIED
-                        else None,
-                    )
-                ],
+        users = []
+        for actor in SEEDED_E2E_ACTORS:
+            identities = [
+                UserIdentity(
+                    identity_type="email",
+                    normalized_value=normalize_identity("email", actor.email),
+                    display_value=actor.email,
+                    verification_status=actor.verification_status,
+                    verification_method="e2e_seed",
+                    verified_at=datetime.now(UTC)
+                    if actor.verification_status == IdentityVerificationStatus.VERIFIED
+                    else None,
+                )
+            ]
+            identities.extend(
+                UserIdentity(
+                    identity_type=identity_type,
+                    normalized_value=normalize_identity(identity_type, value),
+                    display_value=value,
+                    verification_status=actor.verification_status,
+                    verification_method="e2e_seed",
+                    verified_at=datetime.now(UTC)
+                    if actor.verification_status == IdentityVerificationStatus.VERIFIED
+                    else None,
+                )
+                for identity_type, value in actor.extra_identities
             )
-            for actor in SEEDED_E2E_ACTORS
-        ]
+            users.append(
+                User(
+                    id=actor.id,
+                    email=actor.email,
+                    password_hash=hash_password(actor.password, identity=actor.email),
+                    display_name=actor.display_name,
+                    role=actor.role,
+                    status=actor.status,
+                    capabilities=list(actor.capabilities),
+                    identities=identities,
+                )
+            )
         db.session.add_all(users)
         db.session.flush()
         for actor in SEEDED_E2E_ACTORS:

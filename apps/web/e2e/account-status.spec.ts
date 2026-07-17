@@ -85,38 +85,7 @@ test.describe('typed login identities', () => {
     ['学号', 'student_no', '20260001'],
     ['手机号', 'phone', '+8613800000000'],
   ] as const) {
-    test(`submits ${label} identity type`, async ({ page }) => {
-      await page.route('**/api/v1/me/messages/unread_count', async (route) => {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            data: { unread_count: 0 },
-            error: null,
-          }),
-        })
-      })
-      await page.route('**/api/v1/auth/login', async (route) => {
-        expect(route.request().postDataJSON()).toMatchObject({
-          identity_type: identityType,
-          identifier,
-          password: 'violet harbor lantern orbit 47',
-        })
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            data: {
-              id: 1,
-              display_name: 'Day 1 Student',
-              role: 'student',
-              capabilities: [],
-            },
-            error: null,
-          }),
-        })
-      })
-
+    test(`logs in with a real ${label} cookie session`, async ({ page }) => {
       await page.goto('/login')
       if (identityType !== 'email') {
         await page.getByTestId('identity-type').locator('.ant-select-selector').click()
@@ -124,9 +93,36 @@ test.describe('typed login identities', () => {
       }
       await page.locator('input[autocomplete="username"]').fill(identifier)
       await page.locator('input[autocomplete="current-password"]').fill('violet harbor lantern orbit 47')
+      const loginResponsePromise = page.waitForResponse(
+        (response) =>
+          response.request().method() === 'POST' &&
+          new URL(response.url()).pathname === '/api/v1/auth/login',
+      )
+      const currentUserResponsePromise = page.waitForResponse(
+        (response) =>
+          response.request().method() === 'GET' &&
+          new URL(response.url()).pathname === '/api/v1/me' &&
+          response.status() === 200,
+      )
       await page.getByRole('button', { name: '登录' }).click()
 
+      const loginResponse = await loginResponsePromise
+      expect(loginResponse.request().postDataJSON()).toMatchObject({
+        identity_type: identityType,
+        identifier,
+        password: 'violet harbor lantern orbit 47',
+      })
+      expect(loginResponse.status()).toBe(200)
+      const currentUserResponse = await currentUserResponsePromise
+      expect((await currentUserResponse.json()).data).toMatchObject({
+        id: 1001,
+        display_name: 'Day 1 Student',
+        role: 'student',
+        capabilities: [],
+      })
       await expect(page).toHaveURL(/\/me$/)
+      await expect(page.getByRole('heading', { name: 'Day 1 Student' })).toBeVisible()
+      await expect(page.getByTestId('profile-status')).toContainText('资料待完善')
     })
   }
 })
@@ -277,6 +273,8 @@ test.describe('profile-ready actor', () => {
       await interestTagRemoveButtons.first().click()
     }
 
+    await actorPage.getByTestId('profile-save').click()
+    await expect(actorPage.getByTestId('profile-save-success')).toContainText('画像已保存')
     await expect(actorPage.getByTestId('profile-status')).toContainText('资料待完善')
     await expect(profileSection.getByText('缺少兴趣标签')).toBeVisible()
   })
@@ -295,7 +293,11 @@ test.describe('profile save failure', () => {
           contentType: 'application/json',
           body: JSON.stringify({
             data: null,
-            error: { code: 'validation_error', message: 'invalid profile' },
+            error: {
+              code: 'validation_error',
+              message: 'invalid profile',
+              details: { field: 'grade' },
+            },
           }),
         })
         return
@@ -310,6 +312,12 @@ test.describe('profile save failure', () => {
     await actorPage.getByTestId('profile-save').click()
 
     await expect(actorPage.getByTestId('profile-save-error')).toBeVisible()
+    await expect(actorPage.getByTestId('profile-save-error')).toContainText('年级')
+    await expect(
+      profileSection
+        .locator('.ant-form-item')
+        .filter({ hasText: '年级' }),
+    ).toHaveClass(/ant-form-item-has-error/)
     await expect(actorPage.getByTestId('profile-save')).toBeVisible()
     await expect(profileSelect(profileSection, '年级')).toContainText('大一')
   })

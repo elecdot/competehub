@@ -32,6 +32,7 @@ just api-dev
 just api-worker
 just api-worker-beat
 just api-db-upgrade
+just bootstrap-development-demo
 just api-test
 just api-migration-test-postgres
 just api-lint
@@ -70,6 +71,20 @@ support for `just web-e2e`; it is not a development or production seed path.
 It alone tolerates a one-second future skew in signed Cookie timestamps so a
 small host-clock correction cannot invalidate a deterministic browser actor;
 development and production session validation are unchanged.
+
+For a migrated normal development database, provision or verify the Day 1 demo
+dataset with:
+
+```bash
+just bootstrap-development-demo
+```
+
+The command is development-only, idempotent, and non-destructive by default. It
+fails instead of overwriting a reserved demo identity whose content has
+changed. `just bootstrap-development-demo --reset-demo` replaces only records
+listed in the `development_demo.bootstrap.v1` ownership registry and fails when
+member-created data references those records. Neither mode is production
+initialization.
 
 ## Local Conventions
 

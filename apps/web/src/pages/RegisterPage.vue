@@ -107,7 +107,7 @@ async function resendVerification() {
       identity_type: 'email',
       identifier: normalizedEmail.value,
     })
-    infoMessage.value = '验证码已重新发送，请查看邮箱。'
+    infoMessage.value = '验证码请求已受理；如果该邮箱仍符合验证条件，系统会继续处理。'
     startCooldown()
   } catch (error) {
     errorMessage.value = friendlyRegistrationError(error)
@@ -123,6 +123,10 @@ function friendlyRegistrationError(error: unknown) {
   const errorCode = error.response?.data?.error?.code
   if (errorCode === 'registration_unavailable') {
     return '当前暂未开放自助注册，请联系管理员或使用学校预置登录信息。'
+  }
+  const field = error.response?.data?.error?.details?.field
+  if (errorCode === 'validation_error' && field === 'password') {
+    return '密码需为 15–128 个字符，不能使用常见弱密码、CompeteHub 相关弱密码或与账号相同的弱密码。'
   }
   return '注册请求失败，请检查邮箱和密码后重试。'
 }

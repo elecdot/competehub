@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const cacheRoot = resolve(repoRoot, '.cache')
+const apiPort = process.env.E2E_API_PORT ?? '5000'
 const agentSafeEnvironment = {
   ...process.env,
   AGENT_REPO_ROOT: repoRoot,
@@ -14,10 +15,13 @@ const agentSafeEnvironment = {
   PRE_COMMIT_HOME: resolve(cacheRoot, 'pre-commit'),
   RUFF_CACHE_DIR: resolve(cacheRoot, 'ruff'),
   npm_config_cache: resolve(cacheRoot, 'npm'),
+  E2E_API_PORT: apiPort,
+  VITE_API_PROXY_TARGET:
+    process.env.VITE_API_PROXY_TARGET ?? `http://127.0.0.1:${apiPort}`,
 }
 
 const apiServerCommand =
-  'uv run --project ../api flask --app competehub_api.app:create_e2e_app run --host 127.0.0.1 --port 5000'
+  `uv run --project ../api flask --app competehub_api.app:create_e2e_app run --host 127.0.0.1 --port ${apiPort}`
 const usesExternalServers = process.env.E2E_EXTERNAL_SERVERS === '1'
 
 export default defineConfig({
@@ -52,7 +56,7 @@ export default defineConfig({
         {
           command: apiServerCommand,
           env: agentSafeEnvironment,
-          url: 'http://127.0.0.1:5000/api/v1/health',
+          url: `http://127.0.0.1:${apiPort}/api/v1/health`,
           reuseExistingServer: false,
           timeout: 120_000,
         },

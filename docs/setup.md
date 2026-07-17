@@ -120,6 +120,46 @@ governed successor. The command reports the persisted status and never
 reactivates, overwrites, or rolls back v1; a conflicting v1 fails without
 overwrite.
 
+## Bootstrap The Development Demo
+
+After migrations, provision or verify the final-demo dataset with:
+
+```bash
+just bootstrap-development-demo
+```
+
+The command runs only with `COMPETEHUB_ENV=development`. It does not create,
+drop, or migrate tables. The default operation is idempotent: exact demo facts
+are retained, missing owned facts are recreated, and conflicting or manually
+changed reserved facts cause a full rollback instead of an overwrite.
+
+The public development-only credentials are:
+
+| Actor | Account | Password |
+| --- | --- | --- |
+| Student | `student.day1@example.edu` | `violet harbor lantern orbit 47` |
+| Editor | `admin.day1@example.edu` | `copper meadow signal river 82` |
+| Reviewer | `reviewer.day1@example.edu` | `silver orchard compass cloud 59` |
+| User owner | `owner.day1@example.edu` | `indigo summit owner path 73` |
+
+These values are demonstration credentials, not production secrets or default
+production accounts.
+
+When the registered demo facts must be replaced, run:
+
+```bash
+just bootstrap-development-demo --reset-demo
+```
+
+Reset ownership comes only from the `development_demo.bootstrap.v1`
+`system_configs` registry. The reset fails and rolls back when data outside
+that registry references a demo account or business record. It never deletes
+or rewrites the shared reproducible recommendation rule-set v1.
+
+Do not substitute `seed-e2e --reset`. That command deliberately drops and
+recreates only the isolated browser-test database and is rejected by the normal
+development app.
+
 Stop them when finished:
 
 ```bash
@@ -153,7 +193,10 @@ Run the frontend app:
 just web-dev
 ```
 
-By default, the frontend proxies `/api` requests to the Flask API on `localhost:5000`.
+By default, the frontend proxies `/api` requests to the Flask API on
+`127.0.0.1:5000`. Browser E2E uses `E2E_API_PORT` as the single API port source
+and derives `VITE_API_PROXY_TARGET` from it. Override `VITE_API_PROXY_TARGET`
+only when you intentionally proxy to a separately managed API process.
 
 ## Verify The Workspace
 
