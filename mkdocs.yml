@@ -125,8 +125,8 @@ nav:
           - Overview: demo/README.md
           - Day 1 Acceptance: demo/day1-acceptance.md
       - Delivery Designs:
-          - Development Demo Bootstrap Design: superpowers/specs/2026-07-16-development-demo-bootstrap-design.md
-          - Development Demo Bootstrap Plan: superpowers/plans/2026-07-16-development-demo-bootstrap.md
+          - Development Demo Bootstrap Design: superpowers/specs/2026_07_16_development_demo_bootstrap_design.md
+          - Development Demo Bootstrap Plan: superpowers/plans/2026_07_16_development_demo_bootstrap.md
       - Tooling: tooling.md
       - Conventions: CONVENTIONS.md
   - Agents:

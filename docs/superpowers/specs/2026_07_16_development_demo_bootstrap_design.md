@@ -43,7 +43,8 @@ The command permits mutation only when all of the following are true:
 - `COMPETEHUB_ENV` resolves to `development`.
 - Flask `TESTING` is false.
 - Flask `E2E_TESTING` is false.
-- The configured database has the already-migrated application tables.
+- The configured database contains the complete application table set known to
+  SQLAlchemy metadata.
 
 Production, testing, E2E, and unsupported environments fail before any write.
 The command never calls `db.create_all()`, `db.drop_all()`, or Alembic. Schema
@@ -124,7 +125,8 @@ appropriate.
 
 1. Load and validate the registry.
 2. Resolve every registered record and verify its ownership fingerprint and
-   stable identity.
+   stable identity. A registered row that is missing fails closed; only the
+   default bootstrap path may recreate a missing owned row.
 3. Detect references from records outside the registered ownership graph.
 4. Fail and roll back when an external reference exists, reporting its type.
 5. Delete registered records in dependency-safe order.
@@ -152,7 +154,7 @@ The command provisions these public development-only credentials:
 | Actor | Role and capabilities | Purpose |
 | --- | --- | --- |
 | `student.day1@example.edu` | Student with a complete recommendation-ready profile | Login, discovery, engagement, messages, calendar, and recommendations |
-| `admin.day1@example.edu` | Admin with competition editor/maintainer and recommendation editor capabilities | Create, edit, submit, maintain, and configure |
+| `admin.day1@example.edu` | `Day 1 Admin` with competition editor plus recommendation editor/reviewer capabilities | Create and submit competition and recommendation candidates; prove same-submitter recommendation review rejection |
 | `reviewer.day1@example.edu` | Admin with competition reviewer/maintainer and recommendation reviewer capabilities | Independent review and lifecycle validation |
 | `owner.day1@example.edu` | Admin with only `user_administrator` | User-governance boundary checks |
 
@@ -189,16 +191,18 @@ real editor-submit-review flow during acceptance.
 The student owns:
 
 - An active favorite for the published edition.
-- An active subscription with explicit reminder confirmation.
-- A pending reminder plan for a selected future time node.
+- A historical cancelled subscription retaining its explicit 30-day reminder
+  consent and node preferences.
 - A sent reminder with immutable node lineage and its unread `reminder_due`
   snapshot.
 - Read `competition_time_changed` and unread `competition_offline` snapshots,
   each with deterministic idempotency and a 365-day retention deadline.
 
-The personal calendar remains derived from the active subscription and the
-published revision's current time nodes. The bootstrap does not invent a
-separate calendar persistence model.
+The personal calendar remains derived from active subscriptions and the
+published revision's current time nodes. Because the bootstrap relation is
+historically cancelled, the Day 1 UI starts unsubscribed with no active
+calendar items; D1-09 records fresh consent and creates the active relation.
+The bootstrap does not invent a separate calendar persistence model.
 
 The command creates only facts supported by the current merged schema. Future
 integrated message or calendar changes may extend the deterministic builders,
@@ -222,7 +226,7 @@ Expected command failures use concise `ClickException` messages and leave the
 database unchanged. Error categories include:
 
 - Unsupported environment.
-- Missing migrated tables.
+- Any missing application table, including a partially migrated schema.
 - Reserved identity conflict.
 - Registered record drift.
 - Invalid or incomplete registry.
@@ -246,7 +250,8 @@ TDD proceeds one behavior at a time:
 4. Non-demo users and competition data survive normal bootstrap and reset.
 5. Registered-record drift causes a full rollback.
 6. An external record referencing demo data blocks reset and preserves all
-   rows.
+   rows, including identity-verification delivery and outbound analytics
+   cascades.
 7. Safe reset recreates the demo graph without changing non-demo data.
 8. Student, editor, reviewer, and owner credentials authenticate and expose the
    expected role/capability boundaries.
@@ -255,6 +260,8 @@ TDD proceeds one behavior at a time:
 10. A real migrated PostgreSQL database accepts normal database-generated
     writes before and after bootstrap reset, with member-owned rows preserved
     and generated IDs continuing beyond prior values.
+11. Reset rejects a missing registered row, and a partially migrated schema
+    fails before any registry write.
 
 Development uses focused CLI tests first. Handoff validation includes API
 tests, API lint/format, browser E2E, documentation strict build, and the broad

@@ -3,12 +3,13 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import Enum
 
 from flask import current_app
-from sqlalchemy import and_, func, inspect, or_, select
+from sqlalchemy import func, inspect, or_, select
 
 from competehub_api.extensions import db
 from competehub_api.models import (
@@ -21,7 +22,10 @@ from competehub_api.models import (
     CompetitionTagLink,
     CompetitionTimeNode,
     Favorite,
+    IdentityVerificationChallenge,
     Message,
+    OutboundClickDailyStat,
+    OutboundClickEvent,
     RecommendationRuleSet,
     Reminder,
     ReminderSetting,
@@ -31,6 +35,7 @@ from competehub_api.models import (
     SystemConfig,
     User,
     UserIdentity,
+    VerificationDeliveryOutbox,
 )
 from competehub_api.models.enums import (
     CompetitionRevisionStatus,
@@ -75,6 +80,15 @@ class DemoActor:
     profile: dict[str, object] | None = None
 
 
+@dataclass(frozen=True)
+class OwnedGroupSpec:
+    model: type
+    fingerprint_fields: tuple[str, ...]
+    identity_validator: Callable[[str, str, dict, object, dict], None] | None
+    reference_checker: Callable[[dict], tuple[str, object] | None] | None
+    delete_priority: int
+
+
 DEVELOPMENT_DEMO_ACTORS = (
     DemoActor(
         key="student",
@@ -97,12 +111,12 @@ DEVELOPMENT_DEMO_ACTORS = (
         key="editor",
         email="admin.day1@example.edu",
         password="copper meadow signal river 82",
-        display_name="Day 1 Editor",
+        display_name="Day 1 Admin",
         role=UserRole.ADMIN,
         capabilities=(
             "competition_editor",
-            "competition_maintainer",
             "recommendation_editor",
+            "recommendation_reviewer",
         ),
     ),
     DemoActor(
@@ -203,7 +217,7 @@ def _require_development_environment() -> None:
 
 
 def _require_migrated_database() -> None:
-    required_tables = {"system_configs", "users", "competitions"}
+    required_tables = set(db.metadata.tables)
     available_tables = set(inspect(db.engine).get_table_names())
     missing = sorted(required_tables - available_tables)
     if missing:
@@ -250,6 +264,20 @@ def _ensure_actors(records: dict) -> None:
             _ensure_reminder_settings(actor, user, settings)
 
 
+def _create_and_register(
+    records: dict,
+    key: str,
+    model,
+    build,
+    stable_identity: dict,
+):
+    instance = build(_seed_id(model))
+    db.session.add(instance)
+    db.session.flush()
+    records[key] = {"id": instance.id, **stable_identity}
+    return instance
+
+
 def _ensure_actor(actor: DemoActor, records: dict) -> User:
     registered = records.get(actor.key)
     by_email = User.query.filter_by(email=actor.email).one_or_none()
@@ -258,19 +286,21 @@ def _ensure_actor(actor: DemoActor, records: dict) -> User:
             raise DevelopmentDemoConflict(
                 f"reserved demo account is not registry-owned: {actor.email}"
             )
-        user = User(
-            id=_seed_id(User),
-            email=actor.email,
-            password_hash=hash_password(actor.password, identity=actor.email),
-            display_name=actor.display_name,
-            role=actor.role,
-            status=UserStatus.ACTIVE,
-            capabilities=list(actor.capabilities),
+        return _create_and_register(
+            records,
+            actor.key,
+            User,
+            lambda record_id: User(
+                id=record_id,
+                email=actor.email,
+                password_hash=hash_password(actor.password, identity=actor.email),
+                display_name=actor.display_name,
+                role=actor.role,
+                status=UserStatus.ACTIVE,
+                capabilities=list(actor.capabilities),
+            ),
+            {"email": actor.email},
         )
-        db.session.add(user)
-        db.session.flush()
-        records[actor.key] = {"id": user.id, "email": actor.email}
-        return user
 
     user = db.session.get(User, _registered_id(registered, f"user {actor.key}"))
     if user is None:
@@ -278,19 +308,21 @@ def _ensure_actor(actor: DemoActor, records: dict) -> User:
             raise DevelopmentDemoConflict(
                 f"registered demo account id is missing but email is occupied: {actor.email}"
             )
-        user = User(
-            id=_seed_id(User),
-            email=actor.email,
-            password_hash=hash_password(actor.password, identity=actor.email),
-            display_name=actor.display_name,
-            role=actor.role,
-            status=UserStatus.ACTIVE,
-            capabilities=list(actor.capabilities),
+        return _create_and_register(
+            records,
+            actor.key,
+            User,
+            lambda record_id: User(
+                id=record_id,
+                email=actor.email,
+                password_hash=hash_password(actor.password, identity=actor.email),
+                display_name=actor.display_name,
+                role=actor.role,
+                status=UserStatus.ACTIVE,
+                capabilities=list(actor.capabilities),
+            ),
+            {"email": actor.email},
         )
-        db.session.add(user)
-        db.session.flush()
-        records[actor.key] = {"id": user.id, "email": actor.email}
-        return user
 
     expected = (
         actor.email,
@@ -325,19 +357,22 @@ def _ensure_identity(actor: DemoActor, user: User, records: dict) -> None:
             raise DevelopmentDemoConflict(
                 f"reserved demo identity is not registry-owned: {actor.email}"
             )
-        identity = UserIdentity(
-            id=_seed_id(UserIdentity),
-            user_id=user.id,
-            identity_type="email",
-            normalized_value=normalized,
-            display_value=actor.email,
-            verification_status=IdentityVerificationStatus.VERIFIED,
-            verification_method="development_demo_seed",
-            verified_at=DEMO_VERIFIED_AT,
+        _create_and_register(
+            records,
+            actor.key,
+            UserIdentity,
+            lambda record_id: UserIdentity(
+                id=record_id,
+                user_id=user.id,
+                identity_type="email",
+                normalized_value=normalized,
+                display_value=actor.email,
+                verification_status=IdentityVerificationStatus.VERIFIED,
+                verification_method="development_demo_seed",
+                verified_at=DEMO_VERIFIED_AT,
+            ),
+            {"email": actor.email},
         )
-        db.session.add(identity)
-        db.session.flush()
-        records[actor.key] = {"id": identity.id, "email": actor.email}
         return
 
     identity = db.session.get(
@@ -349,19 +384,22 @@ def _ensure_identity(actor: DemoActor, user: User, records: dict) -> None:
             raise DevelopmentDemoConflict(
                 f"registered demo identity is missing but value is occupied: {actor.email}"
             )
-        identity = UserIdentity(
-            id=_seed_id(UserIdentity),
-            user_id=user.id,
-            identity_type="email",
-            normalized_value=normalized,
-            display_value=actor.email,
-            verification_status=IdentityVerificationStatus.VERIFIED,
-            verification_method="development_demo_seed",
-            verified_at=DEMO_VERIFIED_AT,
+        _create_and_register(
+            records,
+            actor.key,
+            UserIdentity,
+            lambda record_id: UserIdentity(
+                id=record_id,
+                user_id=user.id,
+                identity_type="email",
+                normalized_value=normalized,
+                display_value=actor.email,
+                verification_status=IdentityVerificationStatus.VERIFIED,
+                verification_method="development_demo_seed",
+                verified_at=DEMO_VERIFIED_AT,
+            ),
+            {"email": actor.email},
         )
-        db.session.add(identity)
-        db.session.flush()
-        records[actor.key] = {"id": identity.id, "email": actor.email}
         return
 
     actual = (
@@ -390,25 +428,31 @@ def _ensure_profile(actor: DemoActor, user: User, records: dict) -> None:
     if registered is None:
         if profile is not None:
             raise DevelopmentDemoConflict(f"student profile is not registry-owned: {actor.email}")
-        profile = StudentProfile(
-            id=_seed_id(StudentProfile),
-            user_id=user.id,
-            **actor.profile,
+        _create_and_register(
+            records,
+            actor.key,
+            StudentProfile,
+            lambda record_id: StudentProfile(
+                id=record_id,
+                user_id=user.id,
+                **actor.profile,
+            ),
+            {"user_email": actor.email},
         )
-        db.session.add(profile)
-        db.session.flush()
-        records[actor.key] = {"id": profile.id, "user_email": actor.email}
         return
 
     if profile is None:
-        profile = StudentProfile(
-            id=_seed_id(StudentProfile),
-            user_id=user.id,
-            **actor.profile,
+        _create_and_register(
+            records,
+            actor.key,
+            StudentProfile,
+            lambda record_id: StudentProfile(
+                id=record_id,
+                user_id=user.id,
+                **actor.profile,
+            ),
+            {"user_email": actor.email},
         )
-        db.session.add(profile)
-        db.session.flush()
-        records[actor.key] = {"id": profile.id, "user_email": actor.email}
         return
 
     if profile.id != _registered_id(registered, f"profile {actor.key}"):
@@ -434,29 +478,35 @@ def _ensure_reminder_settings(actor: DemoActor, user: User, records: dict) -> No
             raise DevelopmentDemoConflict(
                 f"reminder settings are not registry-owned: {actor.email}"
             )
-        setting = ReminderSetting(
-            id=_seed_id(ReminderSetting),
-            user_id=user.id,
-            enabled=True,
-            default_remind_days=3,
-            node_types=list(DEFAULT_REMINDER_NODE_TYPES),
+        _create_and_register(
+            records,
+            actor.key,
+            ReminderSetting,
+            lambda record_id: ReminderSetting(
+                id=record_id,
+                user_id=user.id,
+                enabled=True,
+                default_remind_days=3,
+                node_types=list(DEFAULT_REMINDER_NODE_TYPES),
+            ),
+            {"user_email": actor.email},
         )
-        db.session.add(setting)
-        db.session.flush()
-        records[actor.key] = {"id": setting.id, "user_email": actor.email}
         return
 
     if setting is None:
-        setting = ReminderSetting(
-            id=_seed_id(ReminderSetting),
-            user_id=user.id,
-            enabled=True,
-            default_remind_days=3,
-            node_types=list(DEFAULT_REMINDER_NODE_TYPES),
+        _create_and_register(
+            records,
+            actor.key,
+            ReminderSetting,
+            lambda record_id: ReminderSetting(
+                id=record_id,
+                user_id=user.id,
+                enabled=True,
+                default_remind_days=3,
+                node_types=list(DEFAULT_REMINDER_NODE_TYPES),
+            ),
+            {"user_email": actor.email},
         )
-        db.session.add(setting)
-        db.session.flush()
-        records[actor.key] = {"id": setting.id, "user_email": actor.email}
         return
 
     actual = (
@@ -939,10 +989,6 @@ def _ensure_engagement_graph(records: dict) -> None:
         competition_revision_id=published.published_revision_id,
         logical_node_key="registration-deadline",
     ).one()
-    submission_node = CompetitionTimeNode.query.filter_by(
-        competition_revision_id=published.published_revision_id,
-        logical_node_key="submission-deadline",
-    ).one()
     remind_days = 30
     sent_due_at = registration_node.occurs_at - timedelta(days=remind_days)
     confirmed_at = sent_due_at - timedelta(days=1)
@@ -983,7 +1029,7 @@ def _ensure_engagement_graph(records: dict) -> None:
             id=record_id,
             user_id=student.id,
             competition_id=published.id,
-            status=SubscriptionStatus.ACTIVE,
+            status=SubscriptionStatus.CANCELLED,
             reminder_enabled=True,
             remind_days=remind_days,
             node_types=[
@@ -996,7 +1042,7 @@ def _ensure_engagement_graph(records: dict) -> None:
         {
             "user_id": student.id,
             "competition_id": published.id,
-            "status": SubscriptionStatus.ACTIVE,
+            "status": SubscriptionStatus.CANCELLED,
             "reminder_enabled": True,
             "remind_days": remind_days,
             "node_types": [
@@ -1016,16 +1062,6 @@ def _ensure_engagement_graph(records: dict) -> None:
         registration_node,
         ReminderStatus.SENT,
         sent_at,
-        remind_days,
-    )
-    _ensure_reminder(
-        records,
-        "submission-pending",
-        student,
-        published,
-        submission_node,
-        ReminderStatus.PENDING,
-        None,
         remind_days,
     )
     _ensure_message(
@@ -1269,11 +1305,7 @@ def _ensure_model(
             raise DevelopmentDemoConflict(
                 f"reserved demo record is not registry-owned: {group}.{key}"
             )
-        instance = build(_seed_id(model))
-        db.session.add(instance)
-        db.session.flush()
-        group_records[key] = {"id": instance.id, **stable_identity}
-        return instance
+        return _create_and_register(group_records, key, model, build, stable_identity)
 
     instance = db.session.get(model, _registered_id(registered, f"{group}.{key}"))
     if instance is None:
@@ -1281,11 +1313,7 @@ def _ensure_model(
             raise DevelopmentDemoConflict(
                 f"registered demo record is missing but identity is occupied: {group}.{key}"
             )
-        instance = build(_seed_id(model))
-        db.session.add(instance)
-        db.session.flush()
-        group_records[key] = {"id": instance.id, **stable_identity}
-        return instance
+        return _create_and_register(group_records, key, model, build, stable_identity)
 
     if by_identity is None or by_identity.id != instance.id:
         raise DevelopmentDemoConflict(f"registered demo identity drifted: {group}.{key}")
@@ -1312,123 +1340,194 @@ def _utc_naive(value: datetime) -> datetime:
     return value.astimezone(UTC).replace(tzinfo=None)
 
 
-OWNED_GROUP_MODELS = {
-    "messages": Message,
-    "reminders": Reminder,
-    "favorites": Favorite,
-    "subscriptions": Subscription,
-    "reminder_settings": ReminderSetting,
-    "profiles": StudentProfile,
-    "identities": UserIdentity,
-    "review_records": ReviewRecord,
-    "audit_logs": AuditLog,
-    "tag_links": CompetitionTagLink,
-    "time_nodes": CompetitionTimeNode,
-    "stages": CompetitionStage,
-    "revisions": CompetitionRevision,
-    "competitions": Competition,
-    "tags": CompetitionTag,
-    "series": CompetitionSeries,
-    "users": User,
-}
+def _registry_attribute_validator(attribute: str, registry_field: str):
+    def validate(group: str, key: str, entry: dict, instance, _records: dict) -> None:
+        if getattr(instance, attribute) != entry.get(registry_field):
+            raise DevelopmentDemoConflict(f"demo ownership identity drifted: {group}.{key}")
 
-DELETE_GROUP_ORDER = tuple(OWNED_GROUP_MODELS)
+    return validate
 
-OWNERSHIP_FINGERPRINT_FIELDS = {
-    "messages": (
-        "user_id",
-        "idempotency_key",
-        "reminder_id",
-        "competition_id",
-        "message_type",
-        "event_occurred_at",
-        "title_snapshot",
-        "body_snapshot",
-        "target_snapshot",
-        "retained_until",
-        "created_at",
+
+def _owned_relation_validator(parent_group: str, attribute: str):
+    def validate(group: str, key: str, _entry: dict, instance, records: dict) -> None:
+        if getattr(instance, attribute) not in _owned_ids(records, parent_group):
+            raise DevelopmentDemoConflict(f"demo ownership relation drifted: {group}.{key}")
+
+    return validate
+
+
+OWNED_GROUP_SPECS = {
+    "messages": OwnedGroupSpec(
+        model=Message,
+        fingerprint_fields=(
+            "user_id",
+            "idempotency_key",
+            "reminder_id",
+            "competition_id",
+            "message_type",
+            "event_occurred_at",
+            "title_snapshot",
+            "body_snapshot",
+            "target_snapshot",
+            "retained_until",
+            "created_at",
+        ),
+        identity_validator=_registry_attribute_validator("idempotency_key", "idempotency_key"),
+        reference_checker=None,
+        delete_priority=10,
     ),
-    "reminders": (
-        "user_id",
-        "competition_id",
-        "logical_node_key",
-        "time_node_revision",
-        "created_at",
+    "reminders": OwnedGroupSpec(
+        model=Reminder,
+        fingerprint_fields=(
+            "user_id",
+            "competition_id",
+            "logical_node_key",
+            "time_node_revision",
+            "created_at",
+        ),
+        identity_validator=_registry_attribute_validator("logical_node_key", "logical_node_key"),
+        reference_checker=lambda records: _check_reminder_references(records),
+        delete_priority=20,
     ),
-    "favorites": ("user_id", "competition_id", "created_at"),
-    "subscriptions": ("user_id", "competition_id", "created_at"),
-    "reminder_settings": ("user_id", "created_at"),
-    "profiles": ("user_id", "created_at"),
-    "identities": (
-        "user_id",
-        "identity_type",
-        "normalized_value",
-        "created_at",
+    "favorites": OwnedGroupSpec(
+        model=Favorite,
+        fingerprint_fields=("user_id", "competition_id", "created_at"),
+        identity_validator=_owned_relation_validator("users", "user_id"),
+        reference_checker=None,
+        delete_priority=30,
     ),
-    "review_records": (
-        "target_type",
-        "target_id",
-        "target_revision",
-        "submitted_by_id",
-        "submitted_at",
-        "reviewed_by_id",
-        "status",
-        "comment",
-        "differences",
-        "impact",
-        "difference_snapshot",
-        "impact_summary",
-        "decided_at",
-        "created_at",
+    "subscriptions": OwnedGroupSpec(
+        model=Subscription,
+        fingerprint_fields=("user_id", "competition_id", "created_at"),
+        identity_validator=_owned_relation_validator("users", "user_id"),
+        reference_checker=None,
+        delete_priority=40,
     ),
-    "audit_logs": (
-        "actor_id",
-        "action",
-        "target_type",
-        "target_id",
-        "result",
-        "detail",
-        "created_at",
+    "reminder_settings": OwnedGroupSpec(
+        model=ReminderSetting,
+        fingerprint_fields=("user_id", "created_at"),
+        identity_validator=_owned_relation_validator("users", "user_id"),
+        reference_checker=None,
+        delete_priority=50,
     ),
-    "tag_links": (
-        "competition_revision_id",
-        "tag_id",
-        "created_at",
+    "profiles": OwnedGroupSpec(
+        model=StudentProfile,
+        fingerprint_fields=("user_id", "created_at"),
+        identity_validator=_owned_relation_validator("users", "user_id"),
+        reference_checker=None,
+        delete_priority=60,
     ),
-    "time_nodes": (
-        "competition_revision_id",
-        "logical_node_key",
-        "created_at",
+    "identities": OwnedGroupSpec(
+        model=UserIdentity,
+        fingerprint_fields=("user_id", "identity_type", "normalized_value", "created_at"),
+        identity_validator=_registry_attribute_validator("display_value", "email"),
+        reference_checker=lambda records: _check_identity_references(records),
+        delete_priority=70,
     ),
-    "stages": (
-        "competition_revision_id",
-        "stage_key",
-        "created_at",
+    "review_records": OwnedGroupSpec(
+        model=ReviewRecord,
+        fingerprint_fields=(
+            "target_type",
+            "target_id",
+            "target_revision",
+            "submitted_by_id",
+            "submitted_at",
+            "reviewed_by_id",
+            "status",
+            "comment",
+            "differences",
+            "impact",
+            "difference_snapshot",
+            "impact_summary",
+            "decided_at",
+            "created_at",
+        ),
+        identity_validator=None,
+        reference_checker=None,
+        delete_priority=80,
     ),
-    "revisions": (
-        "competition_id",
-        "revision_number",
-        "created_at",
+    "audit_logs": OwnedGroupSpec(
+        model=AuditLog,
+        fingerprint_fields=(
+            "actor_id",
+            "action",
+            "target_type",
+            "target_id",
+            "result",
+            "detail",
+            "created_at",
+        ),
+        identity_validator=None,
+        reference_checker=None,
+        delete_priority=90,
     ),
-    "competitions": (
-        "series_id",
-        "edition_label",
-        "created_at",
+    "tag_links": OwnedGroupSpec(
+        model=CompetitionTagLink,
+        fingerprint_fields=("competition_revision_id", "tag_id", "created_at"),
+        identity_validator=_owned_relation_validator("competitions", "competition_id"),
+        reference_checker=None,
+        delete_priority=100,
     ),
-    "tags": ("code", "created_at"),
-    "series": ("canonical_name", "created_at"),
-    "users": ("email", "created_at"),
+    "time_nodes": OwnedGroupSpec(
+        model=CompetitionTimeNode,
+        fingerprint_fields=("competition_revision_id", "logical_node_key", "created_at"),
+        identity_validator=_owned_relation_validator("competitions", "competition_id"),
+        reference_checker=lambda records: _check_time_node_references(records),
+        delete_priority=110,
+    ),
+    "stages": OwnedGroupSpec(
+        model=CompetitionStage,
+        fingerprint_fields=("competition_revision_id", "stage_key", "created_at"),
+        identity_validator=None,
+        reference_checker=lambda records: _check_stage_references(records),
+        delete_priority=120,
+    ),
+    "revisions": OwnedGroupSpec(
+        model=CompetitionRevision,
+        fingerprint_fields=("competition_id", "revision_number", "created_at"),
+        identity_validator=_owned_relation_validator("competitions", "competition_id"),
+        reference_checker=lambda records: _check_revision_references(records),
+        delete_priority=130,
+    ),
+    "competitions": OwnedGroupSpec(
+        model=Competition,
+        fingerprint_fields=("series_id", "edition_label", "created_at"),
+        identity_validator=_registry_attribute_validator("edition_label", "edition_label"),
+        reference_checker=lambda records: _check_competition_references(records),
+        delete_priority=140,
+    ),
+    "tags": OwnedGroupSpec(
+        model=CompetitionTag,
+        fingerprint_fields=("code", "created_at"),
+        identity_validator=_registry_attribute_validator("code", "code"),
+        reference_checker=lambda records: _check_tag_references(records),
+        delete_priority=150,
+    ),
+    "series": OwnedGroupSpec(
+        model=CompetitionSeries,
+        fingerprint_fields=("canonical_name", "created_at"),
+        identity_validator=_registry_attribute_validator("canonical_name", "canonical_name"),
+        reference_checker=lambda records: _check_series_references(records),
+        delete_priority=160,
+    ),
+    "users": OwnedGroupSpec(
+        model=User,
+        fingerprint_fields=("email", "created_at"),
+        identity_validator=_registry_attribute_validator("email", "email"),
+        reference_checker=lambda records: _check_user_references(records),
+        delete_priority=170,
+    ),
 }
 
 
 def _validate_or_record_ownership_fingerprints(records: dict) -> None:
-    for group, model in OWNED_GROUP_MODELS.items():
+    for group, spec in OWNED_GROUP_SPECS.items():
         entries = records.get(group, {})
         if not isinstance(entries, dict):
             raise DevelopmentDemoConflict(f"development demo registry group is invalid: {group}")
         for key, entry in entries.items():
             record_id = _registered_id(entry, f"{group}.{key}")
-            instance = db.session.get(model, record_id)
+            instance = db.session.get(spec.model, record_id)
             if instance is None:
                 raise DevelopmentDemoConflict(
                     f"development demo owned record is missing: {group}.{key}"
@@ -1443,14 +1542,16 @@ def _validate_or_record_ownership_fingerprints(records: dict) -> None:
 
 
 def _ownership_fingerprint(group: str, instance) -> str:
-    fields = OWNERSHIP_FINGERPRINT_FIELDS.get(group)
-    if fields is None:
+    spec = OWNED_GROUP_SPECS.get(group)
+    if spec is None:
         raise DevelopmentDemoConflict(
-            f"development demo ownership fingerprint fields are missing: {group}"
+            f"development demo ownership specification is missing: {group}"
         )
     payload = {
         "group": group,
-        "fields": {field: _fingerprint_value(getattr(instance, field)) for field in fields},
+        "fields": {
+            field: _fingerprint_value(getattr(instance, field)) for field in spec.fingerprint_fields
+        },
     }
     encoded = json.dumps(
         payload,
@@ -1479,15 +1580,17 @@ def _fingerprint_value(value):
 
 
 def _validate_reset_ownership(records: dict) -> None:
-    for group, model in OWNED_GROUP_MODELS.items():
+    for group, spec in OWNED_GROUP_SPECS.items():
         entries = records.get(group, {})
         if not isinstance(entries, dict):
             raise DevelopmentDemoConflict(f"development demo registry group is invalid: {group}")
         for key, entry in entries.items():
             record_id = _registered_id(entry, f"{group}.{key}")
-            instance = db.session.get(model, record_id)
+            instance = db.session.get(spec.model, record_id)
             if instance is None:
-                continue
+                raise DevelopmentDemoConflict(
+                    f"development demo owned record is missing: {group}.{key}"
+                )
             expected_fingerprint = entry.get("ownership_fingerprint")
             if not isinstance(expected_fingerprint, str):
                 raise DevelopmentDemoConflict(
@@ -1497,50 +1600,23 @@ def _validate_reset_ownership(records: dict) -> None:
                 raise DevelopmentDemoConflict(
                     f"development demo ownership fingerprint drifted: {group}.{key}"
                 )
-            _validate_stable_identity(group, key, entry, instance, records)
+            if spec.identity_validator is not None:
+                spec.identity_validator(group, key, entry, instance, records)
 
 
-def _validate_stable_identity(
-    group: str,
-    key: str,
-    entry: dict,
-    instance,
-    records: dict,
-) -> None:
-    if group == "users" and instance.email != entry.get("email"):
-        raise DevelopmentDemoConflict(f"demo ownership identity drifted: {group}.{key}")
-    if group == "identities" and instance.display_value != entry.get("email"):
-        raise DevelopmentDemoConflict(f"demo ownership identity drifted: {group}.{key}")
-    if group == "series" and instance.canonical_name != entry.get("canonical_name"):
-        raise DevelopmentDemoConflict(f"demo ownership identity drifted: {group}.{key}")
-    if group == "competitions" and instance.edition_label != entry.get("edition_label"):
-        raise DevelopmentDemoConflict(f"demo ownership identity drifted: {group}.{key}")
-    if group == "tags" and instance.code != entry.get("code"):
-        raise DevelopmentDemoConflict(f"demo ownership identity drifted: {group}.{key}")
-    if group == "messages" and instance.idempotency_key != entry.get("idempotency_key"):
-        raise DevelopmentDemoConflict(f"demo ownership identity drifted: {group}.{key}")
-    if group == "reminders" and instance.logical_node_key != entry.get("logical_node_key"):
-        raise DevelopmentDemoConflict(f"demo ownership identity drifted: {group}.{key}")
-    if group in {"profiles", "reminder_settings", "favorites", "subscriptions"}:
-        user_ids = _owned_ids(records, "users")
-        if instance.user_id not in user_ids:
-            raise DevelopmentDemoConflict(f"demo ownership relation drifted: {group}.{key}")
-    if group in {"revisions", "time_nodes", "tag_links"}:
-        competition_ids = _owned_ids(records, "competitions")
-        if instance.competition_id not in competition_ids:
-            raise DevelopmentDemoConflict(f"demo ownership relation drifted: {group}.{key}")
-
-
-def _reject_external_references(records: dict) -> None:
+def _check_user_references(records: dict) -> tuple[str, object] | None:
     user_ids = _owned_ids(records, "users")
     series_ids = _owned_ids(records, "series")
     competition_ids = _owned_ids(records, "competitions")
     revision_ids = _owned_ids(records, "revisions")
-    stage_ids = _owned_ids(records, "stages")
-    node_ids = _owned_ids(records, "time_nodes")
-    tag_ids = _owned_ids(records, "tags")
-
-    checks = (
+    checks = [
+        (
+            "user_identities.user_id",
+            UserIdentity.query.filter(
+                UserIdentity.user_id.in_(user_ids),
+                UserIdentity.id.notin_(_owned_ids(records, "identities")),
+            ).first(),
+        ),
         (
             "competition_series.created_by_id",
             CompetitionSeries.query.filter(
@@ -1549,123 +1625,64 @@ def _reject_external_references(records: dict) -> None:
             ).first(),
         ),
         (
-            "competitions",
+            "competitions.created_by_id",
             Competition.query.filter(
-                or_(
-                    Competition.created_by_id.in_(user_ids),
-                    Competition.series_id.in_(series_ids),
-                    Competition.published_revision_id.in_(revision_ids),
-                ),
+                Competition.created_by_id.in_(user_ids),
                 Competition.id.notin_(competition_ids),
             ).first(),
         ),
         (
-            "competition_revisions",
+            "competition_revisions.actor_id",
             CompetitionRevision.query.filter(
                 or_(
                     CompetitionRevision.created_by_id.in_(user_ids),
                     CompetitionRevision.submitted_by_id.in_(user_ids),
-                    CompetitionRevision.competition_id.in_(competition_ids),
-                    CompetitionRevision.base_revision_id.in_(revision_ids),
                 ),
                 CompetitionRevision.id.notin_(revision_ids),
             ).first(),
         ),
         (
-            "competition_stages",
-            CompetitionStage.query.filter(
-                CompetitionStage.competition_revision_id.in_(revision_ids),
-                CompetitionStage.id.notin_(stage_ids),
-            ).first(),
-        ),
-        (
-            "competition_time_nodes",
-            CompetitionTimeNode.query.filter(
-                or_(
-                    CompetitionTimeNode.competition_id.in_(competition_ids),
-                    CompetitionTimeNode.competition_revision_id.in_(revision_ids),
-                    CompetitionTimeNode.stage_id.in_(stage_ids),
-                ),
-                CompetitionTimeNode.id.notin_(node_ids),
-            ).first(),
-        ),
-        (
-            "competition_tag_links",
-            CompetitionTagLink.query.filter(
-                or_(
-                    CompetitionTagLink.competition_id.in_(competition_ids),
-                    CompetitionTagLink.competition_revision_id.in_(revision_ids),
-                    CompetitionTagLink.tag_id.in_(tag_ids),
-                ),
-                CompetitionTagLink.id.notin_(_owned_ids(records, "tag_links")),
-            ).first(),
-        ),
-        (
-            "favorites",
+            "favorites.user_id",
             Favorite.query.filter(
-                or_(
-                    Favorite.user_id.in_(user_ids),
-                    Favorite.competition_id.in_(competition_ids),
-                ),
+                Favorite.user_id.in_(user_ids),
                 Favorite.id.notin_(_owned_ids(records, "favorites")),
             ).first(),
         ),
         (
-            "subscriptions",
+            "subscriptions.user_id",
             Subscription.query.filter(
-                or_(
-                    Subscription.user_id.in_(user_ids),
-                    Subscription.competition_id.in_(competition_ids),
-                ),
+                Subscription.user_id.in_(user_ids),
                 Subscription.id.notin_(_owned_ids(records, "subscriptions")),
             ).first(),
         ),
         (
-            "reminders",
+            "reminders.user_id",
             Reminder.query.filter(
-                or_(
-                    Reminder.user_id.in_(user_ids),
-                    Reminder.competition_id.in_(competition_ids),
-                    Reminder.time_node_snapshot_id.in_(node_ids),
-                ),
+                Reminder.user_id.in_(user_ids),
                 Reminder.id.notin_(_owned_ids(records, "reminders")),
             ).first(),
         ),
         (
-            "messages",
+            "messages.user_id",
             Message.query.filter(
-                or_(
-                    Message.user_id.in_(user_ids),
-                    Message.competition_id.in_(competition_ids),
-                    Message.reminder_id.in_(_owned_ids(records, "reminders")),
-                ),
+                Message.user_id.in_(user_ids),
                 Message.id.notin_(_owned_ids(records, "messages")),
             ).first(),
         ),
         (
-            "review_records",
+            "review_records.actor_id",
             ReviewRecord.query.filter(
                 or_(
                     ReviewRecord.submitted_by_id.in_(user_ids),
                     ReviewRecord.reviewed_by_id.in_(user_ids),
-                    and_(
-                        ReviewRecord.target_type == "competition_revision",
-                        ReviewRecord.target_id.in_(revision_ids),
-                    ),
                 ),
                 ReviewRecord.id.notin_(_owned_ids(records, "review_records")),
             ).first(),
         ),
         (
-            "audit_logs",
+            "audit_logs.actor_id",
             AuditLog.query.filter(
-                or_(
-                    AuditLog.actor_id.in_(user_ids),
-                    and_(
-                        AuditLog.target_type == "competition",
-                        AuditLog.target_id.in_(competition_ids),
-                    ),
-                ),
+                AuditLog.actor_id.in_(user_ids),
                 AuditLog.id.notin_(_owned_ids(records, "audit_logs")),
             ).first(),
         ),
@@ -1679,9 +1696,248 @@ def _reject_external_references(records: dict) -> None:
                 )
             ).first(),
         ),
+    ]
+    return _first_external_reference(checks)
+
+
+def _check_identity_references(records: dict) -> tuple[str, object] | None:
+    identity_ids = _owned_ids(records, "identities")
+    return _first_external_reference(
+        [
+            (
+                "identity_verification_challenges.user_identity_id",
+                IdentityVerificationChallenge.query.filter(
+                    IdentityVerificationChallenge.user_identity_id.in_(identity_ids)
+                ).first(),
+            ),
+            (
+                "verification_delivery_outbox.challenge_id",
+                VerificationDeliveryOutbox.query.join(IdentityVerificationChallenge)
+                .filter(IdentityVerificationChallenge.user_identity_id.in_(identity_ids))
+                .first(),
+            ),
+        ]
     )
+
+
+def _check_series_references(records: dict) -> tuple[str, object] | None:
+    return _first_external_reference(
+        [
+            (
+                "competitions.series_id",
+                Competition.query.filter(
+                    Competition.series_id.in_(_owned_ids(records, "series")),
+                    Competition.id.notin_(_owned_ids(records, "competitions")),
+                ).first(),
+            )
+        ]
+    )
+
+
+def _check_competition_references(records: dict) -> tuple[str, object] | None:
+    competition_ids = _owned_ids(records, "competitions")
+    checks = [
+        (
+            "competition_revisions.competition_id",
+            CompetitionRevision.query.filter(
+                CompetitionRevision.competition_id.in_(competition_ids),
+                CompetitionRevision.id.notin_(_owned_ids(records, "revisions")),
+            ).first(),
+        ),
+        (
+            "competition_time_nodes.competition_id",
+            CompetitionTimeNode.query.filter(
+                CompetitionTimeNode.competition_id.in_(competition_ids),
+                CompetitionTimeNode.id.notin_(_owned_ids(records, "time_nodes")),
+            ).first(),
+        ),
+        (
+            "competition_tag_links.competition_id",
+            CompetitionTagLink.query.filter(
+                CompetitionTagLink.competition_id.in_(competition_ids),
+                CompetitionTagLink.id.notin_(_owned_ids(records, "tag_links")),
+            ).first(),
+        ),
+        (
+            "favorites.competition_id",
+            Favorite.query.filter(
+                Favorite.competition_id.in_(competition_ids),
+                Favorite.id.notin_(_owned_ids(records, "favorites")),
+            ).first(),
+        ),
+        (
+            "subscriptions.competition_id",
+            Subscription.query.filter(
+                Subscription.competition_id.in_(competition_ids),
+                Subscription.id.notin_(_owned_ids(records, "subscriptions")),
+            ).first(),
+        ),
+        (
+            "reminders.competition_id",
+            Reminder.query.filter(
+                Reminder.competition_id.in_(competition_ids),
+                Reminder.id.notin_(_owned_ids(records, "reminders")),
+            ).first(),
+        ),
+        (
+            "messages.competition_id",
+            Message.query.filter(
+                Message.competition_id.in_(competition_ids),
+                Message.id.notin_(_owned_ids(records, "messages")),
+            ).first(),
+        ),
+        (
+            "audit_logs.target_id",
+            AuditLog.query.filter(
+                AuditLog.target_type == "competition",
+                AuditLog.target_id.in_(competition_ids),
+                AuditLog.id.notin_(_owned_ids(records, "audit_logs")),
+            ).first(),
+        ),
+        (
+            "outbound_click_events",
+            OutboundClickEvent.query.filter(
+                OutboundClickEvent.competition_id.in_(competition_ids)
+            ).first(),
+        ),
+        (
+            "outbound_click_daily_stats",
+            OutboundClickDailyStat.query.filter(
+                OutboundClickDailyStat.competition_id.in_(competition_ids)
+            ).first(),
+        ),
+    ]
+    return _first_external_reference(checks)
+
+
+def _check_revision_references(records: dict) -> tuple[str, object] | None:
+    revision_ids = _owned_ids(records, "revisions")
+    checks = [
+        (
+            "competitions.published_revision_id",
+            Competition.query.filter(
+                Competition.published_revision_id.in_(revision_ids),
+                Competition.id.notin_(_owned_ids(records, "competitions")),
+            ).first(),
+        ),
+        (
+            "competition_revisions.base_revision_id",
+            CompetitionRevision.query.filter(
+                CompetitionRevision.base_revision_id.in_(revision_ids),
+                CompetitionRevision.id.notin_(revision_ids),
+            ).first(),
+        ),
+        (
+            "competition_stages.competition_revision_id",
+            CompetitionStage.query.filter(
+                CompetitionStage.competition_revision_id.in_(revision_ids),
+                CompetitionStage.id.notin_(_owned_ids(records, "stages")),
+            ).first(),
+        ),
+        (
+            "competition_time_nodes.competition_revision_id",
+            CompetitionTimeNode.query.filter(
+                CompetitionTimeNode.competition_revision_id.in_(revision_ids),
+                CompetitionTimeNode.id.notin_(_owned_ids(records, "time_nodes")),
+            ).first(),
+        ),
+        (
+            "competition_tag_links.competition_revision_id",
+            CompetitionTagLink.query.filter(
+                CompetitionTagLink.competition_revision_id.in_(revision_ids),
+                CompetitionTagLink.id.notin_(_owned_ids(records, "tag_links")),
+            ).first(),
+        ),
+        (
+            "review_records.target_id",
+            ReviewRecord.query.filter(
+                ReviewRecord.target_type == "competition_revision",
+                ReviewRecord.target_id.in_(revision_ids),
+                ReviewRecord.id.notin_(_owned_ids(records, "review_records")),
+            ).first(),
+        ),
+        (
+            "outbound_click_events.competition_revision_id",
+            OutboundClickEvent.query.filter(
+                OutboundClickEvent.competition_revision_id.in_(revision_ids)
+            ).first(),
+        ),
+    ]
+    return _first_external_reference(checks)
+
+
+def _check_stage_references(records: dict) -> tuple[str, object] | None:
+    return _first_external_reference(
+        [
+            (
+                "competition_time_nodes.stage_id",
+                CompetitionTimeNode.query.filter(
+                    CompetitionTimeNode.stage_id.in_(_owned_ids(records, "stages")),
+                    CompetitionTimeNode.id.notin_(_owned_ids(records, "time_nodes")),
+                ).first(),
+            )
+        ]
+    )
+
+
+def _check_time_node_references(records: dict) -> tuple[str, object] | None:
+    return _first_external_reference(
+        [
+            (
+                "reminders.time_node_snapshot_id",
+                Reminder.query.filter(
+                    Reminder.time_node_snapshot_id.in_(_owned_ids(records, "time_nodes")),
+                    Reminder.id.notin_(_owned_ids(records, "reminders")),
+                ).first(),
+            )
+        ]
+    )
+
+
+def _check_tag_references(records: dict) -> tuple[str, object] | None:
+    return _first_external_reference(
+        [
+            (
+                "competition_tag_links.tag_id",
+                CompetitionTagLink.query.filter(
+                    CompetitionTagLink.tag_id.in_(_owned_ids(records, "tags")),
+                    CompetitionTagLink.id.notin_(_owned_ids(records, "tag_links")),
+                ).first(),
+            )
+        ]
+    )
+
+
+def _check_reminder_references(records: dict) -> tuple[str, object] | None:
+    return _first_external_reference(
+        [
+            (
+                "messages.reminder_id",
+                Message.query.filter(
+                    Message.reminder_id.in_(_owned_ids(records, "reminders")),
+                    Message.id.notin_(_owned_ids(records, "messages")),
+                ).first(),
+            )
+        ]
+    )
+
+
+def _first_external_reference(
+    checks: list[tuple[str, object | None]],
+) -> tuple[str, object] | None:
     for label, reference in checks:
         if reference is not None:
+            return label, reference
+    return None
+
+
+def _reject_external_references(records: dict) -> None:
+    for spec in OWNED_GROUP_SPECS.values():
+        if spec.reference_checker is None:
+            continue
+        external_reference = spec.reference_checker(records)
+        if external_reference is not None:
+            label, _reference = external_reference
             raise DevelopmentDemoConflict(
                 f"external reference blocks development demo reset: {label}"
             )
@@ -1694,10 +1950,13 @@ def _delete_owned_records(records: dict) -> None:
             competition.published_revision = None
     db.session.flush()
 
-    for group in DELETE_GROUP_ORDER:
-        model = OWNED_GROUP_MODELS[group]
+    delete_groups = sorted(
+        OWNED_GROUP_SPECS.items(),
+        key=lambda item: item[1].delete_priority,
+    )
+    for group, spec in delete_groups:
         for entry in records.get(group, {}).values():
-            instance = db.session.get(model, _registered_id(entry, group))
+            instance = db.session.get(spec.model, _registered_id(entry, group))
             if instance is not None:
                 db.session.delete(instance)
         db.session.flush()

@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from flask_migrate import upgrade
+from sqlalchemy import text
 
 from competehub_api import create_app
 from competehub_api.extensions import db
@@ -15,7 +16,10 @@ from competehub_api.models import (
     CompetitionSeries,
     CompetitionTag,
     Favorite,
+    IdentityVerificationChallenge,
     Message,
+    OutboundClickDailyStat,
+    OutboundClickEvent,
     RecommendationRuleSet,
     Reminder,
     ReminderSetting,
@@ -25,6 +29,7 @@ from competehub_api.models import (
     SystemConfig,
     User,
     UserIdentity,
+    VerificationDeliveryOutbox,
 )
 from competehub_api.models.enums import (
     CompetitionRevisionStatus,
@@ -38,6 +43,7 @@ from competehub_api.models.enums import (
     UserStatus,
 )
 from competehub_api.seeds.development_demo import (
+    DEMO_VERIFIED_AT,
     DEVELOPMENT_DEMO_ACTORS,
     DEVELOPMENT_DEMO_REGISTRY_KEY,
 )
@@ -112,6 +118,28 @@ def test_development_demo_bootstrap_requires_migrated_tables() -> None:
     assert "requires a migrated database" in result.output
 
 
+def test_development_demo_bootstrap_requires_complete_migrated_schema() -> None:
+    app = create_app(
+        {
+            "TESTING": False,
+            "E2E_TESTING": False,
+            "COMPETEHUB_ENV": "development",
+            "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:",
+            "AUTH_RATE_LIMIT_ENABLED": False,
+        }
+    )
+    with app.app_context():
+        db.create_all()
+        db.session.execute(text("DROP TABLE user_identities"))
+        db.session.commit()
+
+        result = app.test_cli_runner().invoke(args=["bootstrap-development-demo"])
+
+        assert result.exit_code != 0
+        assert "missing tables: user_identities" in result.output
+        assert SystemConfig.query.count() == 0
+
+
 def test_development_demo_bootstrap_creates_registry_in_development_app(
     development_app,
 ) -> None:
@@ -153,10 +181,11 @@ def test_development_demo_bootstrap_provisions_expected_actors_idempotently(
         by_email = {user.email: user for user in users}
         assert by_email["student.day1@example.edu"].role == UserRole.STUDENT
         assert by_email["student.day1@example.edu"].capabilities == []
+        assert by_email["admin.day1@example.edu"].display_name == "Day 1 Admin"
         assert by_email["admin.day1@example.edu"].capabilities == [
             "competition_editor",
-            "competition_maintainer",
             "recommendation_editor",
+            "recommendation_reviewer",
         ]
         assert by_email["reviewer.day1@example.edu"].capabilities == [
             "competition_reviewer",
@@ -316,14 +345,11 @@ def test_development_demo_bootstrap_provisions_engagement_and_actor_login_smoke(
         )
 
         assert favorite.is_active is True
-        assert subscription.status == SubscriptionStatus.ACTIVE
+        assert subscription.status == SubscriptionStatus.CANCELLED
         assert subscription.reminder_enabled is True
         assert subscription.remind_days == 30
         assert subscription.reminder_confirmed_at is not None
-        assert [reminder.status for reminder in reminders] == [
-            ReminderStatus.SENT,
-            ReminderStatus.PENDING,
-        ]
+        assert [reminder.status for reminder in reminders] == [ReminderStatus.SENT]
         assert [message.message_type for message in messages] == [
             "competition_offline",
             "competition_time_changed",
@@ -425,6 +451,103 @@ def test_reset_rejects_external_reference_and_rolls_back(development_app) -> Non
         assert SystemConfig.query.filter_by(key=DEVELOPMENT_DEMO_REGISTRY_KEY).count() == 1
 
 
+def test_reset_rejects_external_identity_on_owned_user(development_app) -> None:
+    runner = development_app.test_cli_runner()
+    assert runner.invoke(args=["bootstrap-development-demo"]).exit_code == 0
+    with development_app.app_context():
+        student = User.query.filter_by(email="student.day1@example.edu").one()
+        secondary_identity = UserIdentity(
+            id=9003,
+            user_id=student.id,
+            identity_type="phone",
+            normalized_value="+8613800009003",
+            display_value="13800009003",
+            verification_status=IdentityVerificationStatus.VERIFIED,
+            verification_method="member-created",
+            verified_at=DEMO_VERIFIED_AT,
+        )
+        db.session.add(secondary_identity)
+        db.session.commit()
+
+    result = runner.invoke(args=["bootstrap-development-demo", "--reset-demo"])
+
+    assert result.exit_code != 0
+    assert "user_identities.user_id" in result.output
+    with development_app.app_context():
+        assert db.session.get(UserIdentity, 9003) is not None
+        assert User.query.filter_by(email="student.day1@example.edu").count() == 1
+
+
+def test_reset_rejects_external_verification_delivery_on_owned_identity(
+    development_app,
+) -> None:
+    runner = development_app.test_cli_runner()
+    assert runner.invoke(args=["bootstrap-development-demo"]).exit_code == 0
+    with development_app.app_context():
+        identity = UserIdentity.query.filter_by(normalized_value="student.day1@example.edu").one()
+        challenge = IdentityVerificationChallenge(
+            id=9004,
+            user_identity_id=identity.id,
+            secret_hash="member-created-challenge",
+            expires_at=DEMO_VERIFIED_AT + timedelta(days=1),
+            attempt_count=0,
+        )
+        delivery = VerificationDeliveryOutbox(
+            id=9004,
+            challenge=challenge,
+            delivery_nonce="member-created-delivery",
+            attempt_count=0,
+            available_at=DEMO_VERIFIED_AT,
+        )
+        db.session.add_all([challenge, delivery])
+        db.session.commit()
+
+    result = runner.invoke(args=["bootstrap-development-demo", "--reset-demo"])
+
+    assert result.exit_code != 0
+    assert "identity_verification_challenges.user_identity_id" in result.output
+    with development_app.app_context():
+        assert db.session.get(IdentityVerificationChallenge, 9004) is not None
+        assert db.session.get(VerificationDeliveryOutbox, 9004) is not None
+
+
+def test_reset_rejects_external_outbound_analytics_on_owned_competition(
+    development_app,
+) -> None:
+    runner = development_app.test_cli_runner()
+    assert runner.invoke(args=["bootstrap-development-demo"]).exit_code == 0
+    with development_app.app_context():
+        competition = Competition.query.filter_by(edition_label="2026-published").one()
+        event = OutboundClickEvent(
+            id=9005,
+            competition_id=competition.id,
+            competition_revision_id=competition.published_revision_id,
+            target_type="official_url",
+            source_surface="competition_detail",
+            actor_kind="student",
+            occurred_at=DEMO_VERIFIED_AT,
+        )
+        daily_stat = OutboundClickDailyStat(
+            id=9005,
+            stat_date=DEMO_VERIFIED_AT.date(),
+            competition_id=competition.id,
+            target_type="official_url",
+            source_surface="competition_detail",
+            actor_kind="student",
+            click_count=1,
+        )
+        db.session.add_all([event, daily_stat])
+        db.session.commit()
+
+    result = runner.invoke(args=["bootstrap-development-demo", "--reset-demo"])
+
+    assert result.exit_code != 0
+    assert "outbound_click_events" in result.output
+    with development_app.app_context():
+        assert db.session.get(OutboundClickEvent, 9005) is not None
+        assert db.session.get(OutboundClickDailyStat, 9005) is not None
+
+
 def test_reset_ignores_unrelated_polymorphic_targets_with_matching_ids(
     development_app,
 ) -> None:
@@ -492,6 +615,26 @@ def test_reset_rejects_registry_owned_audit_id_reuse(development_app) -> None:
         assert reused is not None
         assert reused.action == "member.unrelated_action"
         assert SystemConfig.query.filter_by(key=DEVELOPMENT_DEMO_REGISTRY_KEY).count() == 1
+
+
+def test_reset_rejects_missing_registered_owned_record(development_app) -> None:
+    runner = development_app.test_cli_runner()
+    assert runner.invoke(args=["bootstrap-development-demo"]).exit_code == 0
+    with development_app.app_context():
+        registry = SystemConfig.query.filter_by(key=DEVELOPMENT_DEMO_REGISTRY_KEY).one()
+        audit_id = registry.value["records"]["audit_logs"]["published"]["id"]
+        owned_audit = db.session.get(AuditLog, audit_id)
+        assert owned_audit is not None
+        db.session.delete(owned_audit)
+        db.session.commit()
+
+    result = runner.invoke(args=["bootstrap-development-demo", "--reset-demo"])
+
+    assert result.exit_code != 0
+    assert "owned record is missing: audit_logs.published" in result.output
+    with development_app.app_context():
+        assert SystemConfig.query.filter_by(key=DEVELOPMENT_DEMO_REGISTRY_KEY).count() == 1
+        assert User.query.filter_by(email="student.day1@example.edu").count() == 1
 
 
 def test_default_bootstrap_rejects_fingerprint_laundering_before_reset(
@@ -601,7 +744,7 @@ def test_safe_reset_recreates_demo_graph_and_preserves_non_demo_data(
         assert Competition.query.filter_by(edition_label="2026-published").count() == 1
         assert Favorite.query.count() == 1
         assert Subscription.query.count() == 1
-        assert Reminder.query.count() == 2
+        assert Reminder.query.count() == 1
         assert Message.query.count() == 3
         assert RecommendationRuleSet.query.filter_by(version=1).one().id == (original_rule_set_id)
         assert (

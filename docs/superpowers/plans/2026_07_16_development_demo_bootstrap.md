@@ -12,6 +12,8 @@
 
 - Permit mutation only for `COMPETEHUB_ENV=development` with `TESTING` and `E2E_TESTING` false.
 - Never call `db.create_all()`, `db.drop_all()`, or Alembic from the bootstrap.
+- Require the complete application table set before reading or writing seed
+  data; reject partially migrated databases.
 - Keep one invocation atomic; any conflict or external reference rolls back all writes.
 - Default execution creates missing owned facts, accepts exact facts, and fails on drift.
 - `--reset-demo` deletes only records proven by registry IDs and ownership
@@ -133,6 +135,10 @@ Assert the exact emails, roles, capabilities, verified identities, student
 profile, and reminder settings. Capture user IDs and total row counts, invoke
 the command again, and assert IDs/counts remain unchanged.
 
+The editor fixture is `Day 1 Admin` with `competition_editor`,
+`recommendation_editor`, and `recommendation_reviewer`; it intentionally does
+not have `competition_maintainer`.
+
 - [ ] **Step 2: Run tests and verify RED**
 
 Expected: registry exists but no users are provisioned.
@@ -197,8 +203,9 @@ Confirm the graph and rule-set assertions pass.
 
 - [ ] **Step 1: Write failing engagement and authentication tests**
 
-Assert the student owns an active favorite, explicit active subscription, one
-pending reminder, one sent reminder, and retained `reminder_due`,
+Assert the student owns an active favorite, a historical cancelled
+subscription retaining explicit 30-day reminder consent, one terminal sent
+reminder, and retained `reminder_due`,
 `competition_time_changed`, and `competition_offline` message snapshots with
 the expected read state and 365-day retention. Log in as all four actors
 through `/api/v1/auth/login`, then assert `/api/v1/me` returns the exact role
@@ -211,8 +218,9 @@ Expected: competition graph exists but engagement facts are absent.
 - [ ] **Step 3: Implement deterministic engagement graph**
 
 Create engagement facts through existing model contracts and stable
-idempotency/logical keys. Use the published time-node snapshots and explicit
-reminder consent. Register every owned row.
+idempotency/logical keys. Use the published time-node snapshot and retained
+historical consent. Keep the initial UI unsubscribed so D1-09 creates a fresh
+active subscription and calendar projection. Register every owned row.
 
 - [ ] **Step 4: Run tests and verify GREEN**
 
@@ -235,6 +243,10 @@ Cover:
 def test_bootstrap_preserves_non_demo_data(development_app): ...
 def test_default_bootstrap_rejects_registered_record_drift_and_rolls_back(...): ...
 def test_reset_rejects_external_reference_and_rolls_back(...): ...
+def test_reset_rejects_external_identity_on_owned_user(...): ...
+def test_reset_rejects_external_verification_delivery_on_owned_identity(...): ...
+def test_reset_rejects_external_outbound_analytics_on_owned_competition(...): ...
+def test_reset_rejects_missing_registered_owned_record(...): ...
 def test_reset_rejects_registry_owned_audit_id_reuse(...): ...
 def test_safe_reset_recreates_demo_graph_and_preserves_non_demo_data(...): ...
 ```
@@ -252,10 +264,11 @@ Expected: reset is not implemented and drift is not rejected completely.
 Resolve rows from registry IDs and stable identities. Compare every row's
 stored SHA-256 ownership fingerprint before deletion so reused IDs fail closed,
 then compare deterministic fields and relationships. Before reset, query for
-references from unregistered records to registered users, competitions,
-revisions, nodes, and tags. Delete only registered rows in dependency order,
-flush between cyclic public-pointer boundaries, recreate the graph, and commit
-once.
+references from unregistered records to every registered group, including
+secondary identities, verification challenge/delivery cascades, and outbound
+click event/daily-stat rows. Treat a missing registered row as an ownership
+failure. Delete only registered rows in dependency order, flush between cyclic
+public-pointer boundaries, recreate the graph, and commit once.
 
 - [ ] **Step 4: Run tests and verify GREEN**
 
