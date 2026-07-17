@@ -148,6 +148,11 @@ def bootstrap_development_demo(*, reset_demo: bool = False) -> DemoBootstrapResu
         _require_migrated_database()
         registry = SystemConfig.query.filter_by(key=DEVELOPMENT_DEMO_REGISTRY_KEY).one_or_none()
         registry_existed = registry is not None
+        if registry is not None:
+            _validate_registry_structure(
+                _registry_records(registry),
+                require_fingerprints=reset_demo,
+            )
         if reset_demo:
             if registry is None:
                 raise DevelopmentDemoConflict(
@@ -183,6 +188,7 @@ def bootstrap_development_demo(*, reset_demo: bool = False) -> DemoBootstrapResu
         except InitialRecommendationRuleSetConflict as exc:
             raise DevelopmentDemoConflict(str(exc)) from exc
         _validate_or_record_ownership_fingerprints(records)
+        _validate_registry_structure(records, require_fingerprints=True)
         registry.value = {
             **registry.value,
             "schema_version": 1,
@@ -281,11 +287,8 @@ def _create_and_register(
 def _ensure_actor(actor: DemoActor, records: dict) -> User:
     registered = records.get(actor.key)
     by_email = User.query.filter_by(email=actor.email).one_or_none()
-    if registered is None:
-        if by_email is not None:
-            raise DevelopmentDemoConflict(
-                f"reserved demo account is not registry-owned: {actor.email}"
-            )
+
+    def create_actor() -> User:
         return _create_and_register(
             records,
             actor.key,
@@ -302,27 +305,20 @@ def _ensure_actor(actor: DemoActor, records: dict) -> User:
             {"email": actor.email},
         )
 
+    if registered is None:
+        if by_email is not None:
+            raise DevelopmentDemoConflict(
+                f"reserved demo account is not registry-owned: {actor.email}"
+            )
+        return create_actor()
+
     user = db.session.get(User, _registered_id(registered, f"user {actor.key}"))
     if user is None:
         if by_email is not None:
             raise DevelopmentDemoConflict(
                 f"registered demo account id is missing but email is occupied: {actor.email}"
             )
-        return _create_and_register(
-            records,
-            actor.key,
-            User,
-            lambda record_id: User(
-                id=record_id,
-                email=actor.email,
-                password_hash=hash_password(actor.password, identity=actor.email),
-                display_name=actor.display_name,
-                role=actor.role,
-                status=UserStatus.ACTIVE,
-                capabilities=list(actor.capabilities),
-            ),
-            {"email": actor.email},
-        )
+        return create_actor()
 
     expected = (
         actor.email,
@@ -352,11 +348,8 @@ def _ensure_identity(actor: DemoActor, user: User, records: dict) -> None:
         identity_type="email",
         normalized_value=normalized,
     ).one_or_none()
-    if registered is None:
-        if by_value is not None:
-            raise DevelopmentDemoConflict(
-                f"reserved demo identity is not registry-owned: {actor.email}"
-            )
+
+    def create_identity() -> None:
         _create_and_register(
             records,
             actor.key,
@@ -373,6 +366,13 @@ def _ensure_identity(actor: DemoActor, user: User, records: dict) -> None:
             ),
             {"email": actor.email},
         )
+
+    if registered is None:
+        if by_value is not None:
+            raise DevelopmentDemoConflict(
+                f"reserved demo identity is not registry-owned: {actor.email}"
+            )
+        create_identity()
         return
 
     identity = db.session.get(
@@ -384,22 +384,7 @@ def _ensure_identity(actor: DemoActor, user: User, records: dict) -> None:
             raise DevelopmentDemoConflict(
                 f"registered demo identity is missing but value is occupied: {actor.email}"
             )
-        _create_and_register(
-            records,
-            actor.key,
-            UserIdentity,
-            lambda record_id: UserIdentity(
-                id=record_id,
-                user_id=user.id,
-                identity_type="email",
-                normalized_value=normalized,
-                display_value=actor.email,
-                verification_status=IdentityVerificationStatus.VERIFIED,
-                verification_method="development_demo_seed",
-                verified_at=DEMO_VERIFIED_AT,
-            ),
-            {"email": actor.email},
-        )
+        create_identity()
         return
 
     actual = (
@@ -425,34 +410,28 @@ def _ensure_identity(actor: DemoActor, user: User, records: dict) -> None:
 def _ensure_profile(actor: DemoActor, user: User, records: dict) -> None:
     registered = records.get(actor.key)
     profile = StudentProfile.query.filter_by(user_id=user.id).one_or_none()
+
+    def create_profile() -> None:
+        _create_and_register(
+            records,
+            actor.key,
+            StudentProfile,
+            lambda record_id: StudentProfile(
+                id=record_id,
+                user_id=user.id,
+                **actor.profile,
+            ),
+            {"user_email": actor.email},
+        )
+
     if registered is None:
         if profile is not None:
             raise DevelopmentDemoConflict(f"student profile is not registry-owned: {actor.email}")
-        _create_and_register(
-            records,
-            actor.key,
-            StudentProfile,
-            lambda record_id: StudentProfile(
-                id=record_id,
-                user_id=user.id,
-                **actor.profile,
-            ),
-            {"user_email": actor.email},
-        )
+        create_profile()
         return
 
     if profile is None:
-        _create_and_register(
-            records,
-            actor.key,
-            StudentProfile,
-            lambda record_id: StudentProfile(
-                id=record_id,
-                user_id=user.id,
-                **actor.profile,
-            ),
-            {"user_email": actor.email},
-        )
+        create_profile()
         return
 
     if profile.id != _registered_id(registered, f"profile {actor.key}"):
@@ -473,40 +452,32 @@ def _ensure_profile(actor: DemoActor, user: User, records: dict) -> None:
 def _ensure_reminder_settings(actor: DemoActor, user: User, records: dict) -> None:
     registered = records.get(actor.key)
     setting = ReminderSetting.query.filter_by(user_id=user.id).one_or_none()
+
+    def create_reminder_settings() -> None:
+        _create_and_register(
+            records,
+            actor.key,
+            ReminderSetting,
+            lambda record_id: ReminderSetting(
+                id=record_id,
+                user_id=user.id,
+                enabled=True,
+                default_remind_days=3,
+                node_types=list(DEFAULT_REMINDER_NODE_TYPES),
+            ),
+            {"user_email": actor.email},
+        )
+
     if registered is None:
         if setting is not None:
             raise DevelopmentDemoConflict(
                 f"reminder settings are not registry-owned: {actor.email}"
             )
-        _create_and_register(
-            records,
-            actor.key,
-            ReminderSetting,
-            lambda record_id: ReminderSetting(
-                id=record_id,
-                user_id=user.id,
-                enabled=True,
-                default_remind_days=3,
-                node_types=list(DEFAULT_REMINDER_NODE_TYPES),
-            ),
-            {"user_email": actor.email},
-        )
+        create_reminder_settings()
         return
 
     if setting is None:
-        _create_and_register(
-            records,
-            actor.key,
-            ReminderSetting,
-            lambda record_id: ReminderSetting(
-                id=record_id,
-                user_id=user.id,
-                enabled=True,
-                default_remind_days=3,
-                node_types=list(DEFAULT_REMINDER_NODE_TYPES),
-            ),
-            {"user_email": actor.email},
-        )
+        create_reminder_settings()
         return
 
     actual = (
@@ -1520,6 +1491,54 @@ OWNED_GROUP_SPECS = {
 }
 
 
+def _validate_registry_structure(
+    records: dict,
+    *,
+    require_fingerprints: bool,
+) -> None:
+    expected_groups = set(OWNED_GROUP_SPECS)
+    actual_groups = set(records)
+    missing_groups = sorted(expected_groups - actual_groups)
+    unknown_groups = sorted(actual_groups - expected_groups)
+    if missing_groups or unknown_groups:
+        details = []
+        if missing_groups:
+            details.append(f"missing: {', '.join(missing_groups)}")
+        if unknown_groups:
+            details.append(f"unknown: {', '.join(unknown_groups)}")
+        raise DevelopmentDemoConflict(
+            f"development demo registry groups are invalid ({'; '.join(details)})"
+        )
+
+    for group in sorted(expected_groups):
+        entries = records[group]
+        if not isinstance(entries, dict):
+            raise DevelopmentDemoConflict(f"development demo registry group is invalid: {group}")
+        if not entries:
+            raise DevelopmentDemoConflict(f"development demo registry group is incomplete: {group}")
+        for key, entry in entries.items():
+            label = f"{group}.{key}"
+            if not isinstance(key, str) or not key or not isinstance(entry, dict):
+                raise DevelopmentDemoConflict(
+                    f"development demo registry entry is invalid: {label}"
+                )
+            record_id = entry.get("id")
+            if type(record_id) is not int or record_id <= 0:
+                raise DevelopmentDemoConflict(
+                    f"development demo registry entry is invalid: {label}"
+                )
+            if require_fingerprints:
+                fingerprint = entry.get("ownership_fingerprint")
+                if (
+                    not isinstance(fingerprint, str)
+                    or len(fingerprint) != 64
+                    or any(character not in "0123456789abcdef" for character in fingerprint)
+                ):
+                    raise DevelopmentDemoConflict(
+                        f"development demo registry ownership fingerprint is invalid: {label}"
+                    )
+
+
 def _validate_or_record_ownership_fingerprints(records: dict) -> None:
     for group, spec in OWNED_GROUP_SPECS.items():
         entries = records.get(group, {})
@@ -1854,6 +1873,14 @@ def _check_revision_references(records: dict) -> tuple[str, object] | None:
                 ReviewRecord.target_type == "competition_revision",
                 ReviewRecord.target_id.in_(revision_ids),
                 ReviewRecord.id.notin_(_owned_ids(records, "review_records")),
+            ).first(),
+        ),
+        (
+            "audit_logs.target_id",
+            AuditLog.query.filter(
+                AuditLog.target_type == "competition_revision",
+                AuditLog.target_id.in_(revision_ids),
+                AuditLog.id.notin_(_owned_ids(records, "audit_logs")),
             ).first(),
         ),
         (

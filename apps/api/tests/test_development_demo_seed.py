@@ -548,6 +548,36 @@ def test_reset_rejects_external_outbound_analytics_on_owned_competition(
         assert db.session.get(OutboundClickDailyStat, 9005) is not None
 
 
+def test_reset_rejects_external_audit_on_owned_revision_and_rolls_back(
+    development_app,
+) -> None:
+    runner = development_app.test_cli_runner()
+    assert runner.invoke(args=["bootstrap-development-demo"]).exit_code == 0
+    with development_app.app_context():
+        demo_revision = CompetitionRevision.query.first()
+        db.session.add(
+            AuditLog(
+                id=9006,
+                action="member.revision_inspected",
+                target_type="competition_revision",
+                target_id=demo_revision.id,
+                result="success",
+                detail={"source": "member-created"},
+            )
+        )
+        db.session.commit()
+        demo_revision_id = demo_revision.id
+
+    result = runner.invoke(args=["bootstrap-development-demo", "--reset-demo"])
+
+    assert result.exit_code != 0
+    assert "audit_logs.target_id" in result.output
+    with development_app.app_context():
+        assert db.session.get(AuditLog, 9006) is not None
+        assert db.session.get(CompetitionRevision, demo_revision_id) is not None
+        assert SystemConfig.query.filter_by(key=DEVELOPMENT_DEMO_REGISTRY_KEY).count() == 1
+
+
 def test_reset_ignores_unrelated_polymorphic_targets_with_matching_ids(
     development_app,
 ) -> None:
@@ -635,6 +665,96 @@ def test_reset_rejects_missing_registered_owned_record(development_app) -> None:
     with development_app.app_context():
         assert SystemConfig.query.filter_by(key=DEVELOPMENT_DEMO_REGISTRY_KEY).count() == 1
         assert User.query.filter_by(email="student.day1@example.edu").count() == 1
+
+
+def test_reset_rejects_registry_with_missing_owned_group_before_deletion(
+    development_app,
+) -> None:
+    runner = development_app.test_cli_runner()
+    assert runner.invoke(args=["bootstrap-development-demo"]).exit_code == 0
+    with development_app.app_context():
+        registry = SystemConfig.query.filter_by(key=DEVELOPMENT_DEMO_REGISTRY_KEY).one()
+        records = dict(registry.value["records"])
+        records.pop("audit_logs")
+        registry.value = {**registry.value, "records": records}
+        db.session.commit()
+
+    result = runner.invoke(args=["bootstrap-development-demo", "--reset-demo"])
+
+    assert result.exit_code != 0
+    assert "registry groups are invalid" in result.output
+    assert "missing: audit_logs" in result.output
+    with development_app.app_context():
+        assert User.query.filter_by(email="student.day1@example.edu").count() == 1
+        assert SystemConfig.query.filter_by(key=DEVELOPMENT_DEMO_REGISTRY_KEY).count() == 1
+
+
+def test_reset_rejects_registry_with_unknown_owned_group_before_deletion(
+    development_app,
+) -> None:
+    runner = development_app.test_cli_runner()
+    assert runner.invoke(args=["bootstrap-development-demo"]).exit_code == 0
+    with development_app.app_context():
+        registry = SystemConfig.query.filter_by(key=DEVELOPMENT_DEMO_REGISTRY_KEY).one()
+        records = dict(registry.value["records"])
+        records["unexpected_records"] = {}
+        registry.value = {**registry.value, "records": records}
+        db.session.commit()
+
+    result = runner.invoke(args=["bootstrap-development-demo", "--reset-demo"])
+
+    assert result.exit_code != 0
+    assert "registry groups are invalid" in result.output
+    assert "unknown: unexpected_records" in result.output
+    with development_app.app_context():
+        assert User.query.filter_by(email="student.day1@example.edu").count() == 1
+        assert SystemConfig.query.filter_by(key=DEVELOPMENT_DEMO_REGISTRY_KEY).count() == 1
+
+
+@pytest.mark.parametrize(
+    ("malformation", "expected_error"),
+    [
+        ("group", "registry group is invalid: users"),
+        ("entry", "registry entry is invalid: users.student"),
+        ("missing_id", "registry entry is invalid: users.student"),
+        (
+            "missing_fingerprint",
+            "registry ownership fingerprint is invalid: users.student",
+        ),
+    ],
+)
+def test_reset_rejects_malformed_registry_structure_before_deletion(
+    development_app,
+    malformation: str,
+    expected_error: str,
+) -> None:
+    runner = development_app.test_cli_runner()
+    assert runner.invoke(args=["bootstrap-development-demo"]).exit_code == 0
+    with development_app.app_context():
+        registry = SystemConfig.query.filter_by(key=DEVELOPMENT_DEMO_REGISTRY_KEY).one()
+        records = dict(registry.value["records"])
+        if malformation == "group":
+            records["users"] = []
+        else:
+            users = dict(records["users"])
+            if malformation == "entry":
+                users["student"] = "invalid"
+            else:
+                omitted_field = "id" if malformation == "missing_id" else "ownership_fingerprint"
+                users["student"] = {
+                    key: value for key, value in users["student"].items() if key != omitted_field
+                }
+            records["users"] = users
+        registry.value = {**registry.value, "records": records}
+        db.session.commit()
+
+    result = runner.invoke(args=["bootstrap-development-demo", "--reset-demo"])
+
+    assert result.exit_code != 0
+    assert expected_error in result.output
+    with development_app.app_context():
+        assert User.query.filter_by(email="student.day1@example.edu").count() == 1
+        assert SystemConfig.query.filter_by(key=DEVELOPMENT_DEMO_REGISTRY_KEY).count() == 1
 
 
 def test_default_bootstrap_rejects_fingerprint_laundering_before_reset(

@@ -98,6 +98,12 @@ unrelated record, fails closed before any deletion. A normal default run may
 enrich an otherwise valid legacy registry entry with its fingerprint after the
 deterministic record checks succeed.
 
+An existing registry must contain exactly the owned groups defined by the
+bootstrap. Every group and entry must be a mapping, every entry must carry a
+positive integer ID, and reset additionally requires a valid SHA-256 ownership
+fingerprint. Missing, unknown, empty, or malformed groups fail with a concise
+command error before the bootstrap verifies or deletes any business row.
+
 ## Default Bootstrap Semantics
 
 When the registry does not exist, the command first checks that every reserved
@@ -204,9 +210,10 @@ historically cancelled, the Day 1 UI starts unsubscribed with no active
 calendar items; D1-09 records fresh consent and creates the active relation.
 The bootstrap does not invent a separate calendar persistence model.
 
-The command creates only facts supported by the current merged schema. Future
-integrated message or calendar changes may extend the deterministic builders,
-but this slice does not copy unmerged PR implementation into the bootstrap.
+The command creates only facts supported by the current merged schema. The
+merged personal-calendar contract derives items from active subscriptions and
+current published-revision nodes, so the bootstrap does not add a second
+calendar persistence model or copy work from an unmerged branch.
 
 ## Recommendation Facts
 
@@ -291,8 +298,10 @@ behavior or persistent domain concepts.
 
 ## Residual Integration Risk
 
-This implementation is reconciled with the merged #64 reminder/message
-contract. Open PRs for calendar and administrator navigation still overlap
-seed actors, E2E fixtures, and some demo surfaces. Builders remain focused so
-later reconciliation can extend facts without weakening the safety and
-ownership rules defined here.
+This implementation is reconciled with the merged #64 reminder/message, #62
+personal-calendar, and #65 administrator-navigation contracts. The calendar
+continues to derive fresh active state from the D1-09 subscription flow, while
+the navigation contract keeps governance surfaces hidden from students. No
+known open integration branch overlaps the bootstrap's seed actors or
+ownership boundary; future fixture extensions must preserve the safety rules
+defined here.
