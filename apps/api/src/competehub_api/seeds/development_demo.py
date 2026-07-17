@@ -1740,15 +1740,24 @@ def _check_identity_references(records: dict) -> tuple[str, object] | None:
 
 
 def _check_series_references(records: dict) -> tuple[str, object] | None:
+    series_ids = _owned_ids(records, "series")
     return _first_external_reference(
         [
             (
                 "competitions.series_id",
                 Competition.query.filter(
-                    Competition.series_id.in_(_owned_ids(records, "series")),
+                    Competition.series_id.in_(series_ids),
                     Competition.id.notin_(_owned_ids(records, "competitions")),
                 ).first(),
-            )
+            ),
+            (
+                "audit_logs.target_id",
+                AuditLog.query.filter(
+                    AuditLog.target_type == "competition_series",
+                    AuditLog.target_id.in_(series_ids),
+                    AuditLog.id.notin_(_owned_ids(records, "audit_logs")),
+                ).first(),
+            ),
         ]
     )
 

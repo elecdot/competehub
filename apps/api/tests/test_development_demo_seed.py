@@ -578,6 +578,36 @@ def test_reset_rejects_external_audit_on_owned_revision_and_rolls_back(
         assert SystemConfig.query.filter_by(key=DEVELOPMENT_DEMO_REGISTRY_KEY).count() == 1
 
 
+def test_reset_rejects_external_audit_on_owned_series_and_rolls_back(
+    development_app,
+) -> None:
+    runner = development_app.test_cli_runner()
+    assert runner.invoke(args=["bootstrap-development-demo"]).exit_code == 0
+    with development_app.app_context():
+        demo_series = CompetitionSeries.query.first()
+        db.session.add(
+            AuditLog(
+                id=9007,
+                action="member.series_inspected",
+                target_type="competition_series",
+                target_id=demo_series.id,
+                result="success",
+                detail={"source": "member-created"},
+            )
+        )
+        db.session.commit()
+        demo_series_id = demo_series.id
+
+    result = runner.invoke(args=["bootstrap-development-demo", "--reset-demo"])
+
+    assert result.exit_code != 0
+    assert "audit_logs.target_id" in result.output
+    with development_app.app_context():
+        assert db.session.get(AuditLog, 9007) is not None
+        assert db.session.get(CompetitionSeries, demo_series_id) is not None
+        assert SystemConfig.query.filter_by(key=DEVELOPMENT_DEMO_REGISTRY_KEY).count() == 1
+
+
 def test_reset_ignores_unrelated_polymorphic_targets_with_matching_ids(
     development_app,
 ) -> None:
