@@ -505,7 +505,7 @@ Supported Day 1 filters:
 Text filters are trimmed before use. `keyword` accepts at most 255 characters,
 `category`, `major`, and `tag` at most 120 characters, and `grade` at most 40
 characters. Longer values return `400 validation_error`; the API does not
-silently truncate them.
+silently truncate them. Empty and whitespace-only values are treated as omitted.
 
 Deadline bounds are inclusive `Asia/Shanghai` calendar dates and match only
 `registration_deadline` time nodes with an `occurs_at` inside the requested
@@ -581,6 +581,10 @@ Values are deduplicated and sorted. Known grades follow the controlled profile
 order; unknown grades follow them in Unicode order. Other option families use
 Unicode order. Values are derived only from the revision selected by
 `published_revision_id` for editions eligible for the default public list.
+`majors` and `grades` include revision values only when their corresponding
+fit scope is `selected`; stale lists attached to `all` or `unknown` scopes
+are not filter options. Values that exceed the matching public query limit are
+also omitted, so every returned option can be submitted to the list endpoint.
 `unpublished`, `draft`, `pending_review`, `rejected`, `offline`, `archived`,
 `cancelled`, and `expired` values are never exposed as filter options. Candidate
 revision values do not appear before approval switches the public revision

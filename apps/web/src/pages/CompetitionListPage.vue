@@ -20,7 +20,7 @@ import {
   Skeleton as ASkeleton,
   Tag as ATag,
 } from 'ant-design-vue'
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 
 import { fetchCompetitionFilterOptions, fetchCompetitions } from '@/api/client'
@@ -62,6 +62,7 @@ const guidedFilterDefinitions = [
   { filterKey: 'grade', optionsKey: 'grades', label: '年级' },
   { filterKey: 'tag', optionsKey: 'tags', label: '标签' },
 ] as const
+type GuidedFilterDefinition = (typeof guidedFilterDefinitions)[number]
 type DatePickerRef = { $el: HTMLElement; focus: () => void }
 
 const competitions = ref<CompetitionSummary[]>([])
@@ -94,10 +95,6 @@ const activeAdvancedFilterCount = computed(
       filters.deadlineTo,
     ].filter(Boolean).length,
 )
-const categoryOptions = computed(() => selectOptions(filterOptions.value.categories))
-const majorOptions = computed(() => selectOptions(filterOptions.value.majors))
-const gradeOptions = computed(() => selectOptions(filterOptions.value.grades))
-const tagOptions = computed(() => selectOptions(filterOptions.value.tags))
 const deadlineError = computed(() => {
   if (
     filters.deadlineFrom &&
@@ -109,16 +106,28 @@ const deadlineError = computed(() => {
   return ''
 })
 let requestSequence = 0
+let filterOptionsRequestSequence = 0
+let componentActive = true
 
 function selectOptions(values: string[]) {
   return values.map((value) => ({ label: value, value }))
 }
 
+function guidedSelectOptions(definition: GuidedFilterDefinition) {
+  return [
+    { label: `不限${definition.label}`, value: '' },
+    ...selectOptions(filterOptions.value[definition.optionsKey]),
+  ]
+}
+
 async function loadFilterOptions() {
+  const requestId = ++filterOptionsRequestSequence
   filterOptionsLoading.value = true
   filterOptionsError.value = ''
   try {
-    filterOptions.value = await fetchCompetitionFilterOptions()
+    const options = await fetchCompetitionFilterOptions()
+    if (!componentActive || requestId !== filterOptionsRequestSequence) return
+    filterOptions.value = options
     filterOptionsLoaded.value = true
     const removedLabels = clearUnavailableGuidedFilters()
     if (removedLabels.length > 0) {
@@ -127,11 +136,14 @@ async function loadFilterOptions() {
       await applyFiltersToRoute(true)
     }
   } catch {
+    if (!componentActive || requestId !== filterOptionsRequestSequence) return
     filterOptions.value = { categories: [], majors: [], grades: [], tags: [] }
     filterOptionsLoaded.value = false
     filterOptionsError.value = '更多筛选选项暂时无法加载，关键词和常用筛选仍可使用。'
   } finally {
-    filterOptionsLoading.value = false
+    if (componentActive && requestId === filterOptionsRequestSequence) {
+      filterOptionsLoading.value = false
+    }
   }
 }
 
@@ -301,6 +313,12 @@ watch(
 onMounted(() => {
   void loadFilterOptions()
 })
+
+onBeforeUnmount(() => {
+  componentActive = false
+  requestSequence += 1
+  filterOptionsRequestSequence += 1
+})
 </script>
 
 <template>
@@ -402,60 +420,22 @@ onMounted(() => {
         data-testid="advanced-filters"
         class="advanced-filters"
       >
-        <label for="competition-category">
-          类别
+        <label
+          v-for="definition in guidedFilterDefinitions"
+          :key="definition.filterKey"
+          :for="`competition-${definition.filterKey}`"
+        >
+          {{ definition.label }}
           <ASelect
-            id="competition-category"
-            v-model:value="filters.category"
-            data-testid="filter-category"
+            :id="`competition-${definition.filterKey}`"
+            v-model:value="filters[definition.filterKey]"
+            :data-testid="`filter-${definition.filterKey}`"
             allow-clear
             show-search
             option-filter-prop="label"
             :loading="filterOptionsLoading"
-            :options="categoryOptions"
-            placeholder="选择类别"
-          />
-        </label>
-        <label for="competition-major">
-          专业
-          <ASelect
-            id="competition-major"
-            v-model:value="filters.major"
-            data-testid="filter-major"
-            allow-clear
-            show-search
-            option-filter-prop="label"
-            :loading="filterOptionsLoading"
-            :options="majorOptions"
-            placeholder="选择专业"
-          />
-        </label>
-        <label for="competition-grade">
-          年级
-          <ASelect
-            id="competition-grade"
-            v-model:value="filters.grade"
-            data-testid="filter-grade"
-            allow-clear
-            show-search
-            option-filter-prop="label"
-            :loading="filterOptionsLoading"
-            :options="gradeOptions"
-            placeholder="选择年级"
-          />
-        </label>
-        <label for="competition-tag">
-          标签
-          <ASelect
-            id="competition-tag"
-            v-model:value="filters.tag"
-            data-testid="filter-tag"
-            allow-clear
-            show-search
-            option-filter-prop="label"
-            :loading="filterOptionsLoading"
-            :options="tagOptions"
-            placeholder="选择标签"
+            :options="guidedSelectOptions(definition)"
+            :placeholder="`选择${definition.label}`"
           />
         </label>
         <label for="competition-deadline-from">

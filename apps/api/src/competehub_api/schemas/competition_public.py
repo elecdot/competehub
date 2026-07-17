@@ -5,6 +5,7 @@ from marshmallow import Schema, ValidationError, fields, post_load, validate, va
 from competehub_api.models.enums import ParticipantForm
 from competehub_api.schemas.common import NonBlankString, StrictBoolean, UtcDateTime
 from competehub_api.services.competition_discovery import (
+    PUBLIC_FILTER_MAX_LENGTHS,
     competition_tag_names,
     next_time_node,
     registration_status,
@@ -23,6 +24,10 @@ class OptionalQueryText(NonBlankString):
             return None
         return super()._deserialize(value, attr, data, **kwargs)
 
+    def _validate(self, value) -> None:
+        if value is not None:
+            super()._validate(value)
+
 
 class CompetitionListQuerySchema(Schema):
     page = fields.Integer(load_default=1, validate=validate.Range(min=1))
@@ -30,27 +35,27 @@ class CompetitionListQuerySchema(Schema):
     keyword = OptionalQueryText(
         load_default=None,
         allow_none=True,
-        validate=validate.Length(max=255),
+        validate=validate.Length(max=PUBLIC_FILTER_MAX_LENGTHS["keyword"]),
     )
     category = OptionalQueryText(
         load_default=None,
         allow_none=True,
-        validate=validate.Length(max=120),
+        validate=validate.Length(max=PUBLIC_FILTER_MAX_LENGTHS["category"]),
     )
     major = OptionalQueryText(
         load_default=None,
         allow_none=True,
-        validate=validate.Length(max=120),
+        validate=validate.Length(max=PUBLIC_FILTER_MAX_LENGTHS["major"]),
     )
     grade = OptionalQueryText(
         load_default=None,
         allow_none=True,
-        validate=validate.Length(max=40),
+        validate=validate.Length(max=PUBLIC_FILTER_MAX_LENGTHS["grade"]),
     )
     tag = OptionalQueryText(
         load_default=None,
         allow_none=True,
-        validate=validate.Length(max=120),
+        validate=validate.Length(max=PUBLIC_FILTER_MAX_LENGTHS["tag"]),
     )
     registration_status = OptionalQueryText(
         load_default=None,

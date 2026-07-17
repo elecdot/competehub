@@ -15,6 +15,13 @@ from competehub_api.repositories.competitions import (
 )
 
 REGISTRATION_NODE_TYPES = frozenset({"registration_start", "registration_deadline"})
+PUBLIC_FILTER_MAX_LENGTHS = {
+    "keyword": 255,
+    "category": 120,
+    "major": 120,
+    "grade": 40,
+    "tag": 120,
+}
 REGISTRATION_STATUS_ORDER = {
     "open": 0,
     "upcoming": 1,
@@ -67,15 +74,31 @@ def public_competition_filter_options() -> dict[str, list[str]]:
         if competition.published_revision is not None
     ]
     return {
-        "categories": _sorted_values(revision.category for revision in revisions),
+        "categories": _sorted_values(
+            (revision.category for revision in revisions),
+            max_length=PUBLIC_FILTER_MAX_LENGTHS["category"],
+        ),
         "majors": _sorted_values(
-            major for revision in revisions for major in (revision.suitable_majors or [])
+            (
+                major
+                for revision in revisions
+                if revision.major_scope == "selected"
+                for major in (revision.suitable_majors or [])
+            ),
+            max_length=PUBLIC_FILTER_MAX_LENGTHS["major"],
         ),
         "grades": _sorted_grade_values(
-            grade for revision in revisions for grade in (revision.suitable_grades or [])
+            (
+                grade
+                for revision in revisions
+                if revision.grade_scope == "selected"
+                for grade in (revision.suitable_grades or [])
+            ),
+            max_length=PUBLIC_FILTER_MAX_LENGTHS["grade"],
         ),
         "tags": _sorted_values(
-            tag for competition in competitions for tag in competition_tag_names(competition)
+            (tag for competition in competitions for tag in competition_tag_names(competition)),
+            max_length=PUBLIC_FILTER_MAX_LENGTHS["tag"],
         ),
     }
 
@@ -104,17 +127,25 @@ def competition_tag_names(competition: Competition) -> list[str]:
     return sorted({link.tag.name for link in revision.tag_links if link.tag is not None})
 
 
-def _sorted_values(values: Iterable[str | None]) -> list[str]:
-    return sorted({value for value in values if value})
+def _sorted_values(
+    values: Iterable[str | None],
+    *,
+    max_length: int,
+) -> list[str]:
+    return sorted({value for value in values if value and len(value) <= max_length})
 
 
-def _sorted_grade_values(values: Iterable[str | None]) -> list[str]:
+def _sorted_grade_values(
+    values: Iterable[str | None],
+    *,
+    max_length: int,
+) -> list[str]:
     grade_order = {
         grade: index for index, grade in enumerate(current_app.config["PROFILE_ALLOWED_GRADES"])
     }
     unknown_rank = len(grade_order)
     return sorted(
-        {value for value in values if value},
+        {value for value in values if value and len(value) <= max_length},
         key=lambda value: (grade_order.get(value, unknown_rank), value),
     )
 

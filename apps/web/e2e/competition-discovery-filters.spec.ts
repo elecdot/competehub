@@ -38,6 +38,14 @@ test('keeps discovery compact and progressively reveals guided filters', async (
   await expect(advancedFilters).toBeVisible()
   await expect(firstResult).toBeVisible()
 
+  const categoryCombobox = actorPage.getByTestId('filter-category').getByRole('combobox')
+  await categoryCombobox.focus()
+  await categoryCombobox.press('ArrowDown')
+  await categoryCombobox.press('Home')
+  await categoryCombobox.press('Enter')
+  await actorPage.locator('form[aria-label="赛事筛选"] button[type="submit"]').click()
+  await expect(actorPage).toHaveURL('/competitions')
+
   await actorPage.getByRole('button', { name: '重置' }).click()
   await expect(actorPage).toHaveURL('/competitions')
   await expect(advancedFilters).toBeHidden()
@@ -87,6 +95,56 @@ test('removes unavailable guided deep links and bounds keyword input', async ({ 
     '/competitions?keyword=Seeded+University&category=innovation',
   )
   await expect(actorPage.getByTestId('invalid-filter-notice')).toHaveCount(0)
+})
+
+test('ignores a delayed filter-options response after leaving discovery', async ({
+  actorPage,
+}) => {
+  let releaseOptions!: () => void
+  let markOptionsStarted!: () => void
+  let markOptionsFinished!: () => void
+  const optionsGate = new Promise<void>((resolve) => {
+    releaseOptions = resolve
+  })
+  const optionsStarted = new Promise<void>((resolve) => {
+    markOptionsStarted = resolve
+  })
+  const optionsFinished = new Promise<void>((resolve) => {
+    markOptionsFinished = resolve
+  })
+  await actorPage.route('**/api/v1/competitions/filter-options', async (route) => {
+    markOptionsStarted()
+    await optionsGate
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        data: {
+          categories: ['innovation'],
+          majors: ['软件工程'],
+          grades: ['大二'],
+          tags: ['人工智能'],
+        },
+        error: null,
+      }),
+    })
+    markOptionsFinished()
+  })
+
+  await actorPage.goto('/competitions?grade=Unavailable')
+  await optionsStarted
+  await actorPage.getByRole('link', { name: 'CompeteHub' }).click()
+  await expect(actorPage).toHaveURL('/')
+  releaseOptions()
+  await optionsFinished
+  await actorPage.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+      }),
+  )
+
+  await expect(actorPage).toHaveURL('/')
 })
 
 test.describe('filter option failure recovery', () => {
