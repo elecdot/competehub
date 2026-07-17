@@ -1562,6 +1562,10 @@ a:focus-visible {
     padding: 24px 16px;
   }
 
+  .competition-page .page-title {
+    margin-bottom: 0;
+  }
+
   .page-heading,
   .competition-card {
     align-items: stretch;
