@@ -19,6 +19,7 @@ const environment = {
 }
 
 const projects = ['desktop-chromium', 'mobile-chromium']
+const apiPort = process.env.E2E_API_PORT ?? '5000'
 
 for (const project of projects) {
   await run('uv', [
@@ -43,7 +44,7 @@ for (const project of projects) {
     '--host',
     '127.0.0.1',
     '--port',
-    '5000',
+    apiPort,
   ])
   const web = start(process.execPath, [
     'node_modules/vite/bin/vite.js',
@@ -54,7 +55,7 @@ for (const project of projects) {
   ])
 
   try {
-    await waitFor('http://127.0.0.1:5000/api/v1/health')
+    await waitFor(`http://127.0.0.1:${apiPort}/api/v1/health`)
     await waitFor('http://127.0.0.1:5173')
     await run(process.execPath, [
       'node_modules/playwright/cli.js',

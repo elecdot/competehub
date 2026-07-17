@@ -82,7 +82,7 @@ onUnmounted(() => window.removeEventListener('focus', refreshUnreadOutsideMessag
               后台
             </RouterLink>
           </nav>
-          <nav class="account-nav" aria-label="账号导航">
+          <nav class="account-nav" aria-label="用户导航">
             <RouterLink
               v-if="showMessageLink"
               data-testid="message-center-link"

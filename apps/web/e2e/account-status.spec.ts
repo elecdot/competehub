@@ -86,6 +86,16 @@ test.describe('typed login identities', () => {
     ['手机号', 'phone', '+8613800000000'],
   ] as const) {
     test(`submits ${label} identity type`, async ({ page }) => {
+      await page.route('**/api/v1/me/messages/unread_count', async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            data: { unread_count: 0 },
+            error: null,
+          }),
+        })
+      })
       await page.route('**/api/v1/auth/login', async (route) => {
         expect(route.request().postDataJSON()).toMatchObject({
           identity_type: identityType,
