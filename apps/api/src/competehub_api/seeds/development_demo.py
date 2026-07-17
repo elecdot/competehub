@@ -168,7 +168,7 @@ def bootstrap_development_demo(*, reset_demo: bool = False) -> DemoBootstrapResu
             seed_initial_recommendation_rule_set(commit=False)
         except InitialRecommendationRuleSetConflict as exc:
             raise DevelopmentDemoConflict(str(exc)) from exc
-        _record_ownership_fingerprints(records)
+        _validate_or_record_ownership_fingerprints(records)
         registry.value = {
             **registry.value,
             "schema_version": 1,
@@ -1421,7 +1421,7 @@ OWNERSHIP_FINGERPRINT_FIELDS = {
 }
 
 
-def _record_ownership_fingerprints(records: dict) -> None:
+def _validate_or_record_ownership_fingerprints(records: dict) -> None:
     for group, model in OWNED_GROUP_MODELS.items():
         entries = records.get(group, {})
         if not isinstance(entries, dict):
@@ -1433,7 +1433,13 @@ def _record_ownership_fingerprints(records: dict) -> None:
                 raise DevelopmentDemoConflict(
                     f"development demo owned record is missing: {group}.{key}"
                 )
-            entry["ownership_fingerprint"] = _ownership_fingerprint(group, instance)
+            actual_fingerprint = _ownership_fingerprint(group, instance)
+            if "ownership_fingerprint" not in entry:
+                entry["ownership_fingerprint"] = actual_fingerprint
+            elif entry["ownership_fingerprint"] != actual_fingerprint:
+                raise DevelopmentDemoConflict(
+                    f"development demo ownership fingerprint drifted: {group}.{key}"
+                )
 
 
 def _ownership_fingerprint(group: str, instance) -> str:

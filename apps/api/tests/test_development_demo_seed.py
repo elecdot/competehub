@@ -494,6 +494,62 @@ def test_reset_rejects_registry_owned_audit_id_reuse(development_app) -> None:
         assert SystemConfig.query.filter_by(key=DEVELOPMENT_DEMO_REGISTRY_KEY).count() == 1
 
 
+def test_default_bootstrap_rejects_fingerprint_laundering_before_reset(
+    development_app,
+) -> None:
+    runner = development_app.test_cli_runner()
+    assert runner.invoke(args=["bootstrap-development-demo"]).exit_code == 0
+    with development_app.app_context():
+        registry = SystemConfig.query.filter_by(key=DEVELOPMENT_DEMO_REGISTRY_KEY).one()
+        audit_entry = registry.value["records"]["audit_logs"]["published"]
+        audit_id = audit_entry["id"]
+        original_fingerprint = audit_entry["ownership_fingerprint"]
+        owned_audit = db.session.get(AuditLog, audit_id)
+        assert owned_audit is not None
+        replacement_created_at = owned_audit.created_at + timedelta(days=1)
+        replacement = AuditLog(
+            id=audit_id,
+            actor_id=owned_audit.actor_id,
+            action=owned_audit.action,
+            target_type=owned_audit.target_type,
+            target_id=owned_audit.target_id,
+            result=owned_audit.result,
+            detail=owned_audit.detail,
+            created_at=replacement_created_at,
+        )
+        db.session.delete(owned_audit)
+        db.session.flush()
+        db.session.add(replacement)
+        db.session.commit()
+
+    verify = runner.invoke(args=["bootstrap-development-demo"])
+
+    assert verify.exit_code != 0
+    assert "ownership fingerprint drifted" in verify.output
+    with development_app.app_context():
+        registry = SystemConfig.query.filter_by(key=DEVELOPMENT_DEMO_REGISTRY_KEY).one()
+        assert (
+            registry.value["records"]["audit_logs"]["published"]["ownership_fingerprint"]
+            == original_fingerprint
+        )
+        replacement = db.session.get(AuditLog, audit_id)
+        assert replacement is not None
+        assert replacement.created_at == replacement_created_at
+
+    reset = runner.invoke(args=["bootstrap-development-demo", "--reset-demo"])
+
+    assert reset.exit_code != 0
+    assert "ownership fingerprint drifted" in reset.output
+    with development_app.app_context():
+        replacement = db.session.get(AuditLog, audit_id)
+        assert replacement is not None
+        registry = SystemConfig.query.filter_by(key=DEVELOPMENT_DEMO_REGISTRY_KEY).one()
+        assert (
+            registry.value["records"]["audit_logs"]["published"]["ownership_fingerprint"]
+            == original_fingerprint
+        )
+
+
 def test_safe_reset_recreates_demo_graph_and_preserves_non_demo_data(
     development_app,
 ) -> None:
