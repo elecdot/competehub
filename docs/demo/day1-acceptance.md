@@ -40,17 +40,31 @@ seed data early. They should not block #22, #23, or #24.
 
 ## Current Executable Meaning
 
-The isolated browser harness now runs `seed-e2e --reset` through
-`just web-e2e`. For the actors and records it provisions, that command is the
+The repository provides two intentionally different seed paths:
+
+- `just bootstrap-development-demo` provisions or verifies the Day 1 dataset in
+  a migrated normal development database. It is idempotent and non-destructive
+  by default.
+- `just bootstrap-development-demo --reset-demo` replaces only records owned by
+  the `development_demo.bootstrap.v1` registry and fails when unowned data
+  references them.
+- `seed-e2e --reset` remains destructive and is accepted only through the
+  isolated browser-test app and database.
+
+The development bootstrap provides student, editor, reviewer, and user-owner
+accounts; published, pending, incomplete, cancelled, and offline competition
+states; engagement/reminder/message facts; review and audit evidence; and the
+reproducible recommendation rule-set v1. Seeded review evidence supports
+inspection but does not replace executing the real edit, submit, and independent
+review flow.
+
+Use the credentials documented in [Setup](../setup.md#bootstrap-the-development-demo).
+For the actors and records provisioned by either command, that command is the
 canonical executable fixture. The broader symbolic catalog below remains the
-acceptance contract for records not yet materialized by that focused E2E seed:
-
-- API tests may build the remaining logical records as fixtures.
-- Manual setup may create equivalent records through API calls or admin tools.
-- PR evidence should name which example records were used or where it deviated.
-
-Any future expansion of `seed-e2e --reset` should preserve these logical facts
-or document why the executable fixture intentionally differs.
+acceptance contract for records not yet materialized by the focused seed.
+API tests or manual setup may create equivalent remaining records, but PR and
+acceptance evidence must name the exact commit, command, resulting states, and
+any deviation from the canonical example matrix.
 
 ## Acceptance Checklist
 
