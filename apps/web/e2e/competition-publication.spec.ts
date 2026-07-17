@@ -304,7 +304,8 @@ test('editor submits, distinct reviewer publishes, and student sees the edition'
   expect(offlineDetail.status()).toBe(404)
 
   await actorPage.goto('/admin')
-  await expect(actorPage.getByText('无权访问赛事发布工作台', { exact: true })).toBeVisible()
+  await expect(actorPage).toHaveURL(/\/competitions$/)
+  await expect(actorPage.getByRole('heading', { name: '赛事发布工作台' })).toHaveCount(0)
 })
 
 async function selectEdition(page: Page, label: string) {

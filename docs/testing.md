@@ -71,6 +71,26 @@ and linearizable unread counts. Run `just api-migration-test-postgres` plus
 `POSTGRES_TEST_ADMIN_URL` configured. A SQLite pass or PostgreSQL skip is not
 Issue #40 concurrency evidence.
 
+Issue #42 adds service and API evidence for private weighted ordering, current
+published-revision-only eligibility, controlled reasons, the three explicit
+general fallback values, exact incomplete-profile fields, and absence of public
+score fields. Ranking tests prove every matched governed rule contributes to
+private ordering before the public reasons are capped at three; governance
+preview retains all matched-rule evidence. Corrupted conditions or reason
+templates in any active snapshot rule must fail closed to general mode rather
+than enter personalization or fail during rendering. Fallback tests preserve
+`anonymous` and `profile_incomplete` ahead of `no_active_rule_set` even when the
+fixed general explanation is used because configuration is unavailable. Its
+Playwright path uses anonymous, incomplete, and
+recommendation-ready actors plus controlled response interception to cover
+loading, populated, empty, missing-rule fallback, and error states in desktop
+and mobile projects. The recommendation-ready and incomplete-profile paths use
+dedicated actors so mutable profile tests cannot change their prerequisites,
+and the personalized assertion follows the active rule-set version returned by
+the API instead of assuming a fixed seed version. Anonymous and authenticated
+non-student callers also share neutral general-fallback copy. Run `just
+api-test` and `just web-e2e` before claiming the slice complete.
+
 ## TDD Usage
 
 Use TDD when the change affects observable behavior and a reasonable automated
@@ -112,9 +132,11 @@ just web-e2e
 The underlying project command, also used by CI, is
 `npm --prefix apps/web run test:e2e`. It rebuilds only the isolated
 `.cache/tmp/competehub-e2e.db` database and provisions distinct Day 1 student,
-editor, and reviewer accounts through controlled test setup. Actor fixtures use
-the real login endpoint and browser Cookie state; they do not inject privileged
-frontend state or imply that public registration bypasses verification.
+profile-ready student, recommendation-incomplete student, calendar-acceptance
+student, editor, and reviewer accounts through controlled test setup. Actor
+fixtures use the real login endpoint and browser Cookie state; they do not
+inject privileged frontend state or imply that public registration bypasses
+verification.
 
 The harness runs the same Chromium scenarios in desktop and mobile viewports
 and treats uncaught page errors and browser console errors as failures.
@@ -129,6 +151,14 @@ warnings and owned cancellation, direct official-link navigation when the
 best-effort tracking request fails, and list/detail loading, empty, and error
 states. They run in desktop and mobile projects against the deterministic E2E
 seed except for controlled state-response interception.
+
+The personal-calendar scenario uses a dedicated student with reminder-disabled
+active subscriptions to immutable published-revision nodes plus one historical
+unavailable target. In both desktop and mobile projects it proves viewport
+defaults, month/week/list switching, retained choice after reload, identical
+node facts across views, primary/current/nearest/pair/revision semantics,
+same-day overflow, unavailable-target behavior, responsive containment, and
+SPA detail navigation without intercepting the calendar API.
 
 The recommendation-governance acceptance path logs in through real Cookie
 sessions as the seeded editor, clones active v1, edits and previews against a
@@ -145,6 +175,17 @@ only resets the workbench to a new-edition creation state while preserving the
 selected competition series. It does not implement Issue #40 reconciliation or
 message-center behavior, Issue #41 personal-calendar behavior, or broaden
 Issue #38 student-engagement scope.
+
+The personal-calendar API contract is covered through the authenticated
+`GET /me/calendar` seam. API tests prove required Shanghai date ranges and view
+values, student-only access, reminder-disabled active subscriptions, selected
+node types, favorite and cancelled-subscription exclusion, current public
+revision snapshots, cancelled/offline future suppression, unavailable detail
+targets, deterministic same-day ordering, and Owner-aligned current-stage
+derivation from all current-revision nodes including equal-time and all-elapsed
+cases. Browser view defaults, switching, retention, responsive layout, and
+same-day expansion are covered by `apps/web/e2e/personal-calendar.spec.ts`
+against the deterministic seed in both Chromium projects.
 
 Migration tests always exercise fresh, empty-predecessor, and populated
 fail-closed paths on SQLite. The equivalent disposable PostgreSQL cases run only

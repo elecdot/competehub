@@ -83,7 +83,10 @@ learning, public scoring, broad dashboards, and later M7 content extensions.
 - FR-003: Anonymous or profile-incomplete users receive general actionable
   recommendations from upcoming or configured fallback rules. The response
   identifies general mode and, for an authenticated student, exact missing
-  profile fields; it does not imply a personal match.
+  profile fields; it does not imply a personal match. Public `fallback_reason`
+  values are `anonymous`, `profile_incomplete`, and `no_active_rule_set`, with
+  caller-state precedence in that order. Missing configuration does not replace
+  `anonymous` or `profile_incomplete` metadata with `no_active_rule_set`.
 - FR-004: Each recommendation item exposes reasons and ordering, not a public
   numeric score or 赛事 value rating.
 - FR-005: Recommendation reasons must not contradict visible detail-page tags,
@@ -92,7 +95,9 @@ learning, public scoring, broad dashboards, and later M7 content extensions.
   `recommendation_rule_set` with controlled rule codes, bounded integer weights,
   structured validated conditions, and reason templates. Responses identify the
   active version; hidden service constants and executable rule expressions are
-  forbidden.
+  forbidden. Private ordering uses every enabled matched rule; the public feed
+  then limits displayed reasons to the three strongest matches without changing
+  governance preview's complete matched-rule evidence.
 - FR-007: A reproducible seed creates the initial active rule set. The thin admin
   workbench supports candidate cloning/editing, synthetic preview, submission,
   independent diff review, activation, and retained history. The submitter
@@ -123,9 +128,12 @@ learning, public scoring, broad dashboards, and later M7 content extensions.
 - FR-012: Activating an approved candidate atomically retires the prior active
   rule set. Draft/pending candidates do not affect current results, and decided
   or active snapshots cannot be edited in place.
-- FR-013: When no valid active rule set exists, personalization explicitly
-  degrades to general actionable results with `no_active_rule_set` metadata and
-  a visible admin configuration fault; it never silently uses code constants.
+- FR-013: When no valid active rule set exists, a recommendation-ready student
+  explicitly degrades to general actionable results with `no_active_rule_set`
+  metadata and a visible admin configuration fault. Anonymous and
+  profile-incomplete caller metadata retain their higher precedence while using
+  the fixed general actionable explanation; no path silently personalizes from
+  invalid conditions, templates, or code constants.
 - FR-014: Each recommendation response creates opaque 90-day request-item
   snapshots. Frontend rendering records idempotent impressions and detail
   navigation records idempotent non-blocking clicks only for returned items.

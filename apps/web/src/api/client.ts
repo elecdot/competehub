@@ -30,6 +30,8 @@ import type {
   StudentProfileUpdate,
   VerifyPayload,
 } from '@/types/auth'
+import type { CalendarPayload, CalendarQuery } from '@/types/calendar'
+import type { RecommendationFeed } from '@/types/recommendation'
 
 export const apiClient = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL ?? '/api/v1',
@@ -60,6 +62,11 @@ export async function fetchCompetitions(params: CompetitionListParams = {}) {
 
 export async function fetchCompetitionDetail(id: number) {
   const response = await apiClient.get<ApiEnvelope<CompetitionDetail>>(`/competitions/${id}`)
+  return response.data.data
+}
+
+export async function fetchRecommendations() {
+  const response = await apiClient.get<ApiEnvelope<RecommendationFeed>>('/recommendations')
   return response.data.data
 }
 
@@ -123,6 +130,11 @@ export async function cancelCompetitionSubscription(id: number) {
   const response = await apiClient.delete<ApiEnvelope<SubscriptionCancellation>>(
     `/competitions/${id}/subscription`,
   )
+  return response.data.data
+}
+
+export async function fetchCalendar(params: CalendarQuery) {
+  const response = await apiClient.get<ApiEnvelope<CalendarPayload>>('/me/calendar', { params })
   return response.data.data
 }
 

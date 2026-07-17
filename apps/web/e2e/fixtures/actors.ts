@@ -7,6 +7,8 @@ import {
 export const actorNames = [
   'student',
   'profileReady',
+  'calendarStudent',
+  'recommendationIncomplete',
   'editor',
   'reviewer',
   'adminNoRecommendation',
@@ -29,6 +31,16 @@ const actors: Record<ActorName, ActorDefinition> = {
   profileReady: {
     email: 'profile.student-day1@example.edu',
     password: 'green campus theorem delta 64',
+    role: 'student',
+  },
+  calendarStudent: {
+    email: 'calendar.student-day1@example.edu',
+    password: 'indigo calendar milestone orbit 73',
+    role: 'student',
+  },
+  recommendationIncomplete: {
+    email: 'recommendation.incomplete@example.edu',
+    password: 'quiet compass incomplete profile 73',
     role: 'student',
   },
   editor: {
@@ -63,6 +75,7 @@ interface ActorFixtures {
   allowMessageServiceUnavailableResponse: boolean
   allowMessageUnauthorizedResponse: boolean
   allowProfileValidationConsoleError: boolean
+  allowRecommendationRequestErrors: boolean
 }
 
 export const test = base.extend<ActorFixtures>({
@@ -73,6 +86,7 @@ export const test = base.extend<ActorFixtures>({
   allowMessageServiceUnavailableResponse: [false, { option: true }],
   allowMessageUnauthorizedResponse: [false, { option: true }],
   allowProfileValidationConsoleError: [false, { option: true }],
+  allowRecommendationRequestErrors: [false, { option: true }],
   actor: async ({ actorName }, use) => {
     await use(actors[actorName])
   },
@@ -85,6 +99,7 @@ export const test = base.extend<ActorFixtures>({
       allowMessageServiceUnavailableResponse,
       allowMessageUnauthorizedResponse,
       allowProfileValidationConsoleError,
+      allowRecommendationRequestErrors,
     },
     use,
   ) => {
@@ -97,6 +112,7 @@ export const test = base.extend<ActorFixtures>({
       allowMessageServiceUnavailableResponse,
       allowMessageUnauthorizedResponse,
       allowProfileValidationConsoleError,
+      allowRecommendationRequestErrors,
     )
   },
   actorPage: async ({ page, actor, actorName }, use) => {
@@ -146,6 +162,7 @@ async function usePageWithErrorGuard(
   allowMessageServiceUnavailableResponse: boolean,
   allowMessageUnauthorizedResponse: boolean,
   allowProfileValidationConsoleError: boolean,
+  allowRecommendationRequestErrors: boolean,
 ) {
   const errors: string[] = []
   let expectedHttpErrorResponses = 0
@@ -184,6 +201,11 @@ async function usePageWithErrorGuard(
       response.status() >= 500 &&
       request.method() === 'GET' &&
       (pathname === '/api/v1/competitions' || /^\/api\/v1\/competitions\/\d+$/.test(pathname))
+    const isExpectedRecommendationFailure =
+      allowRecommendationRequestErrors &&
+      response.status() >= 500 &&
+      request.method() === 'GET' &&
+      pathname === '/api/v1/recommendations'
     if (
       isCurrentUserProbe ||
       isExpectedLoginFailure ||
@@ -191,7 +213,8 @@ async function usePageWithErrorGuard(
       isExpectedDiscoveryFailure ||
       isExpectedMessageUnauthorized ||
       isExpectedMessageServiceUnavailable ||
-      isExpectedProfileValidation
+      isExpectedProfileValidation ||
+      isExpectedRecommendationFailure
     ) {
       expectedHttpErrorResponses += 1
     } else if ([400, 401, 409, 503].includes(response.status())) {
@@ -207,6 +230,7 @@ async function usePageWithErrorGuard(
       message.text().includes('status of 400') ||
       (allowOutboundTrackingConsoleError && message.text().includes('status of 500')) ||
       (allowDiscoveryRequestErrors && /status of 5\d\d/.test(message.text())) ||
+      (allowRecommendationRequestErrors && /status of 5\d\d/.test(message.text())) ||
       message.text().includes('status of 503')
     ) {
       httpConsoleErrors += 1

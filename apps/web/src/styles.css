@@ -186,6 +186,73 @@ a:focus-visible {
   gap: 24px;
 }
 
+.recommendation-heading {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.recommendation-heading > div {
+  flex: 1 1 360px;
+}
+
+.recommendation-heading .page-description {
+  margin-top: 6px;
+}
+
+.rule-set-version {
+  color: #52606d;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.recommendation-fallback {
+  max-width: 860px;
+}
+
+.recommendation-position {
+  color: #176b4d;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.recommendation-reason-block {
+  background: #f2f8f5;
+  border-left: 3px solid #5f9f83;
+  border-radius: 4px;
+  margin-top: 16px;
+  padding: 12px 14px;
+}
+
+.recommendation-reason-block h3 {
+  align-items: center;
+  display: flex;
+  font-size: 14px;
+  gap: 6px;
+  margin: 0 0 8px;
+}
+
+.recommendation-reasons {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.recommendation-fact {
+  color: #52606d;
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.recommendation-error-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  justify-content: center;
+}
+
 .page-heading {
   align-items: start;
   display: flex;

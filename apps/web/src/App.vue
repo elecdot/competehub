@@ -78,7 +78,9 @@ onUnmounted(() => window.removeEventListener('focus', refreshUnreadOutsideMessag
             <RouterLink to="/competitions">赛事</RouterLink>
             <RouterLink to="/recommendations">推荐</RouterLink>
             <RouterLink to="/me/calendar">日历</RouterLink>
-            <RouterLink to="/admin">后台</RouterLink>
+            <RouterLink v-if="auth.initialized && auth.isAdmin" to="/admin">
+              后台
+            </RouterLink>
           </nav>
           <nav class="account-nav" aria-label="账号导航">
             <RouterLink

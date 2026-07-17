@@ -26,8 +26,13 @@ class RegistrationStatus:
     basis: CompetitionTimeNode | None = None
 
 
-def search_public_competitions(query: PublicCompetitionQuery) -> PublicCompetitionPage:
-    now = datetime.now(UTC)
+def list_ordered_public_competitions(
+    query: PublicCompetitionQuery,
+    *,
+    at: datetime | None = None,
+) -> list[Competition]:
+    """Return the complete eligible set in the same order used by public discovery."""
+    now = at or datetime.now(UTC)
     annotated = [
         (competition, registration_status(competition, now))
         for competition in list_public_competition_candidates(query)
@@ -35,10 +40,15 @@ def search_public_competitions(query: PublicCompetitionQuery) -> PublicCompetiti
     if query.registration_status is not None:
         annotated = [item for item in annotated if item[1].value == query.registration_status]
     annotated.sort(key=lambda item: _public_competition_order(item[0], item[1], query.sort, now))
-    total = len(annotated)
+    return [competition for competition, _status in annotated]
+
+
+def search_public_competitions(query: PublicCompetitionQuery) -> PublicCompetitionPage:
+    ordered = list_ordered_public_competitions(query)
+    total = len(ordered)
     start = (query.page - 1) * query.page_size
     return PublicCompetitionPage(
-        items=[competition for competition, _status in annotated[start : start + query.page_size]],
+        items=ordered[start : start + query.page_size],
         page=query.page,
         page_size=query.page_size,
         total=total,

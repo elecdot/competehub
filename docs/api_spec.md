@@ -850,9 +850,9 @@ disabled.
 
 Query parameters:
 
-- `from`
-- `to`
-- `view`: `month`, `week`, or `list`
+- `from` (required)
+- `to` (required)
+- `view` (required): `month`, `week`, or `list`
 
 `from` and `to` are `Asia/Shanghai` product-calendar dates. All views resolve
 the same underlying nodes; `view` selects range/grouping metadata rather than a
@@ -860,6 +860,61 @@ different source of truth. Items include edition and stage identifiers, stage
 label/order, node snapshot id/logical key/revision/type/description,
 `occurs_at`, `prominence`, pair metadata, current-stage state, current lifecycle
 visibility, and a target-availability flag.
+
+To keep Shanghai-midnight conversion and the exclusive end boundary within the
+supported UTC datetime range, both dates must be from `0001-01-02` through
+`9999-12-30`, inclusive.
+
+Example response:
+
+```json
+{
+  "data": {
+    "range": {
+      "from": "2026-08-01",
+      "to": "2026-08-31",
+      "view": "month",
+      "time_zone": "Asia/Shanghai"
+    },
+    "items": [
+      {
+        "competition_id": 101,
+        "competition_title": "全国大学生人工智能创新挑战赛",
+        "detail_url": "/competitions/101",
+        "lifecycle_status": "published",
+        "target_available": true,
+        "stage_id": 301,
+        "stage_label": "报名阶段",
+        "stage_order": 1,
+        "stage_type": "registration",
+        "is_current_stage": true,
+        "node_snapshot_id": 401,
+        "logical_node_key": "registration-main-deadline",
+        "node_revision": 2,
+        "node_type": "registration_deadline",
+        "description": "报名截止",
+        "occurs_at": "2026-08-15T16:00:00+00:00",
+        "prominence": "primary",
+        "pair_kind": "registration",
+        "pair_role": "deadline"
+      }
+    ]
+  },
+  "error": null
+}
+```
+
+`pair_kind`/`pair_role` are derived from controlled types only:
+registration start/deadline and competition start/end. Other node types return
+both fields as `null`. `is_current_stage` is edition-level metadata derived from
+all nodes in the current public revision at the current server instant, not from
+the requested range or the subscription's selected node types. The nearest
+non-elapsed node determines the stage; equal instants use stage order, and after
+all nodes elapse the final ordered stage is current.
+
+Missing or malformed dates, an end before the start, an unsupported view, or an
+unknown query field returns `400 validation_error`. The error `details.field`
+identifies `from`, `to`, `view`, or the unknown field.
 
 Archived or expired editions retain past selected nodes when they fall inside
 the requested range, with their historical lifecycle status. Their transition
@@ -1007,13 +1062,54 @@ Response metadata includes `recommendation_mode` (`personalized` or `general`),
 profile is incomplete. General results use an explicit fallback reason rather
 than implying a personal match. Personalized results also include the immutable
 `rule_set_version`; general results set it to `null` and include
-`fallback_reason`, including `no_active_rule_set` when configuration is missing.
+`fallback_reason`. The controlled public values are:
 
-Every response includes an opaque random `recommendation_request_id`. Each item
-includes server-assigned `position` and controlled `reason_codes` alongside the
-display reasons. The server creates a raw request-item snapshot for every
-returned item, including mode, rule-set version, actor kind, and server time;
-the snapshot contains no user id or profile fields and expires after 90 days.
+- `anonymous`: no authenticated student context is available, including for an
+  unauthenticated request or an authenticated non-student caller.
+- `profile_incomplete`: the authenticated student is missing one or more
+  dynamically derived profile fields listed in `missing_fields`.
+- `no_active_rule_set`: a recommendation-ready student cannot use
+  personalization because no valid active rule set exists.
+
+The fallback precedence is caller state first: `anonymous`, then
+`profile_incomplete`, then `no_active_rule_set` only for a recommendation-ready
+student. Configuration availability does not replace the first two causes.
+
+General items use the controlled `general_fallback` item reason code. When an
+active rule set exists, its general-fallback template supplies the display
+reason. With no valid active rule set, the API uses a fixed, explicitly general
+actionable-order explanation; `fallback_reason` still follows the caller-state
+precedence above, so the fixed copy accompanies `no_active_rule_set` only for a
+recommendation-ready student. It is never presented as an active configured
+rule or personal match.
+
+The serving slice returns at most 20 items. Personalized matches use private
+governed weights from every enabled matched rule, then unmatched published
+candidates supplement the result in general actionable order. General mode uses
+actionable order directly. Each public item exposes at most the three strongest
+controlled reasons; that display cap does not remove other matches from private
+ranking. Governance preview preserves all matched rule codes and reasons.
+
+Response data example:
+
+```json
+{
+  "recommendation_mode": "general",
+  "profile_status": "incomplete",
+  "missing_fields": ["major", "grade", "interest_tags"],
+  "fallback_reason": "profile_incomplete",
+  "rule_set_version": null,
+  "items": []
+}
+```
+
+Each item includes server-assigned `position` and controlled `reason_codes`
+alongside the display reasons. The FR-014 interaction-measurement slice extends
+this response with an opaque random `recommendation_request_id` and creates a
+90-day raw request-item snapshot containing mode, rule-set version, actor kind,
+and server time but no user id or profile fields. Until that separately scoped
+slice is implemented, clients must not assume the request id or
+`POST /recommendation_events` is available.
 
 Response item:
 
@@ -1033,6 +1129,9 @@ Recommendation ranking may use internal weights, but the public API should expos
 reasons and ordering rather than a raw score or competition value rating.
 
 ### `POST /recommendation_events`
+
+This is the FR-014 follow-up contract and is not registered by the Issue #42
+recommendation-serving slice.
 
 Best-effort record actual rendering or detail navigation for items from one
 recommendation response.
