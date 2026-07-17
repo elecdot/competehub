@@ -3,10 +3,13 @@ import {
   ArrowRightOutlined,
   BankOutlined,
   CalendarOutlined,
+  DownOutlined,
   ReloadOutlined,
   SearchOutlined,
+  UpOutlined,
 } from '@ant-design/icons-vue'
 import {
+  Alert as AAlert,
   Button as AButton,
   DatePicker as ADatePicker,
   Empty as AEmpty,
@@ -17,12 +20,19 @@ import {
   Skeleton as ASkeleton,
   Tag as ATag,
 } from 'ant-design-vue'
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 
-import { fetchCompetitions } from '@/api/client'
-import { useCompetitionFilterStore } from '@/stores/competition_filter_store'
-import type { CompetitionSummary, RegistrationStatus } from '@/types/competition'
+import { fetchCompetitionFilterOptions, fetchCompetitions } from '@/api/client'
+import {
+  COMPETITION_FILTER_MAX_LENGTHS,
+  useCompetitionFilterStore,
+} from '@/stores/competition_filter_store'
+import type {
+  CompetitionFilterOptions,
+  CompetitionSummary,
+  RegistrationStatus,
+} from '@/types/competition'
 import { formatNodeDate, formatNodeLabel, formatRegistrationStatus } from '@/utils/competition'
 
 const route = useRoute()
@@ -46,15 +56,45 @@ const sortOptions = [
   { label: '按报名截止', value: 'registration_deadline' },
   { label: '按发布时间', value: 'published_at' },
 ]
+const guidedFilterDefinitions = [
+  { filterKey: 'category', optionsKey: 'categories', label: '类别' },
+  { filterKey: 'major', optionsKey: 'majors', label: '专业' },
+  { filterKey: 'grade', optionsKey: 'grades', label: '年级' },
+  { filterKey: 'tag', optionsKey: 'tags', label: '标签' },
+] as const
+type GuidedFilterDefinition = (typeof guidedFilterDefinitions)[number]
 type DatePickerRef = { $el: HTMLElement; focus: () => void }
 
 const competitions = ref<CompetitionSummary[]>([])
 const total = ref(0)
 const loading = ref(false)
 const errorMessage = ref('')
+const filterOptions = ref<CompetitionFilterOptions>({
+  categories: [],
+  majors: [],
+  grades: [],
+  tags: [],
+})
+const filterOptionsLoading = ref(false)
+const filterOptionsError = ref('')
+const filterOptionsLoaded = ref(false)
+const invalidFilterNotice = ref('')
+const invalidFilterNoticeRoute = ref('')
+const advancedFiltersOpen = ref(false)
 const deadlineFromPicker = ref<DatePickerRef | null>(null)
 const deadlineToPicker = ref<DatePickerRef | null>(null)
 const formattedTotal = computed(() => new Intl.NumberFormat('zh-CN').format(total.value))
+const activeAdvancedFilterCount = computed(
+  () =>
+    [
+      filters.category,
+      filters.major,
+      filters.grade,
+      filters.tag,
+      filters.deadlineFrom,
+      filters.deadlineTo,
+    ].filter(Boolean).length,
+)
 const deadlineError = computed(() => {
   if (
     filters.deadlineFrom &&
@@ -66,6 +106,71 @@ const deadlineError = computed(() => {
   return ''
 })
 let requestSequence = 0
+let filterOptionsRequestSequence = 0
+let componentActive = true
+
+function selectOptions(values: string[]) {
+  return values.map((value) => ({ label: value, value }))
+}
+
+function guidedSelectOptions(definition: GuidedFilterDefinition) {
+  return [
+    { label: `不限${definition.label}`, value: '' },
+    ...selectOptions(filterOptions.value[definition.optionsKey]),
+  ]
+}
+
+async function loadFilterOptions() {
+  const requestId = ++filterOptionsRequestSequence
+  filterOptionsLoading.value = true
+  filterOptionsError.value = ''
+  try {
+    const options = await fetchCompetitionFilterOptions()
+    if (!componentActive || requestId !== filterOptionsRequestSequence) return
+    filterOptions.value = options
+    filterOptionsLoaded.value = true
+    const removedLabels = clearUnavailableGuidedFilters()
+    if (removedLabels.length > 0) {
+      filters.page = 1
+      showInvalidFilterNotice(removedLabels)
+      await applyFiltersToRoute(true)
+    }
+  } catch {
+    if (!componentActive || requestId !== filterOptionsRequestSequence) return
+    filterOptions.value = { categories: [], majors: [], grades: [], tags: [] }
+    filterOptionsLoaded.value = false
+    filterOptionsError.value = '更多筛选选项暂时无法加载，关键词和常用筛选仍可使用。'
+  } finally {
+    if (componentActive && requestId === filterOptionsRequestSequence) {
+      filterOptionsLoading.value = false
+    }
+  }
+}
+
+function clearUnavailableGuidedFilters(): string[] {
+  const removedLabels: string[] = []
+  for (const definition of guidedFilterDefinitions) {
+    const value = filters[definition.filterKey]
+    if (value && !filterOptions.value[definition.optionsKey].includes(value)) {
+      filters[definition.filterKey] = ''
+      removedLabels.push(definition.label)
+    }
+  }
+  return removedLabels
+}
+
+function showInvalidFilterNotice(removedLabels: string[]) {
+  invalidFilterNotice.value = `已移除失效的筛选条件：${removedLabels.join('、')}。`
+  invalidFilterNoticeRoute.value = router.resolve({
+    name: 'competitions',
+    query: filters.toRouteQuery(),
+  }).fullPath
+}
+
+function dismissInvalidFilterNotice() {
+  invalidFilterNotice.value = ''
+  invalidFilterNoticeRoute.value = ''
+}
 
 function syncDeadlineAccessibility() {
   // Ant DatePicker puts arbitrary ARIA attributes on its wrapper, not the actual input.
@@ -117,6 +222,8 @@ function submitFilters() {
 
 function clearFilters() {
   filters.reset()
+  dismissInvalidFilterNotice()
+  advancedFiltersOpen.value = false
   void applyFiltersToRoute()
 }
 
@@ -130,6 +237,10 @@ function changeSort() {
   void applyFiltersToRoute()
 }
 
+function toggleAdvancedFilters() {
+  advancedFiltersOpen.value = !advancedFiltersOpen.value
+}
+
 function registrationStatusColor(status: RegistrationStatus) {
   return {
     open: 'green',
@@ -140,14 +251,18 @@ function registrationStatusColor(status: RegistrationStatus) {
   }[status]
 }
 
-async function applyFiltersToRoute() {
+async function applyFiltersToRoute(replace = false) {
   const query = filters.toRouteQuery()
   const target = router.resolve({ name: 'competitions', query })
   if (target.fullPath === route.fullPath) {
     await loadCompetitions()
     return
   }
-  await router.push({ name: 'competitions', query })
+  if (replace) {
+    await router.replace({ name: 'competitions', query })
+  } else {
+    await router.push({ name: 'competitions', query })
+  }
 }
 
 watch(deadlineError, () => {
@@ -158,6 +273,22 @@ watch(
   () => route.query,
   (query) => {
     filters.replaceFromRouteQuery(query)
+    if (invalidFilterNotice.value && invalidFilterNoticeRoute.value !== route.fullPath) {
+      dismissInvalidFilterNotice()
+    }
+    if (activeAdvancedFilterCount.value > 0 || deadlineError.value) {
+      advancedFiltersOpen.value = true
+    }
+
+    if (filterOptionsLoaded.value) {
+      const removedLabels = clearUnavailableGuidedFilters()
+      if (removedLabels.length > 0) {
+        filters.page = 1
+        showInvalidFilterNotice(removedLabels)
+        void applyFiltersToRoute(true)
+        return
+      }
+    }
 
     const canonicalQuery = filters.toRouteQuery()
     const canonicalRoute = router.resolve({ name: 'competitions', query: canonicalQuery })
@@ -178,90 +309,174 @@ watch(
   },
   { immediate: true },
 )
+
+onMounted(() => {
+  void loadFilterOptions()
+})
+
+onBeforeUnmount(() => {
+  componentActive = false
+  requestSequence += 1
+  filterOptionsRequestSequence += 1
+})
 </script>
 
 <template>
   <section class="competition-page">
     <div class="page-heading">
       <h1 class="page-title">赛事列表</h1>
-      <span class="result-count" aria-live="polite">{{ formattedTotal }} 项公开赛事</span>
     </div>
 
     <form class="filter-bar" aria-label="赛事筛选" @submit.prevent="submitFilters">
-      <label for="competition-keyword">
-        关键词
-        <AInput
-          id="competition-keyword"
-          v-model:value="filters.keyword"
-          allow-clear
-          autocomplete="off"
-          name="keyword"
-          placeholder="输入名称、主办方或类别…"
-          type="search"
-        />
-      </label>
-      <label for="competition-category">
-        类别
-        <AInput
-          id="competition-category"
-          v-model:value="filters.category"
-          allow-clear
-          autocomplete="off"
-          name="category"
-          placeholder="输入类别，例如创新创业…"
-        />
-      </label>
-      <label for="competition-major">
-        专业
-        <AInput
-          id="competition-major"
-          v-model:value="filters.major"
-          allow-clear
-          autocomplete="off"
-          name="major"
-          placeholder="输入专业，例如软件工程…"
-        />
-      </label>
-      <label for="competition-grade">
-        年级
-        <AInput
-          id="competition-grade"
-          v-model:value="filters.grade"
-          allow-clear
-          autocomplete="off"
-          name="grade"
-          placeholder="输入年级，例如大二…"
-        />
-      </label>
-      <label for="competition-tag">
-        标签
-        <AInput
-          id="competition-tag"
-          v-model:value="filters.tag"
-          allow-clear
-          autocomplete="off"
-          name="tag"
-          placeholder="输入标签，例如人工智能…"
-        />
-      </label>
-      <label for="competition-registration-status">
-        报名状态
-        <ASelect
-          id="competition-registration-status"
-          v-model:value="filters.registrationStatus"
-          :options="registrationStatusOptions"
-        />
-      </label>
-      <label for="competition-participant-form">
-        参赛形式
-        <ASelect
-          id="competition-participant-form"
-          v-model:value="filters.participantForm"
-          :options="participantFormOptions"
-          autocomplete="off"
-        />
-        <input type="hidden" name="participant_form" :value="filters.participantForm" />
-      </label>
+      <div class="filter-primary">
+        <label for="competition-keyword" class="keyword-filter">
+          关键词
+          <AInput
+            id="competition-keyword"
+            v-model:value="filters.keyword"
+            allow-clear
+            autocomplete="off"
+            :maxlength="COMPETITION_FILTER_MAX_LENGTHS.keyword"
+            name="keyword"
+            placeholder="输入名称、主办方或类别…"
+            type="search"
+          />
+        </label>
+        <label for="competition-registration-status">
+          报名状态
+          <ASelect
+            id="competition-registration-status"
+            v-model:value="filters.registrationStatus"
+            :options="registrationStatusOptions"
+          />
+        </label>
+        <label for="competition-participant-form">
+          参赛形式
+          <ASelect
+            id="competition-participant-form"
+            v-model:value="filters.participantForm"
+            :options="participantFormOptions"
+            autocomplete="off"
+          />
+          <input type="hidden" name="participant_form" :value="filters.participantForm" />
+        </label>
+        <div class="filter-actions">
+          <AButton type="primary" html-type="submit" :loading="loading">
+            <template #icon><SearchOutlined /></template>
+            查询
+          </AButton>
+          <AButton :disabled="loading" @click="clearFilters">
+            <template #icon><ReloadOutlined /></template>
+            重置
+          </AButton>
+        </div>
+      </div>
+
+      <div class="advanced-toggle-row">
+        <AButton
+          type="text"
+          :aria-controls="'competition-advanced-filters'"
+          :aria-expanded="advancedFiltersOpen"
+          @click="toggleAdvancedFilters"
+        >
+          <template #icon>
+            <UpOutlined v-if="advancedFiltersOpen" />
+            <DownOutlined v-else />
+          </template>
+          {{ advancedFiltersOpen ? '收起筛选' : '更多筛选' }}
+          <span v-if="activeAdvancedFilterCount">({{ activeAdvancedFilterCount }})</span>
+        </AButton>
+      </div>
+
+      <AAlert
+        v-if="filterOptionsError"
+        data-testid="filter-options-error"
+        class="filter-options-alert"
+        type="warning"
+        :message="filterOptionsError"
+        show-icon
+      >
+        <template #action>
+          <AButton size="small" :loading="filterOptionsLoading" @click="loadFilterOptions">
+            重试
+          </AButton>
+        </template>
+      </AAlert>
+
+      <AAlert
+        v-if="invalidFilterNotice"
+        data-testid="invalid-filter-notice"
+        class="filter-options-alert"
+        type="info"
+        :message="invalidFilterNotice"
+        show-icon
+        closable
+        @close="dismissInvalidFilterNotice"
+      />
+
+      <div
+        v-show="advancedFiltersOpen"
+        id="competition-advanced-filters"
+        data-testid="advanced-filters"
+        class="advanced-filters"
+      >
+        <label
+          v-for="definition in guidedFilterDefinitions"
+          :key="definition.filterKey"
+          :for="`competition-${definition.filterKey}`"
+        >
+          {{ definition.label }}
+          <ASelect
+            :id="`competition-${definition.filterKey}`"
+            v-model:value="filters[definition.filterKey]"
+            :data-testid="`filter-${definition.filterKey}`"
+            allow-clear
+            show-search
+            option-filter-prop="label"
+            :loading="filterOptionsLoading"
+            :options="guidedSelectOptions(definition)"
+            :placeholder="`选择${definition.label}`"
+          />
+        </label>
+        <label for="competition-deadline-from">
+          报名截止日期从
+          <ADatePicker
+            id="competition-deadline-from"
+            ref="deadlineFromPicker"
+            v-model:value="filters.deadlineFrom"
+            :status="deadlineError ? 'error' : undefined"
+            autocomplete="off"
+            value-format="YYYY-MM-DD"
+            placeholder="选择开始日期…"
+          />
+          <input type="hidden" name="deadline_from" :value="filters.deadlineFrom" />
+        </label>
+        <label for="competition-deadline-to">
+          报名截止日期至
+          <ADatePicker
+            id="competition-deadline-to"
+            ref="deadlineToPicker"
+            v-model:value="filters.deadlineTo"
+            :status="deadlineError ? 'error' : undefined"
+            autocomplete="off"
+            value-format="YYYY-MM-DD"
+            placeholder="选择结束日期…"
+          />
+          <input type="hidden" name="deadline_to" :value="filters.deadlineTo" />
+        </label>
+        <p
+          v-if="deadlineError"
+          id="competition-deadline-error"
+          class="field-error"
+          role="alert"
+        >
+          {{ deadlineError }}
+        </p>
+      </div>
+    </form>
+
+    <div class="results-toolbar">
+      <span class="result-count" aria-live="polite">{{ formattedTotal }} 项公开赛事</span>
       <label for="competition-sort">
         排序
         <ASelect
@@ -271,46 +486,7 @@ watch(
           @change="changeSort"
         />
       </label>
-      <label for="competition-deadline-from">
-        报名截止日期从
-        <ADatePicker
-          id="competition-deadline-from"
-          ref="deadlineFromPicker"
-          v-model:value="filters.deadlineFrom"
-          :status="deadlineError ? 'error' : undefined"
-          autocomplete="off"
-          value-format="YYYY-MM-DD"
-          placeholder="选择开始日期…"
-        />
-        <input type="hidden" name="deadline_from" :value="filters.deadlineFrom" />
-      </label>
-      <label for="competition-deadline-to">
-        报名截止日期至
-        <ADatePicker
-          id="competition-deadline-to"
-          ref="deadlineToPicker"
-          v-model:value="filters.deadlineTo"
-          :status="deadlineError ? 'error' : undefined"
-          autocomplete="off"
-          value-format="YYYY-MM-DD"
-          placeholder="选择结束日期…"
-        />
-        <input type="hidden" name="deadline_to" :value="filters.deadlineTo" />
-      </label>
-      <p v-if="deadlineError" id="competition-deadline-error" class="field-error" role="alert">
-        {{ deadlineError }}
-      </p>
-      <div class="filter-actions">
-        <AButton type="primary" html-type="submit" :loading="loading">
-          <template #icon><SearchOutlined /></template>
-          筛选
-        </AButton>
-        <AButton :disabled="loading" @click="clearFilters">
-          <template #icon><ReloadOutlined /></template>
-          重置
-        </AButton>
-      </div>
-    </form>
+    </div>
 
     <div v-if="loading" class="state-panel" role="status" aria-live="polite">
       <span class="sr-only">正在加载赛事…</span>

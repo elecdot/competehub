@@ -239,6 +239,19 @@ def list_public_competition_candidates(query: PublicCompetitionQuery) -> list[Co
     return list(db.session.scalars(statement).unique())
 
 
+def list_public_competitions_for_filter_options() -> list[Competition]:
+    statement = (
+        public_competitions_statement()
+        .options(
+            selectinload(Competition.published_revision)
+            .selectinload(CompetitionRevision.tag_links)
+            .selectinload(CompetitionTagLink.tag)
+        )
+        .order_by(Competition.id)
+    )
+    return list(db.session.scalars(statement).unique())
+
+
 def get_public_competition(competition_id: int) -> Competition | None:
     statement = (
         select(Competition)

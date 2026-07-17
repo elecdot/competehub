@@ -305,6 +305,195 @@ def test_public_competition_list_uses_envelope_and_hides_non_public_states(clien
     assert items[2]["next_node"] is None
 
 
+def test_public_competition_filter_options_are_deduplicated_and_visibility_scoped(
+    client,
+    app,
+) -> None:
+    for competition_id, category in ((101, "beta"), (106, "Alpha"), (107, "alpha")):
+        competition = db.session.get(Competition, competition_id)
+        competition.published_revision.category = category
+    ai_revision = db.session.get(Competition, 101).published_revision
+    ai_revision.suitable_grades = [*ai_revision.suitable_grades, "Zeta grade", "Alpha grade"]
+
+    hidden = db.session.get(Competition, 108)
+    hidden.category = "Hidden category"
+    hidden.suitable_majors = ["Hidden major"]
+    hidden.suitable_grades = ["Hidden grade"]
+    hidden_tag = CompetitionTag(id=9, code="hidden", name="Hidden tag", tag_type="topic")
+    hidden.tag_links = [CompetitionTagLink(id=309, tag=hidden_tag)]
+    attach_approved_revision(hidden, 900)
+
+    candidate_tag = CompetitionTag(
+        id=10,
+        code="candidate",
+        name="Candidate tag",
+        tag_type="topic",
+    )
+    candidate = CompetitionRevision(
+        competition_id=101,
+        revision_number=2,
+        revision_status=CompetitionRevisionStatus.DRAFT,
+        title="Candidate-only title",
+        category="Candidate category",
+        source_name="Candidate source",
+        source_url="https://example.edu/notices/candidate",
+        registration_applicability="applicable",
+        participant_forms=["individual"],
+        major_scope="selected",
+        grade_scope="selected",
+        suitable_majors=["Candidate major"],
+        suitable_grades=["Candidate grade"],
+        created_by_id=900,
+    )
+    candidate.tag_links = [CompetitionTagLink(id=310, tag=candidate_tag)]
+    db.session.add(candidate)
+    db.session.commit()
+
+    anonymous_response = client.get("/api/v1/competitions/filter-options")
+
+    assert anonymous_response.status_code == 200
+    assert anonymous_response.get_json() == {
+        "data": {
+            "categories": ["Alpha", "alpha", "beta"],
+            "majors": ["计算机科学与技术", "软件工程"],
+            "grades": ["大一", "大二", "大三", "Alpha grade", "Zeta grade"],
+            "tags": ["人工智能", "创新创业"],
+        },
+        "error": None,
+    }
+
+    sign_in_as(client, app)
+    student_response = client.get("/api/v1/competitions/filter-options")
+
+    assert student_response.status_code == 200
+    assert student_response.get_json() == anonymous_response.get_json()
+
+
+def test_public_competition_filter_options_are_empty_without_public_revisions(client) -> None:
+    for competition in db.session.scalars(select(Competition)).all():
+        competition.status = CompetitionStatus.OFFLINE
+    db.session.commit()
+
+    response = client.get("/api/v1/competitions/filter-options")
+
+    assert response.status_code == 200
+    assert response.get_json()["data"] == {
+        "categories": [],
+        "majors": [],
+        "grades": [],
+        "tags": [],
+    }
+
+
+def test_public_competition_filter_options_exclude_values_outside_selected_fit_scopes(
+    client,
+) -> None:
+    revision = db.session.get(Competition, 101).published_revision
+    revision.major_scope = "unknown"
+    revision.grade_scope = "unknown"
+    revision.suitable_majors = ["Ghost major"]
+    revision.suitable_grades = ["Ghost grade"]
+    db.session.commit()
+
+    response = client.get("/api/v1/competitions/filter-options")
+
+    assert response.status_code == 200
+    assert "Ghost major" not in response.get_json()["data"]["majors"]
+    assert "Ghost grade" not in response.get_json()["data"]["grades"]
+    assert (
+        client.get("/api/v1/competitions", query_string={"major": "Ghost major"}).get_json()[
+            "data"
+        ]["items"]
+        == []
+    )
+    assert (
+        client.get("/api/v1/competitions", query_string={"grade": "Ghost grade"}).get_json()[
+            "data"
+        ]["items"]
+        == []
+    )
+
+
+def test_public_competition_filter_options_exclude_values_over_query_limits(client) -> None:
+    revision = db.session.get(Competition, 101).published_revision
+    values = {
+        "category": "c" * 121,
+        "major": "m" * 121,
+        "grade": "g" * 41,
+        "tag": "t" * 121,
+    }
+    revision.category = values["category"]
+    revision.major_scope = "selected"
+    revision.grade_scope = "selected"
+    revision.suitable_majors = [values["major"]]
+    revision.suitable_grades = [values["grade"]]
+    revision.tag_links.append(
+        CompetitionTagLink(
+            id=321,
+            tag=CompetitionTag(
+                id=21,
+                code="overlong",
+                name=values["tag"],
+                tag_type="topic",
+            ),
+        )
+    )
+    db.session.commit()
+
+    response = client.get("/api/v1/competitions/filter-options")
+
+    assert response.status_code == 200
+    data = response.get_json()["data"]
+    for field, option_key in (
+        ("category", "categories"),
+        ("major", "majors"),
+        ("grade", "grades"),
+        ("tag", "tags"),
+    ):
+        assert values[field] not in data[option_key]
+        query_response = client.get(
+            "/api/v1/competitions",
+            query_string={field: values[field]},
+        )
+        assert query_response.status_code == 400
+
+
+@pytest.mark.parametrize(
+    "status",
+    [status for status in CompetitionStatus if status is not CompetitionStatus.PUBLISHED],
+)
+def test_public_competition_filter_options_exclude_every_non_public_lifecycle(
+    client,
+    status: CompetitionStatus,
+) -> None:
+    hidden_value = f"Hidden {status.value}"
+    hidden_tag = CompetitionTag(
+        id=20,
+        code=f"hidden-{status.value}",
+        name=hidden_value,
+        tag_type="topic",
+    )
+    hidden = Competition(
+        id=140,
+        title=hidden_value,
+        category=hidden_value,
+        source_name="Hidden source",
+        source_url=f"https://example.edu/notices/{status.value}",
+        suitable_majors=[hidden_value],
+        suitable_grades=[hidden_value],
+        status=status,
+    )
+    hidden.tag_links = [CompetitionTagLink(id=320, tag=hidden_tag)]
+    db.session.add(hidden)
+    attach_approved_revision(hidden, 900)
+    db.session.commit()
+
+    response = client.get("/api/v1/competitions/filter-options")
+
+    assert response.status_code == 200
+    assert all(hidden_value not in values for values in response.get_json()["data"].values())
+
+
 def test_public_competition_filters_preserve_visibility_contract(client) -> None:
     keyword_response = client.get("/api/v1/competitions?keyword=人工智能")
     keyword_items = keyword_response.get_json()["data"]["items"]
@@ -332,6 +521,56 @@ def test_public_competition_filters_preserve_visibility_contract(client) -> None
         "/api/v1/competitions?deadline_from=2026-08-20&deadline_to=2026-09-01"
     )
     assert [item["id"] for item in deadline_response.get_json()["data"]["items"]] == [106]
+
+
+@pytest.mark.parametrize("keyword", ["%", "_", "' OR 1=1 --"])
+def test_public_competition_keyword_treats_untrusted_text_as_literal(client, keyword: str) -> None:
+    response = client.get("/api/v1/competitions", query_string={"keyword": keyword})
+
+    assert response.status_code == 200
+    assert response.get_json()["data"]["items"] == []
+
+
+@pytest.mark.parametrize(
+    ("field", "maximum"),
+    [
+        ("keyword", 255),
+        ("category", 120),
+        ("major", 120),
+        ("grade", 40),
+        ("tag", 120),
+    ],
+)
+def test_public_competition_text_filters_enforce_length_boundaries(
+    client,
+    field: str,
+    maximum: int,
+) -> None:
+    boundary_response = client.get(
+        "/api/v1/competitions",
+        query_string={field: "x" * maximum},
+    )
+    assert boundary_response.status_code == 200
+
+    overlong_response = client.get(
+        "/api/v1/competitions",
+        query_string={field: "x" * (maximum + 1)},
+    )
+    assert overlong_response.status_code == 400
+    assert overlong_response.get_json()["error"]["code"] == "validation_error"
+
+
+@pytest.mark.parametrize("field", ["keyword", "category", "major", "grade", "tag"])
+@pytest.mark.parametrize("value", ["", "   "])
+def test_public_competition_text_filters_treat_blank_values_as_omitted(
+    client,
+    field: str,
+    value: str,
+) -> None:
+    response = client.get("/api/v1/competitions", query_string={field: value})
+
+    assert response.status_code == 200
+    assert response.get_json()["data"]["pagination"]["total"] == 3
 
 
 def test_public_competition_deadline_filter_only_matches_registration_deadlines(client) -> None:

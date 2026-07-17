@@ -114,6 +114,13 @@ export interface CompetitionListPayload {
   pagination: Pagination
 }
 
+export interface CompetitionFilterOptions {
+  categories: string[]
+  majors: string[]
+  grades: string[]
+  tags: string[]
+}
+
 export interface ApiEnvelope<T> {
   data: T
   error: null

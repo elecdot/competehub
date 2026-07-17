@@ -3,6 +3,7 @@ import axios from 'axios'
 import type {
   ApiEnvelope,
   CompetitionDetail,
+  CompetitionFilterOptions,
   CompetitionListPayload,
   DiscoverySort,
   RegistrationStatus,
@@ -57,6 +58,13 @@ export async function fetchCompetitions(params: CompetitionListParams = {}) {
   const response = await apiClient.get<ApiEnvelope<CompetitionListPayload>>('/competitions', {
     params,
   })
+  return response.data.data
+}
+
+export async function fetchCompetitionFilterOptions() {
+  const response = await apiClient.get<ApiEnvelope<CompetitionFilterOptions>>(
+    '/competitions/filter-options',
+  )
   return response.data.data
 }
 

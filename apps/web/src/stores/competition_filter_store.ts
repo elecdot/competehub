@@ -7,9 +7,26 @@ import type { DiscoverySort, ParticipantForm, RegistrationStatus } from '@/types
 type ParticipantFormFilter = ParticipantForm | ''
 type RegistrationStatusFilter = RegistrationStatus | ''
 
+export const COMPETITION_FILTER_MAX_LENGTHS = {
+  keyword: 255,
+  category: 120,
+  major: 120,
+  grade: 40,
+  tag: 120,
+} as const
+
 function queryValue(query: LocationQuery, key: string): string {
   const value = query[key]
   return (Array.isArray(value) ? value[0] : value) ?? ''
+}
+
+function normalizedText(value: string | null | undefined, maximum: number): string {
+  const normalized = value?.trim() ?? ''
+  return Array.from(normalized).length <= maximum ? normalized : ''
+}
+
+function queryText(query: LocationQuery, key: string, maximum: number): string {
+  return normalizedText(queryValue(query, key), maximum)
 }
 
 function positiveInteger(value: string, fallback: number, maximum?: number): number {
@@ -76,11 +93,11 @@ export const useCompetitionFilterStore = defineStore('competitionFilter', {
     },
     replaceFromRouteQuery(query: LocationQuery) {
       this.$patch({
-        keyword: queryValue(query, 'keyword'),
-        category: queryValue(query, 'category'),
-        major: queryValue(query, 'major'),
-        grade: queryValue(query, 'grade'),
-        tag: queryValue(query, 'tag'),
+        keyword: queryText(query, 'keyword', COMPETITION_FILTER_MAX_LENGTHS.keyword),
+        category: queryText(query, 'category', COMPETITION_FILTER_MAX_LENGTHS.category),
+        major: queryText(query, 'major', COMPETITION_FILTER_MAX_LENGTHS.major),
+        grade: queryText(query, 'grade', COMPETITION_FILTER_MAX_LENGTHS.grade),
+        tag: queryText(query, 'tag', COMPETITION_FILTER_MAX_LENGTHS.tag),
         registrationStatus: registrationStatus(queryValue(query, 'registration_status')),
         participantForm: participantForm(queryValue(query, 'participant_form')),
         deadlineFrom: isoDate(queryValue(query, 'deadline_from')),
@@ -92,11 +109,16 @@ export const useCompetitionFilterStore = defineStore('competitionFilter', {
     },
     toRouteQuery(): LocationQueryRaw {
       const query: LocationQueryRaw = {}
-      if (this.keyword) query.keyword = this.keyword
-      if (this.category) query.category = this.category
-      if (this.major) query.major = this.major
-      if (this.grade) query.grade = this.grade
-      if (this.tag) query.tag = this.tag
+      const keyword = normalizedText(this.keyword, COMPETITION_FILTER_MAX_LENGTHS.keyword)
+      const category = normalizedText(this.category, COMPETITION_FILTER_MAX_LENGTHS.category)
+      const major = normalizedText(this.major, COMPETITION_FILTER_MAX_LENGTHS.major)
+      const grade = normalizedText(this.grade, COMPETITION_FILTER_MAX_LENGTHS.grade)
+      const tag = normalizedText(this.tag, COMPETITION_FILTER_MAX_LENGTHS.tag)
+      if (keyword) query.keyword = keyword
+      if (category) query.category = category
+      if (major) query.major = major
+      if (grade) query.grade = grade
+      if (tag) query.tag = tag
       if (this.registrationStatus) query.registration_status = this.registrationStatus
       if (this.participantForm) query.participant_form = this.participantForm
       if (this.deadlineFrom) query.deadline_from = this.deadlineFrom
@@ -108,11 +130,13 @@ export const useCompetitionFilterStore = defineStore('competitionFilter', {
     },
     toQueryParams(): CompetitionListParams {
       return {
-        keyword: this.keyword || undefined,
-        category: this.category || undefined,
-        major: this.major || undefined,
-        grade: this.grade || undefined,
-        tag: this.tag || undefined,
+        keyword:
+          normalizedText(this.keyword, COMPETITION_FILTER_MAX_LENGTHS.keyword) || undefined,
+        category:
+          normalizedText(this.category, COMPETITION_FILTER_MAX_LENGTHS.category) || undefined,
+        major: normalizedText(this.major, COMPETITION_FILTER_MAX_LENGTHS.major) || undefined,
+        grade: normalizedText(this.grade, COMPETITION_FILTER_MAX_LENGTHS.grade) || undefined,
+        tag: normalizedText(this.tag, COMPETITION_FILTER_MAX_LENGTHS.tag) || undefined,
         registration_status: this.registrationStatus || undefined,
         participant_form: this.participantForm || undefined,
         deadline_from: this.deadlineFrom || undefined,

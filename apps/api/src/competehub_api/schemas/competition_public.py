@@ -5,6 +5,7 @@ from marshmallow import Schema, ValidationError, fields, post_load, validate, va
 from competehub_api.models.enums import ParticipantForm
 from competehub_api.schemas.common import NonBlankString, StrictBoolean, UtcDateTime
 from competehub_api.services.competition_discovery import (
+    PUBLIC_FILTER_MAX_LENGTHS,
     competition_tag_names,
     next_time_node,
     registration_status,
@@ -23,15 +24,39 @@ class OptionalQueryText(NonBlankString):
             return None
         return super()._deserialize(value, attr, data, **kwargs)
 
+    def _validate(self, value) -> None:
+        if value is not None:
+            super()._validate(value)
+
 
 class CompetitionListQuerySchema(Schema):
     page = fields.Integer(load_default=1, validate=validate.Range(min=1))
     page_size = fields.Integer(load_default=20, validate=validate.Range(min=1, max=100))
-    keyword = OptionalQueryText(load_default=None, allow_none=True)
-    category = OptionalQueryText(load_default=None, allow_none=True)
-    major = OptionalQueryText(load_default=None, allow_none=True)
-    grade = OptionalQueryText(load_default=None, allow_none=True)
-    tag = OptionalQueryText(load_default=None, allow_none=True)
+    keyword = OptionalQueryText(
+        load_default=None,
+        allow_none=True,
+        validate=validate.Length(max=PUBLIC_FILTER_MAX_LENGTHS["keyword"]),
+    )
+    category = OptionalQueryText(
+        load_default=None,
+        allow_none=True,
+        validate=validate.Length(max=PUBLIC_FILTER_MAX_LENGTHS["category"]),
+    )
+    major = OptionalQueryText(
+        load_default=None,
+        allow_none=True,
+        validate=validate.Length(max=PUBLIC_FILTER_MAX_LENGTHS["major"]),
+    )
+    grade = OptionalQueryText(
+        load_default=None,
+        allow_none=True,
+        validate=validate.Length(max=PUBLIC_FILTER_MAX_LENGTHS["grade"]),
+    )
+    tag = OptionalQueryText(
+        load_default=None,
+        allow_none=True,
+        validate=validate.Length(max=PUBLIC_FILTER_MAX_LENGTHS["tag"]),
+    )
     registration_status = OptionalQueryText(
         load_default=None,
         allow_none=True,
@@ -225,12 +250,20 @@ class PublicCompetitionPageSchema(Schema):
         }
 
 
+class PublicCompetitionFilterOptionsSchema(Schema):
+    categories = fields.List(fields.String(), required=True)
+    majors = fields.List(fields.String(), required=True)
+    grades = fields.List(fields.String(), required=True)
+    tags = fields.List(fields.String(), required=True)
+
+
 competition_list_query_schema = CompetitionListQuerySchema()
 outbound_click_schema = OutboundClickSchema()
 subscription_create_schema = SubscriptionCreateSchema()
 public_competition_time_node_schema = PublicCompetitionTimeNodeSchema()
 public_competition_detail_schema = PublicCompetitionDetailSchema()
 public_competition_page_schema = PublicCompetitionPageSchema()
+public_competition_filter_options_schema = PublicCompetitionFilterOptionsSchema()
 
 
 def _revision_value(competition, field_name: str, default=None):

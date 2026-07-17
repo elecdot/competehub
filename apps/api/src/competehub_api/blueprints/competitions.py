@@ -18,11 +18,15 @@ from competehub_api.schemas.competition_public import (
     competition_list_query_schema,
     outbound_click_schema,
     public_competition_detail_schema,
+    public_competition_filter_options_schema,
     public_competition_page_schema,
     subscription_create_schema,
 )
 from competehub_api.services.auth import current_user
-from competehub_api.services.competition_discovery import search_public_competitions
+from competehub_api.services.competition_discovery import (
+    public_competition_filter_options,
+    search_public_competitions,
+)
 from competehub_api.services.engagement import (
     apply_competition_detail_engagement_state,
     apply_engagement_state,
@@ -57,6 +61,12 @@ def list_competitions():
     page = search_public_competitions(PublicCompetitionQuery(**query))
     apply_engagement_state(current_user(session), page.items)
     return success_response(public_competition_page_schema.dump(page))
+
+
+@competitions_bp.get("/competitions/filter-options")
+def get_competition_filter_options():
+    options = public_competition_filter_options()
+    return success_response(public_competition_filter_options_schema.dump(options))
 
 
 @competitions_bp.get("/competitions/<int:competition_id>")
