@@ -799,6 +799,11 @@ a:focus-visible {
   grid-column: 1 / -1;
 }
 
+.profile-required-marker {
+  color: #ff4d4f;
+  margin-inline-end: 4px;
+}
+
 .secondary-action-link {
   align-items: center;
   color: #176b4d;

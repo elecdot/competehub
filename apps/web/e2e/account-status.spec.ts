@@ -154,6 +154,14 @@ test.describe('profile-incomplete actor', () => {
     await expect(actorPage.getByTestId('profile-status')).toContainText('资料待完善')
     await expect(profileSection.getByLabel('学院')).toBeVisible()
     await expect(actorPage.getByTestId('profile-save')).toBeVisible()
+    for (const label of ['学院', '专业', '年级', '兴趣标签']) {
+      await expect(
+        profileSection
+          .locator('.ant-form-item')
+          .filter({ hasText: label })
+          .locator('.profile-required-marker'),
+      ).toHaveText('*')
+    }
 
     await profileSelect(profileSection, '学院').click()
     await visibleProfileOption(actorPage, '计算机学院').click()
@@ -272,6 +280,9 @@ test.describe('profile-ready actor', () => {
     while ((await interestTagRemoveButtons.count()) > 0) {
       await interestTagRemoveButtons.first().click()
     }
+
+    await expect(actorPage.getByTestId('profile-status')).toContainText('资料待完善')
+    await expect(profileSection.getByText('缺少兴趣标签')).toBeVisible()
 
     await actorPage.getByTestId('profile-save').click()
     await expect(actorPage.getByTestId('profile-save-success')).toContainText('画像已保存')

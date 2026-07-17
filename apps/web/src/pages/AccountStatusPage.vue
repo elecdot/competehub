@@ -78,11 +78,33 @@ const identityLabel = computed(() => {
       return '未登录'
   }
 })
+// UX-only preview required by #59; the backend still validates every persisted value.
+const currentMissingFieldKeys = computed(() => {
+  const options = profileOptions.value
+  if (!options) {
+    return profile.value?.missing_fields ?? []
+  }
+
+  const missing: string[] = []
+  if (!isAllowedCollege(options, profileForm.value.college)) {
+    missing.push('college')
+  }
+  if (!isAllowedMajor(options, profileForm.value.college, profileForm.value.major)) {
+    missing.push('major')
+  }
+  if (!isAllowedGrade(options, profileForm.value.grade)) {
+    missing.push('grade')
+  }
+  if (!hasRecommendationReadyInterestTags(options, profileForm.value.interest_tags)) {
+    missing.push('interest_tags')
+  }
+  return missing
+})
 const missingFields = computed(() =>
-  (profile.value?.missing_fields ?? []).map((field) => missingFieldLabels[field] ?? field),
+  currentMissingFieldKeys.value.map((field) => missingFieldLabels[field] ?? field),
 )
 const isProfileRecommendationReady = computed(
-  () => profile.value?.profile_status === 'recommendation_ready',
+  () => profile.value !== null && currentMissingFieldKeys.value.length === 0,
 )
 const profileStatusText = computed(() =>
   isProfileRecommendationReady.value ? '推荐资料已完善' : '资料待完善',
@@ -179,6 +201,37 @@ function syncProfileForm(currentProfile: StudentProfile) {
     competition_experience: currentProfile.competition_experience ?? '',
     goal_preferences: [...currentProfile.goal_preferences],
   }
+}
+
+function isAllowedCollege(options: ProfileOptions, value: string | undefined) {
+  return value !== undefined && options.colleges.includes(value)
+}
+
+function isAllowedMajor(
+  options: ProfileOptions,
+  college: string | undefined,
+  major: string | undefined,
+) {
+  if (!major) {
+    return false
+  }
+  if (college) {
+    return options.majors_by_college[college]?.includes(major) ?? false
+  }
+  return Object.values(options.majors_by_college).some((majors) => majors.includes(major))
+}
+
+function isAllowedGrade(options: ProfileOptions, value: string | undefined) {
+  return value !== undefined && options.grades.includes(value)
+}
+
+function hasRecommendationReadyInterestTags(options: ProfileOptions, tags: string[]) {
+  return (
+    tags.length > 0 &&
+    tags.length <= 10 &&
+    new Set(tags).size === tags.length &&
+    tags.every((tag) => options.interest_tags.includes(tag))
+  )
 }
 
 function toSelectOptions(values: string[]) {
@@ -345,11 +398,13 @@ onMounted(reload)
 
           <AForm class="profile-form" layout="vertical" :model="profileForm" @finish="saveProfile">
             <AFormItem
-              label="学院"
               name="college"
               :validate-status="profileFieldStatus('college')"
               :help="profileFieldHelp('college')"
             >
+              <template #label>
+                <span><span class="profile-required-marker" aria-hidden="true">*</span> 学院</span>
+              </template>
               <ASelect
                 v-model:value="profileForm.college"
                 data-profile-field="college"
@@ -359,11 +414,13 @@ onMounted(reload)
               />
             </AFormItem>
             <AFormItem
-              label="专业"
               name="major"
               :validate-status="profileFieldStatus('major')"
               :help="profileFieldHelp('major')"
             >
+              <template #label>
+                <span><span class="profile-required-marker" aria-hidden="true">*</span> 专业</span>
+              </template>
               <ASelect
                 v-model:value="profileForm.major"
                 data-profile-field="major"
@@ -373,11 +430,13 @@ onMounted(reload)
               />
             </AFormItem>
             <AFormItem
-              label="年级"
               name="grade"
               :validate-status="profileFieldStatus('grade')"
               :help="profileFieldHelp('grade')"
             >
+              <template #label>
+                <span><span class="profile-required-marker" aria-hidden="true">*</span> 年级</span>
+              </template>
               <ASelect
                 v-model:value="profileForm.grade"
                 data-profile-field="grade"
@@ -388,11 +447,15 @@ onMounted(reload)
             </AFormItem>
             <AFormItem
               class="span-three"
-              label="兴趣标签"
               name="interest_tags"
               :validate-status="profileFieldStatus('interest_tags')"
               :help="profileFieldHelp('interest_tags')"
             >
+              <template #label>
+                <span
+                  ><span class="profile-required-marker" aria-hidden="true">*</span> 兴趣标签</span
+                >
+              </template>
               <ASelect
                 v-model:value="profileForm.interest_tags"
                 data-profile-field="interest_tags"
