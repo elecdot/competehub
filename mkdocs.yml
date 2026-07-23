@@ -120,6 +120,7 @@ nav:
           - Preserve Cancelled Reminder Plans through Preference Changes (Withdrawn): adr/0037-preserve-cancelled-reminder-plans-through-preference-changes.md
   - Delivery:
       - Project Workflow: project_workflow.md
+      - Course Demo Deployment: deployment.md
       - Testing Model: testing.md
       - Demo Runbooks:
           - Overview: demo/README.md

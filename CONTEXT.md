@@ -21,6 +21,13 @@ are interpreted inside this institution boundary. A deployment may still
 publish赛事 from national organizers or other trustworthy external sources.
 _Avoid_: 多租户平台, 用学院字段表示学校
 
+**课程演示部署**:
+A time-bounded, publicly reachable CompeteHub environment used for course
+acceptance with fictional data and an explicit post-acceptance teardown. It is
+not evidence of production security, capacity, availability, or operational
+certification.
+_Avoid_: 生产部署, 生产环境认证
+
 **赛事**:
 The canonical umbrella term for the competition domain. When dates, publication
 status, 收藏, or 订阅 are involved, a current product 赛事 record means a 赛事届次
