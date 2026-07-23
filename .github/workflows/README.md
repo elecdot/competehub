@@ -21,7 +21,15 @@ This directory contains GitHub Actions workflow definitions.
 - Frontend build: `npm --prefix apps/web run build`
 - Browser dependency install: `npm --prefix apps/web run e2e:install -- --with-deps`
 - Browser acceptance: `npm --prefix apps/web run test:e2e`
-- Infrastructure config check: `docker compose -f infra/docker-compose.yml config`
+- Infrastructure/static checks:
+  `bash -n scripts/course-demo.sh scripts/test-course-demo.sh`,
+  `docker compose -f infra/docker-compose.yml config`, and
+  `./scripts/course-demo.sh config-example`, followed by
+  `./scripts/test-course-demo.sh`. The example check fixes the project name,
+  neutralizes material ambient Compose/environment overrides, and verifies the
+  rendered non-secret example. The regression script verifies failure-time
+  public-access reporting and proves that Git-ignored Python bytecode cannot
+  enter the Docker build context.
 - Documentation dependency sync: `./scripts/agent-env.sh uv sync --project apps/api --group docs --locked`
 - Documentation build: `./scripts/agent-env.sh uv run --project apps/api --group docs mkdocs build --strict`
 
