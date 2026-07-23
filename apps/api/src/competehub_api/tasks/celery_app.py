@@ -17,6 +17,7 @@ def make_celery() -> Celery:
             "competehub_api.tasks.verification_delivery",
         ],
     )
+    celery.conf.task_ignore_result = True
     celery.conf.beat_schedule = {
         "dispatch-verification-delivery-outbox": {
             "task": "competehub.auth.dispatch_verification_deliveries",

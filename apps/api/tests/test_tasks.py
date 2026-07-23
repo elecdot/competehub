@@ -1,6 +1,10 @@
 from competehub_api.tasks.celery_app import celery_app
 
 
+def test_celery_app_ignores_task_results_by_default() -> None:
+    assert celery_app.conf.task_ignore_result is True
+
+
 def test_celery_app_loads_verification_delivery_task_and_schedule() -> None:
     celery_app.loader.import_default_modules()
 

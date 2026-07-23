@@ -48,7 +48,9 @@ Components:
 - Web: Vue 3 SPA for student and admin workflows.
 - API: Flask REST API under `/api/v1`.
 - PostgreSQL: system of record for users, competitions, subscriptions, reminders, messages, review records, audit logs, and configuration.
-- Redis: Celery broker/result backend, short-lived cache, rate limiting counters, and idempotency locks.
+- Redis: Celery broker, short-lived cache, rate limiting counters, and idempotency
+  locks. Celery task return values are not retained: PostgreSQL carries durable
+  outcomes, while worker logs provide operational diagnostics.
 - Celery worker: asynchronous task runner for verification-email outbox delivery,
   reminder dispatch, competition expiration jobs, and future collection candidate
   jobs.

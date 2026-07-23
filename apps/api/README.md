@@ -94,6 +94,9 @@ initialization.
 - Use Marshmallow for request and response schemas unless an ADR supersedes this choice.
 - Add or update migrations whenever model changes require database schema changes.
 - Keep Celery tasks idempotent and call services instead of duplicating business rules.
+- Treat Celery tasks as fire-and-forget: return values are not retained in Redis.
+  Keep durable outcomes in PostgreSQL and diagnostics in worker logs; any future
+  result-consuming workflow must explicitly revisit this application-wide policy.
 - Verification-email HTTP paths only commit transactional outbox rows. Run both
   `just api-worker` and `just api-worker-beat` when public registration is enabled;
   SMTP delivery belongs to the worker.
