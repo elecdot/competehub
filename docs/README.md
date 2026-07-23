@@ -5,6 +5,8 @@ This directory contains product, technical, setup, and engineering convention do
 ## Start Here
 
 - [Setup](./setup.md): prepare the local workspace and run the applications.
+- [Course Demo Deployment](./deployment.md): build, initialize, expose,
+  inventory, and remove the temporary public Deployment v1 environment.
 - [Roadmap](./roadmap.md): understand the product and engineering delivery route.
 - [Project Workflow](./project_workflow.md): understand how requirements move through issues, PRs, validation, and documentation.
 - [Architecture](./architecture.md): understand the system boundaries, runtime components, and data flow.
@@ -33,6 +35,8 @@ This directory contains product, technical, setup, and engineering convention do
 - `api_spec.md`: REST API contract, response envelope, auth boundaries, and endpoint plan.
 - `data_model.md`: Core data model, relationships, states, and migration rules.
 - `testing.md`: Test strategy, manual acceptance path, and non-functional validation model.
+- `deployment.md`: Deployment v1 topology, exact-main release gate, explicit
+  data steps, server assets, side effects, recovery, and teardown.
 - `demo/`: Demo runbooks, including Day 1 acceptance, canonical example seed,
   and validation evidence format.
 - `tech_spec.zh.md`: Technical architecture and implementation design.
@@ -64,7 +68,6 @@ The current formal course reports are `docs/reports/01_项目开发计划.md`,
 The following documents should be added when their corresponding implementation work becomes concrete:
 
 - `security.md`: auth model, Cookie/session rules, RBAC policy, privacy fields, and audit requirements.
-- `deployment.md`: deployment topology, environment variables, release steps, and rollback expectations.
 - `observability.md`: logging, metrics, tracing, alerting, and operational dashboards.
 
 Planning notes:

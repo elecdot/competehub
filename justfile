@@ -138,7 +138,62 @@ infra-down:
 
 # Validate local infrastructure configuration.
 infra-config:
+    bash -n scripts/course-demo.sh scripts/test-course-demo.sh
     docker compose -f infra/docker-compose.yml config
+    ./scripts/course-demo.sh config-example
+    ./scripts/test-course-demo.sh
+
+# Create a fresh private Deployment v1 environment.
+course-demo-prepare:
+    ./scripts/course-demo.sh prepare
+
+# Explicitly enable, disable, or inspect public email registration.
+course-demo-registration action:
+    ./scripts/course-demo.sh registration {{quote(action)}}
+
+# Validate the private Deployment v1 environment and Compose model.
+course-demo-config:
+    ./scripts/course-demo.sh config
+
+# Pull/build the exact-main release images without starting services.
+course-demo-prewarm:
+    ./scripts/course-demo.sh prewarm
+
+# Explicitly migrate the fresh Deployment v1 PostgreSQL volume.
+course-demo-migrate:
+    ./scripts/course-demo.sh migrate
+
+# Explicitly provision the fictional development-demo data.
+course-demo-bootstrap:
+    ./scripts/course-demo.sh bootstrap-demo
+
+# Start the already-built, migrated, and bootstrapped public stack.
+course-demo-deploy:
+    ./scripts/course-demo.sh deploy
+
+# Print the non-secret Deployment v1 server asset inventory.
+course-demo-status:
+    ./scripts/course-demo.sh status
+
+# Print the current temporary Quick Tunnel URL.
+course-demo-url:
+    ./scripts/course-demo.sh url
+
+# Run local and public Deployment v1 smoke checks.
+course-demo-smoke:
+    ./scripts/course-demo.sh smoke
+
+# Print at most 200 log lines, optionally for one Compose service.
+course-demo-logs service="":
+    ./scripts/course-demo.sh logs {{quote(service)}}
+
+# Stop public/runtime containers while preserving PostgreSQL.
+course-demo-stop:
+    ./scripts/course-demo.sh stop
+
+# Remove exact project runtime/data objects after the DESTROY confirmation.
+course-demo-destroy confirmation:
+    ./scripts/course-demo.sh destroy {{quote(confirmation)}}
 
 # Sync backend uv environment and run pre-commit git hooks.
 pre-commit:
