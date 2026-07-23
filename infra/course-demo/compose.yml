@@ -1,0 +1,165 @@
+name: competehub-course-deployment
+
+x-api-environment: &api-environment
+  COMPETEHUB_ENV: production
+  SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
+  DATABASE_URL: postgresql+psycopg://competehub:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/competehub
+  REDIS_URL: redis://redis:6379/0
+  CELERY_BROKER_URL: redis://redis:6379/0
+  CELERY_RESULT_BACKEND: redis://redis:6379/0
+  PUBLIC_EMAIL_REGISTRATION_ENABLED: "${PUBLIC_EMAIL_REGISTRATION_ENABLED:-false}"
+  EMAIL_VERIFICATION_SENDER_DSN: "${EMAIL_VERIFICATION_SENDER_DSN:-}"
+
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
+x-api-service: &api-service
+  image: competehub-course-deployment-api:${RELEASE_SHA:-local}
+  build:
+    context: ../..
+    dockerfile: infra/course-demo/api.Dockerfile
+  environment: *api-environment
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  restart: unless-stopped
+  labels:
+    io.competehub.deployment-generation: v1
+    io.competehub.release-sha: "${RELEASE_SHA:-local}"
+  logging: *default-logging
+
+services:
+  postgres:
+    image: public.ecr.aws/docker/library/postgres:16-alpine
+    command: ["postgres", "-c", "shared_buffers=64MB", "-c", "max_connections=30"]
+    environment:
+      POSTGRES_DB: competehub
+      POSTGRES_USER: competehub
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U competehub -d competehub"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+    mem_limit: 256m
+    labels:
+      io.competehub.deployment-generation: v1
+      io.competehub.release-sha: "${RELEASE_SHA:-local}"
+    logging: *default-logging
+
+  redis:
+    image: public.ecr.aws/docker/library/redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+    mem_limit: 96m
+    labels:
+      io.competehub.deployment-generation: v1
+      io.competehub.release-sha: "${RELEASE_SHA:-local}"
+    logging: *default-logging
+
+  api:
+    <<: *api-service
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/api/v1/health', timeout=3).read()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    mem_limit: 256m
+
+  worker:
+    <<: *api-service
+    command:
+      [
+        "celery",
+        "-A",
+        "competehub_api.tasks.celery_app.celery_app",
+        "worker",
+        "--loglevel=info",
+        "--pool=solo",
+        "--concurrency=1",
+      ]
+    mem_limit: 192m
+
+  beat:
+    <<: *api-service
+    command:
+      [
+        "celery",
+        "-A",
+        "competehub_api.tasks.celery_app.celery_app",
+        "beat",
+        "--loglevel=info",
+        "--schedule=/tmp/celerybeat-schedule",
+        "--pidfile=/tmp/celerybeat.pid",
+      ]
+    mem_limit: 128m
+
+  web:
+    image: competehub-course-deployment-web:${RELEASE_SHA:-local}
+    build:
+      context: ../..
+      dockerfile: infra/course-demo/web.Dockerfile
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${COURSE_DEMO_LOCAL_PORT:-8080}:80"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+    mem_limit: 64m
+    labels:
+      io.competehub.deployment-generation: v1
+      io.competehub.release-sha: "${RELEASE_SHA:-local}"
+    logging: *default-logging
+
+  tunnel:
+    image: competehub-course-deployment-tunnel:2026.5.2
+    command: ["tunnel", "--no-autoupdate", "--url", "http://web:80"]
+    depends_on:
+      web:
+        condition: service_healthy
+    restart: unless-stopped
+    mem_limit: 96m
+    labels:
+      io.competehub.deployment-generation: v1
+      io.competehub.release-sha: "${RELEASE_SHA:-local}"
+    logging: *default-logging
+
+networks:
+  default:
+    labels:
+      io.competehub.deployment-generation: v1
+      io.competehub.release-sha: "${RELEASE_SHA:-local}"
+
+volumes:
+  postgres_data:
+    labels:
+      io.competehub.deployment-generation: v1
+      io.competehub.release-sha: "${RELEASE_SHA:-local}"
